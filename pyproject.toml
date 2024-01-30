@@ -3,6 +3,8 @@ name = "rigging"
 version = "0.1.0"
 description = "LLM Interaction Framework"
 authors = ["Nick Landers <monoxgas@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/dreadnode/rigging"
 readme = "README.md"
 
 [tool.poetry.dependencies]

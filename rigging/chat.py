@@ -51,7 +51,7 @@ class Chat:
 
     @property
     def json(self) -> list[MessageDict]:
-        return [message.model_dump() for message in self.all]  # type: ignore [return-value]
+        return [t.cast(MessageDict, message.model_dump()) for message in self.all]
 
     def restart(self) -> "PendingChat":
         if self.pending_chat is None:
