@@ -1,0 +1,93 @@
+[tool.poetry]
+name = "rigging"
+version = "0.1.0"
+description = "LLM Interaction Framework"
+authors = ["Nick Landers <monoxgas@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "<3.13,>=3.10"
+pydantic = "^2.5.3"
+pydantic-xml = "^2.7.0"
+loguru = "^0.7.2"
+litellm = "^1.20.1"
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.27.1"
+mypy = "^1.8.0"
+ruff = "^0.1.14"
+pytest = "^8.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.mypy]
+plugins = "pydantic.mypy"
+strict = true
+
+[tool.ruff]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "C",   # flake8-comprehensions
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "NPY", # numpydoc
+    "TCH", # typecheck
+    "A",   # flake8-annotations
+]
+ignore = [
+    "E501", # line too long, handled by black
+    "B008", # do not perform function calls in argument defaults
+    "C901", # too complex
+    "W191", # indentation contains tabs
+    "F722", # syntax error in forward annotation
+]
+
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+]
+
+line-length = 120
+indent-width = 4
+target-version = "py310"
+
+[tool.ruff.lint]
+fixable = ["ALL"]
+unfixable = ["B"]
+
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
