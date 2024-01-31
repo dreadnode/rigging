@@ -27,7 +27,7 @@ class Message(BaseModel):
 
     _content: str = ""
 
-    def __init__(self, role: Role, content: str, parts: list[ParsedMessagePart] | None = None):
+    def __init__(self, role: Role, content: str, parts: t.Sequence[ParsedMessagePart] | None = None):
         super().__init__(role=role, parts=parts if parts is not None else [])
         self._content = content
 
@@ -77,7 +77,7 @@ class Message(BaseModel):
         for model in self.models:
             if isinstance(model, model_type):
                 return model
-        return self.try_parse_many([model_type], fail_on_missing=True)[0]  # type: ignore [return-value]
+        return self.try_parse_many([model_type], fail_on_missing=True)[0]
 
     def try_parse(self, model_type: type[CoreModelGeneric]) -> CoreModelGeneric | None:
         for model in self.models:
@@ -85,11 +85,11 @@ class Message(BaseModel):
                 return model
         return next(iter(self.try_parse_many([model_type])), None)
 
-    def parse_many(self, types: list[type[CoreModelGeneric]]) -> list[CoreModelGeneric]:
+    def parse_many(self, types: t.Sequence[type[CoreModelGeneric]]) -> list[CoreModelGeneric]:
         return self.try_parse_many(types, fail_on_missing=True)
 
     def try_parse_many(
-        self, types: list[type[CoreModelGeneric]], fail_on_missing: bool = False
+        self, types: t.Sequence[type[CoreModelGeneric]], fail_on_missing: bool = False
     ) -> list[CoreModelGeneric]:
         parts: list[ParsedMessagePart] = []
 
@@ -105,21 +105,27 @@ class Message(BaseModel):
         return self.models  # type: ignore [return-value]
 
     @classmethod
-    def from_model(cls: type["Message"], models: CoreModel | list[CoreModel], role: Role = "user") -> "Message":
+    def from_model(
+        cls: type["Message"], models: CoreModel | t.Sequence[CoreModel], role: Role = "user", suffix: str | None = None
+    ) -> "Message":
         parts: list[ParsedMessagePart] = []
         for model in models if isinstance(models, list) else [models]:
             text_form = model.to_pretty_xml()
             parts.append(ParsedMessagePart(model=model, ref=text_form))
 
-        return cls(role=role, content="\n".join([part.ref for part in parts]), parts=parts)
+        content = "\n".join([part.ref for part in parts])
+        if suffix is not None:
+            content += f"\n{suffix}"
+
+        return cls(role=role, content=content, parts=parts)
 
     @classmethod
-    def fit_list(cls: ["Message"], messages: list["Message"] | list[MessageDict]) -> list["Message"]:
+    def fit_list(cls, messages: t.Sequence["Message"] | t.Sequence[MessageDict]) -> list["Message"]:
         return [cls.fit(message) for message in messages]
 
     @classmethod
-    def fit(cls: type["Message"], message: t.Union["Message", MessageDict]) -> "Message":
+    def fit(cls, message: t.Union["Message", MessageDict]) -> "Message":
         return cls(**message) if isinstance(message, dict) else message
 
 
-Messages = list[MessageDict] | list[Message]
+Messages = t.Sequence[MessageDict] | t.Sequence[Message]

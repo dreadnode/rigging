@@ -7,20 +7,20 @@ from pydantic import field_validator
 from rigging.model import CoreModel
 
 
-class Answer(CoreModel, tag="answer"):
+class Answer(CoreModel):
     content: str
 
 
-class Question(CoreModel, tag="question"):
+class Question(CoreModel):
     content: str
 
 
-class QuestionAnswer(CoreModel, tag="question-answer"):
+class QuestionAnswer(CoreModel):
     question: Question
     answer: Answer
 
 
-class YesNoAnswer(CoreModel, tag="yes_no_answer"):
+class YesNoAnswer(CoreModel):
     boolean: bool
 
     @field_validator("boolean", mode="before")
@@ -33,7 +33,7 @@ class YesNoAnswer(CoreModel, tag="yes_no_answer"):
         return v
 
 
-class CommaDelimitedAnswer(CoreModel, tag="delimited_answer"):
+class CommaDelimitedAnswer(CoreModel, tag="delimited-answer"):
     content: str
 
     @property
@@ -81,6 +81,11 @@ class CommaDelimitedAnswer(CoreModel, tag="delimited_answer"):
             id="question_with_answer_tag",
         ),
         pytest.param(
+            "<question> Should I answer between <answer> tags? </question> <answer>hello</answer>",
+            [(Question, " Should I answer between <answer> tags? "), (Answer, "hello")],
+            id="question_with_answer_tag",
+        ),
+        pytest.param(
             "<question-answer><question>hello</question><answer>world</answer></question-answer>",
             [(QuestionAnswer, QuestionAnswer(question=Question(content="hello"), answer=Answer(content="world")))],
             id="question_answer",
@@ -89,7 +94,7 @@ class CommaDelimitedAnswer(CoreModel, tag="delimited_answer"):
 )
 def test_xml_parsing(content: str, expectations: list[tuple[CoreModel, str]]) -> None:
     for model, expected in expectations:
-        obj, _ = model.extract_xml(content)
+        obj, _ = model.extract_xml(content)  # type: ignore [var-annotated]
         assert obj is not None, "Failed to parse model"
         if isinstance(expected, str):
             assert getattr(obj, "content", None) == expected, "Failed to parse content"
@@ -100,17 +105,19 @@ def test_xml_parsing(content: str, expectations: list[tuple[CoreModel, str]]) ->
 @pytest.mark.parametrize(
     "content, model, expectation",
     [
-        ("<yes_no_answer>yes</yes_no_answer>", YesNoAnswer, does_not_raise()),
-        ("<yes_no_answer>no</yes_no_answer>", YesNoAnswer, does_not_raise()),
-        ("<yes_no_answer>Yes</yes_no_answer>", YesNoAnswer, does_not_raise()),
-        ("<yes_no_answer>Invalid</yes_no_answer>", YesNoAnswer, pytest.raises(ValueError)),
-        ("<delimited_answer>hello,world</delimited_answer>", CommaDelimitedAnswer, does_not_raise()),
-        ("<delimited_answer>hello, world</delimited_answer>", CommaDelimitedAnswer, does_not_raise()),
-        ("<delimited_answer>hello, world, </delimited_answer>", CommaDelimitedAnswer, does_not_raise()),
-        ("<delimited_answer>hello</delimited_answer>", CommaDelimitedAnswer, pytest.raises(ValueError)),
-        ("<delimited_answer>hello;test;stuff</delimited_answer>", CommaDelimitedAnswer, pytest.raises(ValueError)),
+        ("<yes-no-answer>yes</yes-no-answer>", YesNoAnswer, does_not_raise()),
+        ("<yes-no-answer>no</yes-no-answer>", YesNoAnswer, does_not_raise()),
+        ("<yes-no-answer>Yes</yes-no-answer>", YesNoAnswer, does_not_raise()),
+        ("<yes-no-answer>No, extra stuff</yes-no-answer>", YesNoAnswer, does_not_raise()),
+        ("<yes-no-answer>No, stuff <internal-tag></yes-no-answer>", YesNoAnswer, does_not_raise()),
+        ("<yes-no-answer>Invalid</yes-no-answer>", YesNoAnswer, pytest.raises(ValueError)),
+        ("<delimited-answer>hello,world</delimited-answer>", CommaDelimitedAnswer, does_not_raise()),
+        ("<delimited-answer>hello, world</delimited-answer>", CommaDelimitedAnswer, does_not_raise()),
+        ("<delimited-answer>hello, world, </delimited-answer>", CommaDelimitedAnswer, does_not_raise()),
+        ("<delimited-answer>hello</delimited-answer>", CommaDelimitedAnswer, pytest.raises(ValueError)),
+        ("<delimited-answer>hello;test;stuff</delimited-answer>", CommaDelimitedAnswer, pytest.raises(ValueError)),
     ],
 )
-def test_xml_parsing_with_validation(content: str, model: CoreModel, expectation: t.ContextManager) -> None:
+def test_xml_parsing_with_validation(content: str, model: CoreModel, expectation: t.ContextManager[t.Any]) -> None:
     with expectation:
-        obj, _ = model.extract_xml(content)
+        obj, _ = model.extract_xml(content)  # type: ignore [var-annotated]

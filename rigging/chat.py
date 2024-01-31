@@ -59,7 +59,7 @@ class Chat:
         return PendingChat(self.pending_chat.generator, self.messages, self.pending_chat.params)
 
     @t.overload
-    def continue_(self, messages: list[MessageDict]) -> "PendingChat":
+    def continue_(self, messages: t.Sequence[MessageDict]) -> "PendingChat":
         ...
 
     @t.overload
@@ -67,19 +67,21 @@ class Chat:
         ...
 
     @t.overload
-    def continue_(self, messages: list[Message]) -> "PendingChat":
+    def continue_(self, messages: t.Sequence[Message]) -> "PendingChat":
         ...
 
     @t.overload
     def continue_(self, messages: Message) -> "PendingChat":
         ...
 
-    def continue_(self, messages: list[Message] | list[MessageDict] | Message | MessageDict) -> "PendingChat":
+    def continue_(
+        self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | MessageDict
+    ) -> "PendingChat":
         if self.pending_chat is None:
             raise ValueError("Cannot continue chat that was not created with a PendingChat")
 
         messages_list: list[Message] = (
-            Message.fit_list(messages) if isinstance(messages, list) else [Message.fit(messages)]
+            Message.fit_list(messages) if isinstance(messages, t.Sequence) else [Message.fit(messages)]
         )
         return PendingChat(self.pending_chat.generator, self.all + messages_list, self.pending_chat.params)
 
@@ -110,7 +112,7 @@ class Chat:
             self.messages[0].content += "\n\n" + content
         return self.messages[0]
 
-    def inject_tool_prompt(self, tools: list[Tool]) -> None:
+    def inject_tool_prompt(self, tools: t.Sequence[Tool]) -> None:
         call_format = ToolCalls.xml_example()
         tool_description_list = ToolDescriptionList(tools=[t.get_description() for t in tools])
         tool_system_prompt = system_tool_extension(call_format, tool_description_list.to_pretty_xml())
@@ -123,7 +125,7 @@ UntilCallback = t.Callable[[Message], tuple[bool, list[Message]]]
 
 
 class PendingChat:
-    def __init__(self, generator: "Generator", messages: list[Message], params: "GenerateParams"):
+    def __init__(self, generator: "Generator", messages: t.Sequence[Message], params: "GenerateParams"):
         self.generator: "Generator" = generator
         self.chat: Chat = Chat(messages, pending=self)
 
@@ -165,9 +167,9 @@ class PendingChat:
         return self
 
     def using(
-        self, tool: Tool | list[Tool], max_rounds: int = DEFAULT_MAX_ROUNDS, inject_prompt: bool | None = None
+        self, tool: Tool | t.Sequence[Tool], max_rounds: int = DEFAULT_MAX_ROUNDS, inject_prompt: bool | None = None
     ) -> "PendingChat":
-        self.until_tools += tool if isinstance(tool, list) else [tool]
+        self.until_tools += tool if isinstance(tool, t.Sequence) else [tool]
         self.inject_tool_prompt = inject_prompt or self.inject_tool_prompt
         if next((c for c in self.until_callbacks if c[0] == self._until_tools_callback), None) is None:
             self.until_callbacks.append((self._until_tools_callback, False, max_rounds))
@@ -175,11 +177,11 @@ class PendingChat:
 
     def until_parsed_as(
         self,
-        types: type[CoreModelGeneric] | list[type[CoreModelGeneric]],
+        types: type[CoreModelGeneric] | t.Sequence[type[CoreModelGeneric]],
         drop: bool = True,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
     ) -> "PendingChat":
-        self.until_types += types if isinstance(types, list) else [types]
+        self.until_types += types if isinstance(types, t.Sequence) else [types]
         if next((c for c in self.until_callbacks if c[0] == self._until_parse_callback), None) is None:
             self.until_callbacks.append((self._until_parse_callback, drop, max_rounds))
 
@@ -214,7 +216,11 @@ class PendingChat:
 
             tool_results.append(tool(call))
 
-        next_messages.append(Message.from_model(ToolResults(results=tool_results)))
+        if errors:
+            next_messages.append(Message.from_model(errors, suffix="Rewrite your message with all the required tags."))
+        else:
+            next_messages.append(Message.from_model(ToolResults(results=tool_results)))
+
         return (True, next_messages)
 
     def _until_parse_callback(self, message: Message) -> tuple[bool, list[Message]]:
@@ -225,10 +231,18 @@ class PendingChat:
             message.parse_many(self.until_types)
         except ValidationError as e:
             should_continue = True
-            next_messages.append(Message.from_model(ValidationErrorModel(content=e)))
+            next_messages.append(
+                Message.from_model(
+                    ValidationErrorModel(content=e), suffix="Rewrite your message with all the required tags."
+                )
+            )
         except Exception as e:
             should_continue = True
-            next_messages.append(Message.from_model(SystemErrorModel(content=e)))
+            next_messages.append(
+                Message.from_model(
+                    SystemErrorModel(content=e), suffix="Rewrite your message with all the required tags."
+                )
+            )
 
         return (should_continue, next_messages)
 
@@ -267,8 +281,19 @@ class PendingChat:
 
         return new_messages
 
-    def run(self) -> Chat:
-        return Chat(self.chat.all, self._execute(), pending=self)
+    @t.overload
+    def run(self, count: t.Literal[None] = None) -> Chat:
+        ...
+
+    @t.overload
+    def run(self, count: int) -> list[Chat]:
+        ...
+
+    def run(self, count: int | None = None) -> Chat | list[Chat]:
+        if count is not None:
+            return self.run_many(count)
+        else:
+            return Chat(self.chat.all, self._execute(), pending=self)
 
     def run_many(self, count: int) -> list[Chat]:
         return [Chat(self.chat.all, self._execute(), pending=self) for _ in range(count)]

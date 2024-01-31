@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "rigging"
-version = "0.1.0"
+version = "0.1.1"
 description = "LLM Interaction Framework"
 authors = ["Nick Landers <monoxgas@gmail.com>"]
 license = "MIT"

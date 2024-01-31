@@ -56,23 +56,25 @@ class Generator(BaseModel, abc.ABC):
         return params
 
     @abc.abstractmethod
-    def complete(self, messages: list[Message], overloads: GenerateParams) -> Message:
+    def complete(self, messages: t.Sequence[Message], overloads: GenerateParams) -> Message:
         ...
 
     @t.overload
-    def chat(self, messages: list[MessageDict], overloads: GenerateParams | None = None) -> PendingChat:
+    def chat(self, messages: t.Sequence[MessageDict], overloads: GenerateParams | None = None) -> PendingChat:
         ...
 
     @t.overload
-    def chat(self, messages: list[Message], overloads: GenerateParams | None = None) -> PendingChat:
+    def chat(self, messages: t.Sequence[Message], overloads: GenerateParams | None = None) -> PendingChat:
         ...
 
-    def chat(self, messages: list[MessageDict] | list[Message], overloads: GenerateParams | None = None) -> PendingChat:
+    def chat(
+        self, messages: t.Sequence[MessageDict] | t.Sequence[Message], overloads: GenerateParams | None = None
+    ) -> PendingChat:
         return PendingChat(self, Message.fit_list(messages), overloads or GenerateParams())
 
 
 class LiteLLMGenerator(Generator):
-    def complete(self, messages: list[Message], overloads: GenerateParams = GenerateParams()) -> Message:
+    def complete(self, messages: t.Sequence[Message], overloads: GenerateParams = GenerateParams()) -> Message:
         logger.trace("--- Conversation ---")
         logger.trace("\n".join([str(msg) for msg in messages]))
         logger.trace("---")

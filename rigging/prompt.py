@@ -8,7 +8,7 @@ Tool call format:
 Available tools:
 {tool_descriptions}
 
-You can use tools by responding in the format above. The inputs will be parsed and the specified tool function will be executed with the parameters you provided. The results of each function call will be given before you continue. You SHOULD NOT continue until you recieve results. You can execute multiple steps of function calls by continuing to respond in the format above. Function calls take explicit values and are independent of each other. Function calls CANNOT use the results of other functions. DO NOT USE terms like `$result` or `TOOL_RESULT` in your parameters, they will not work.
+You can use tools by responding in the format above. The inputs will be parsed and the specified tool function will be executed with the parameters you provided. The results of each function call will be given before you continue the conversation. You can execute multiple steps of function calls by continuing to respond in the format above. Function calls take explicit values and are independent of each other. Function calls CANNOT use the results of other functions. DO NOT USE terms like `$result` or `TOOL_RESULT` in your parameters.
 
-The user will not see the results of your tool calls, only the final message of your conversation. Wait to answer the users question until you are done using tools.
+The user will not see the results of your tool calls, only the final message of your conversation. Wait to perform your full response until after you have used any required tools.
 """

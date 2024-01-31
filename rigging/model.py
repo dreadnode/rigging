@@ -5,6 +5,8 @@ from xml.etree import ElementTree as ET
 from pydantic import ValidationError, field_validator
 from pydantic.alias_generators import to_snake
 from pydantic_xml import BaseXmlModel
+from pydantic_xml.element import SearchMode  # type: ignore [attr-defined]
+from pydantic_xml.typedefs import NsMap
 
 from rigging.error import MissingModelError
 
@@ -21,12 +23,28 @@ CoreModelGeneric = t.TypeVar("CoreModelGeneric", bound="CoreModel")
 
 
 class CoreModel(BaseXmlModel):
-    def __init_subclass__(cls, **kwargs: t.Any):
-        super().__init_subclass__(**kwargs)
+    def __init_subclass__(
+        cls,
+        tag: str | None = None,
+        ns: str | None = None,
+        nsmap: NsMap | None = None,
+        ns_attrs: bool | None = None,
+        skip_empty: bool | None = None,
+        search_mode: SearchMode | None = None,
+        **kwargs: t.Any,
+    ):
+        super().__init_subclass__(tag, ns, nsmap, ns_attrs, skip_empty, search_mode, **kwargs)
         if cls.__xml_tag__ is None:
-            cls.__xml_tag__ = to_snake(cls.__name__)
+            # The default tag is just the class name and the fallback
+            # is handled internally, so we'll override it here so we
+            # can always assume __xml_tag__ is set to a sane default.
+            #
+            # Some models appear to do better if the separator is a dash
+            # instead of a underscore, and users are free to override
+            # as needed.
+            cls.__xml_tag__ = to_snake(cls.__name__).replace("_", "-")
 
-    # to_xml doesn't prettify normally, and extended
+    # to_xml() doesn't prettify normally, and extended
     # requirements like lxml seemed like poor form
     def to_pretty_xml(self) -> str:
         tree = self.to_xml_tree()
@@ -38,14 +56,15 @@ class CoreModel(BaseXmlModel):
         else:
             return pretty_encoded_xml
 
-    # XML parsing gets weird when the text contains tags like <br>
-    # so we'll handle easy cases here and mark the model as "simple"
+    # XML parsing gets weird when the interior text contains tags like <br>.
+    # Essentially it assumes all the text is valid XML first, then parses.
+    # So we'll handle easy cases here and mark the model as "simple"
     # if it only contains a single string field. It makes our parsing
     # much more consistent
     @classmethod
     def is_simple(cls) -> bool:
         field_values = list(cls.model_fields.values())
-        return len(field_values) == 1 and field_values[0].annotation == str
+        return len(field_values) == 1
 
     @classmethod
     def xml_start_tag(cls) -> str:
@@ -85,6 +104,8 @@ class CoreModel(BaseXmlModel):
             raise MissingModelError(f"Failed to find '<{cls.__xml_tag__}>' in message")
 
         # Sort matches_with_tag based on the length of the interior text, longest first
+        # this should help us avoid matching the model supplying hollow tags before the
+        # actual data.
         sorted_matches = sorted(matches_with_tag, key=lambda m: len(m[3]), reverse=True)
 
         for i, match in enumerate(sorted_matches):

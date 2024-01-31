@@ -125,6 +125,9 @@ class ToolResults(CoreModel, tag="tool_results"):
 
 
 class Tool(abc.ABC):
+    # TODO: I don't love having these defined as property getters,
+    # I would prefer to have them as class attributes, but I'm not
+    # sure how we can hint/enforce that to derived classes
     @property
     @abc.abstractmethod
     def name(self) -> str:
