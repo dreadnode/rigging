@@ -96,7 +96,9 @@ def get_generator(identifier: str) -> Generator:
     """
     Get a generator by an identifier string. Uses LiteLLM by default.
 
-    <provider>:<model>,<**kwargs>
+    <provider>!<model>,<**kwargs>
+
+    (provider is optional and defaults to "litellm" if not specified)
 
     :param identifier: The identifier string to use to get a generator
     :return: The generator
@@ -105,10 +107,10 @@ def get_generator(identifier: str) -> Generator:
 
     Examples:
         "gpt-3.5-turbo" -> LiteLLMGenerator(model="gpt-3.5-turbo")
-        "litellm:claude-2.1" -> LiteLLMGenerator(model="claude-2.1")
+        "litellm!claude-2.1" -> LiteLLMGenerator(model="claude-2.1")
         "mistral/mistral-tiny" -> LiteLLMGenerator(model="mistral/mistral-tiny")
 
-    You can also specify arguments to the generator by comma-separating them:
+    You can also specify arguments to the generator by comma-separating them#
         "mistral/mistral-medium,max_tokens=1024"
         "gpt-4-0613,temperature=0.9,max_tokens=512"
         "claude-2.1,stop_sequences=Human:;test,max_tokens=100"
@@ -123,8 +125,8 @@ def get_generator(identifier: str) -> Generator:
     # Split provider, model, and kwargs
 
     try:
-        if ":" in identifier:
-            provider, model = identifier.split(":")
+        if "!" in identifier:
+            provider, model = identifier.split("!")
 
         if "," in model:
             model, kwargs_str = model.split(",", 1)
