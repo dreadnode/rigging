@@ -34,6 +34,10 @@ class GenerateParams(BaseModel):
     stop: list[str] | None = None
     presence_penalty: float | None = None
     frequency_penalty: float | None = None
+    api_key: str | None = None
+    api_base: str | None = None
+    timeout: int | None = None
+    seed: int | None = None
 
     @field_validator("stop", mode="before")
     def validate_stop(cls, value: t.Any) -> t.Any:
