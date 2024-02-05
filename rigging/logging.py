@@ -2,22 +2,25 @@ import pathlib
 import sys
 import typing as t
 
-g_logging_configured = False
+from loguru import logger
 
+g_configured: bool = False
 
-LogLevelList = ["TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"]
-LogLevelLiteral = t.Literal["TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"]
+LogLevelList = ["trace", "debug", "info", "success", "warning", "error", "critical"]
+LogLevelLiteral = t.Literal["trace", "debug", "info", "success", "warning", "error", "critical"]
 
 
 def configure_logging(
-    log_level: str, log_file: pathlib.Path | str | None = None, log_file_level: LogLevelLiteral = "DEBUG"
+    log_level: str,
+    log_file: pathlib.Path | None = None,
+    log_file_level: LogLevelLiteral = "debug",
 ) -> None:
-    global g_logging_configured
+    global g_configured
 
-    if g_logging_configured:
+    if g_configured:
         return
 
-    from loguru import logger
+    logger.enable("rigging")
 
     logger.level("TRACE", color="<magenta>", icon="[T]")
     logger.level("DEBUG", color="<blue>", icon="[_]")
@@ -32,14 +35,13 @@ def configure_logging(
     # "<level>{level: <8}</level> | "
     # "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
 
-    custom_format = "<level>{level.icon}</level> {message}"
+    custom_format = "<green>{time:HH:mm:ss.SSS}</green> | <level>{level.icon}</level> {message}"
 
     logger.remove()
-    logger.add(sys.stderr, format=custom_format, level=log_level)
+    logger.add(sys.stderr, format=custom_format, level=log_level.upper())
 
     if log_file is not None:
-        log_file = pathlib.Path(log_file)
-        logger.add(log_file, format=custom_format, level=log_file_level)
+        logger.add(log_file, format=custom_format, level=log_file_level.upper())
         logger.info(f"Logging to {log_file}")
 
-    g_logging_configured = True
+    g_configured = True
