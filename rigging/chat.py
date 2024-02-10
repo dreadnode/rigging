@@ -6,8 +6,8 @@ from pydantic import ValidationError
 from rigging.error import ExhaustedMaxRoundsError
 from rigging.message import Message, MessageDict, Messages
 from rigging.model import (
-    CoreModel,
-    CoreModelGeneric,
+    Model,
+    ModelGeneric,
     SystemErrorModel,
     ValidationErrorModel,
 )
@@ -99,7 +99,7 @@ class Chat:
             message.apply(**kwargs)
         return self
 
-    def strip(self, model_type: type[CoreModel], fail_on_missing: bool = False) -> "Chat":
+    def strip(self, model_type: type[Model], fail_on_missing: bool = False) -> "Chat":
         new = self.clone()
         for message in new.all:
             message.strip(model_type, fail_on_missing)
@@ -131,7 +131,7 @@ class PendingChat:
 
         # (callback, drop, max_rounds)
         self.until_callbacks: list[tuple[UntilCallback, bool, int]] = []
-        self.until_types: list[type[CoreModel]] = []
+        self.until_types: list[type[Model]] = []
         self.until_tools: list[Tool] = []
         self.inject_tool_prompt: bool = True
 
@@ -177,7 +177,7 @@ class PendingChat:
 
     def until_parsed_as(
         self,
-        types: type[CoreModelGeneric] | t.Sequence[type[CoreModelGeneric]],
+        types: type[ModelGeneric] | t.Sequence[type[ModelGeneric]],
         drop: bool = True,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
     ) -> "PendingChat":

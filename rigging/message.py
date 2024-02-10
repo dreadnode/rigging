@@ -4,7 +4,7 @@ import typing as t
 from pydantic import BaseModel, Field, SerializeAsAny, computed_field
 
 from rigging.error import MissingModelError
-from rigging.model import CoreModel, CoreModelGeneric
+from rigging.model import Model, ModelGeneric
 
 Role = t.Literal["system", "user", "assistant"]
 
@@ -17,7 +17,7 @@ class MessageDict(t.TypedDict):
 # Structured portion of a message with
 # the reference locator text
 class ParsedMessagePart(BaseModel):
-    model: SerializeAsAny[CoreModel]
+    model: SerializeAsAny[Model]
     ref: str
 
 
@@ -60,7 +60,7 @@ class Message(BaseModel):
         template = string.Template(self.content)
         self.content = template.safe_substitute(**kwargs)
 
-    def strip(self, model_type: type[CoreModel], fail_on_missing: bool = False) -> None:
+    def strip(self, model_type: type[Model], fail_on_missing: bool = False) -> None:
         for part in self.parts:
             if isinstance(part.model, model_type):
                 self.content = self.content.replace(part.ref, "")
@@ -70,30 +70,30 @@ class Message(BaseModel):
             raise TypeError(f"Could not find <{model_type.__xml_tag__}> ({model_type.__name__}) in message")
 
     @property
-    def models(self) -> list[CoreModel]:
+    def models(self) -> list[Model]:
         return [part.model for part in self.parts]
 
-    def parse(self, model_type: type[CoreModelGeneric]) -> CoreModelGeneric:
+    def parse(self, model_type: type[ModelGeneric]) -> ModelGeneric:
         for model in self.models:
             if isinstance(model, model_type):
                 return model
         return self.try_parse_many([model_type], fail_on_missing=True)[0]
 
-    def try_parse(self, model_type: type[CoreModelGeneric]) -> CoreModelGeneric | None:
+    def try_parse(self, model_type: type[ModelGeneric]) -> ModelGeneric | None:
         for model in self.models:
             if isinstance(model, model_type):
                 return model
         return next(iter(self.try_parse_many([model_type])), None)
 
-    def parse_many(self, types: t.Sequence[type[CoreModelGeneric]]) -> list[CoreModelGeneric]:
+    def parse_many(self, types: t.Sequence[type[ModelGeneric]]) -> list[ModelGeneric]:
         return self.try_parse_many(types, fail_on_missing=True)
 
     def try_parse_many(
-        self, types: t.Sequence[type[CoreModelGeneric]], fail_on_missing: bool = False
-    ) -> list[CoreModelGeneric]:
+        self, types: t.Sequence[type[ModelGeneric]], fail_on_missing: bool = False
+    ) -> list[ModelGeneric]:
         parts: list[ParsedMessagePart] = []
 
-        model: CoreModelGeneric
+        model: ModelGeneric
         for model_class in types:
             try:
                 model, text = model_class.extract_xml(self.content)
@@ -106,7 +106,7 @@ class Message(BaseModel):
 
     @classmethod
     def from_model(
-        cls: type["Message"], models: CoreModel | t.Sequence[CoreModel], role: Role = "user", suffix: str | None = None
+        cls: type["Message"], models: Model | t.Sequence[Model], role: Role = "user", suffix: str | None = None
     ) -> "Message":
         parts: list[ParsedMessagePart] = []
         for model in models if isinstance(models, list) else [models]:

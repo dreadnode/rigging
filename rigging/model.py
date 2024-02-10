@@ -14,7 +14,7 @@ from rigging.error import MissingModelError
 # Core XML serializable models for messages
 #
 
-CoreModelGeneric = t.TypeVar("CoreModelGeneric", bound="CoreModel")
+ModelGeneric = t.TypeVar("ModelGeneric", bound="Model")
 
 # TODO: pydantic-xml isn't a great fit for our use case given
 # It's strictness for parsing XML and expecting all interior
@@ -22,7 +22,12 @@ CoreModelGeneric = t.TypeVar("CoreModelGeneric", bound="CoreModel")
 # custom for our use case that supports JSON, YAML, and XML
 
 
-class CoreModel(BaseXmlModel):
+class XmlTagDescriptor:
+    def __get__(self, _: t.Any, owner: t.Any) -> str:
+        return to_snake(next(iter(owner.mro())).__name__).replace("_", "-")
+
+
+class Model(BaseXmlModel):
     def __init_subclass__(
         cls,
         tag: str | None = None,
@@ -33,16 +38,15 @@ class CoreModel(BaseXmlModel):
         search_mode: SearchMode | None = None,
         **kwargs: t.Any,
     ):
+        # The default tag is just the class name and the fallback
+        # is handled internally, so we'll override it here so we
+        # can always assume __xml_tag__ is set to a sane default.
+        #
+        # Some models appear to do better if the separator is a dash
+        # instead of a underscore, and users are free to override
+        # as needed.
         super().__init_subclass__(tag, ns, nsmap, ns_attrs, skip_empty, search_mode, **kwargs)
-        if cls.__xml_tag__ is None:
-            # The default tag is just the class name and the fallback
-            # is handled internally, so we'll override it here so we
-            # can always assume __xml_tag__ is set to a sane default.
-            #
-            # Some models appear to do better if the separator is a dash
-            # instead of a underscore, and users are free to override
-            # as needed.
-            cls.__xml_tag__ = to_snake(cls.__name__).replace("_", "-")
+        cls.__xml_tag__ = XmlTagDescriptor()  # type: ignore [assignment]
 
     # to_xml() doesn't prettify normally, and extended
     # requirements like lxml seemed like poor form
@@ -95,7 +99,7 @@ class CoreModel(BaseXmlModel):
     # about migrating from pydantic-xml
 
     @classmethod
-    def extract_xml(cls, content: str) -> tuple[CoreModelGeneric, str]:
+    def extract_xml(cls, content: str) -> tuple[ModelGeneric, str]:
         pattern = r"(<([\w-]+)>((.*?)</\2>))"
 
         matches = re.findall(pattern, content, flags=re.DOTALL)
@@ -135,7 +139,7 @@ class CoreModel(BaseXmlModel):
 #
 
 
-class ErrorModel(CoreModel, tag="error"):
+class ErrorModel(Model, tag="error"):
     content: str
 
     @field_validator("content", mode="before")
@@ -151,3 +155,75 @@ class SystemErrorModel(ErrorModel, tag="system_error"):
 
 class ValidationErrorModel(ErrorModel, tag="validation_error"):
     content: str
+
+
+# Common structured helpers
+
+
+class Thinking(Model):
+    content: str
+
+
+class Question(Model):
+    content: str
+
+
+class Answer(Model):
+    content: str
+
+
+class QuestionAnswer(Model):
+    question: Question
+    answer: Answer
+
+
+class Description(Model):
+    content: str
+
+
+class Instructions(Model):
+    content: str
+
+
+class DelimitedAnswer(Model):
+    "Mixed support delimited answer (- | / ,) selected based on most-matches"
+
+    content: str
+    _delimiters: t.ClassVar[list[str]] = [",", "-", "/", "|"]
+
+    @property
+    def items(self) -> list[str]:
+        split_sizes: dict[str, int] = {}
+        for delimiter in self._delimiters:
+            split_sizes[delimiter] = len(self.content.split(delimiter))
+        delimiter = max(split_sizes, key=split_sizes.get)  # type: ignore [arg-type]
+        split = [i.strip(" \"'\t\r\n") for i in self.content.split(delimiter)]
+        return [s for s in split if s]
+
+    @field_validator("content", mode="before")
+    def parse_str_to_list(cls, v: t.Any) -> t.Any:
+        if not isinstance(v, str) or not any(d in v for d in cls._delimiters):
+            raise ValueError(f"Cannot parse content as a delimited list: {v}")
+        return v
+
+
+class CommaDelimitedAnswer(DelimitedAnswer):
+    "Comma delimited answer (,)"
+
+    content: str
+    _delimiters = [","]
+
+
+class YesNoAnswer(Model):
+    "Yes/No answer answer with coercion"
+
+    boolean: bool
+
+    @field_validator("boolean", mode="before")
+    def parse_str_to_bool(cls, v: t.Any) -> t.Any:
+        if isinstance(v, str):
+            if v.strip().lower().startswith("yes"):
+                return True
+            elif v.strip().lower().startswith("no"):
+                return False
+        return v
