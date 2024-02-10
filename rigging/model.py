@@ -33,7 +33,9 @@ class CoreModel(BaseXmlModel):
         search_mode: SearchMode | None = None,
         **kwargs: t.Any,
     ):
-        super().__init_subclass__(tag, ns, nsmap, ns_attrs, skip_empty, search_mode, **kwargs)
+        super().__init_subclass__(
+            tag, ns, nsmap, ns_attrs, skip_empty, search_mode, **kwargs
+        )
         if cls.__xml_tag__ is None:
             # The default tag is just the class name and the fallback
             # is handled internally, so we'll override it here so we
@@ -111,7 +113,9 @@ class CoreModel(BaseXmlModel):
         for i, match in enumerate(sorted_matches):
             full_text, tag, inner_with_end_tag, inner = match
             while f"<{tag}>" in inner_with_end_tag:
-                matches = re.findall(r"(<(\w+)>((.*?)</\2>))", inner_with_end_tag, flags=re.DOTALL)
+                matches = re.findall(
+                    r"(<(\w+)>((.*?)</\2>))", inner_with_end_tag, flags=re.DOTALL
+                )
                 match = next((m for m in matches if m[1] == cls.__xml_tag__), None)
                 if not matches or not match:
                     break

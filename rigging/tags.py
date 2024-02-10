@@ -1,7 +1,6 @@
 import typing as t
-from pydantic import field_validator
-
 from rigging.model import CoreModel
+from pydantic import field_validator
 
 
 class Thinking(CoreModel):
