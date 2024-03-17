@@ -4,6 +4,10 @@ Rigging is a lightweight LLM interaction framework built on Pydantic XML and Lit
 
 Modern python with type hints, pydantic validation, native serialization support, etc.
 
+```
+pip install rigging
+```
+
 ### Basic Chats
 
 ```python
