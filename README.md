@@ -68,6 +68,32 @@ print(f"{chat.last!r}")
 # Message(role='assistant', parts=[], content='new content')
 ```
 
+### Complex Models
+
+```python
+import rigging as rg
+
+class Inner(rg.Model):
+    type: str = rg.attr()
+    content: str
+
+class Outer(rg.Model):
+    name: str = rg.attr()
+    inners: list[Inner] = rg.element()
+
+outer = Outer(name="foo", inners=[
+    Inner(type="cat", content="meow"),
+    Inner(type="dog", content="bark")
+])
+
+print(outer.to_pretty_xml())
+
+# <outer name="foo">
+#    <inner type="cat">meow</inner>
+#    <inner type="dog">bark</inner>
+# </outer>
+```
+
 ### Tools
 
 ```python

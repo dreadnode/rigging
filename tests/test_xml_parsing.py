@@ -3,7 +3,31 @@ from contextlib import nullcontext as does_not_raise
 
 import pytest
 
-from rigging.model import Answer, CommaDelimitedAnswer, DelimitedAnswer, Model, Question, QuestionAnswer, YesNoAnswer
+from rigging.model import (
+    Answer,
+    CommaDelimitedAnswer,
+    DelimitedAnswer,
+    Model,
+    Question,
+    QuestionAnswer,
+    YesNoAnswer,
+    attr,
+    element,
+)
+
+
+class NameWithThings(Model):
+    name: str = attr()
+    things: list[str] = element("thing")
+
+
+class Inner(Model):
+    type: str = attr()
+    content: str
+
+
+class Wrapped(Model):
+    inners: list[Inner] = element()
 
 
 @pytest.mark.parametrize(
@@ -60,6 +84,14 @@ from rigging.model import Answer, CommaDelimitedAnswer, DelimitedAnswer, Model, 
         pytest.param(
             "<delimited-answer>hello / world / foo / bar, test | value</delimited-answer>",
             [(DelimitedAnswer, ["hello", "world", "foo", "bar, test | value"])],
+        ),
+        pytest.param(
+            '<name-with-things name="test"><thing>a</thing><thing>b</thing></name-with-things>',
+            [(NameWithThings, NameWithThings(name="test", things=["a", "b"]))],
+        ),
+        pytest.param(
+            '<wrapped><inner type="cat">meow</inner><inner type="dog">bark</inner></wrapped>',
+            [(Wrapped, Wrapped(inners=[Inner(type="cat", content="meow"), Inner(type="dog", content="bark")]))],
         ),
     ],
 )

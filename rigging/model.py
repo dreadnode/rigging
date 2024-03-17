@@ -5,6 +5,8 @@ from xml.etree import ElementTree as ET
 from pydantic import ValidationError, field_validator
 from pydantic.alias_generators import to_snake
 from pydantic_xml import BaseXmlModel
+from pydantic_xml import attr as attr
+from pydantic_xml import element as element
 from pydantic_xml.element import SearchMode  # type: ignore [attr-defined]
 from pydantic_xml.typedefs import NsMap
 
@@ -20,6 +22,8 @@ ModelGeneric = t.TypeVar("ModelGeneric", bound="Model")
 # It's strictness for parsing XML and expecting all interior
 # content to be escaped. We should probably just write something
 # custom for our use case that supports JSON, YAML, and XML
+
+BASIC_TYPES = [int, str, float, bool]
 
 
 class XmlTagDescriptor:
@@ -68,7 +72,7 @@ class Model(BaseXmlModel):
     @classmethod
     def is_simple(cls) -> bool:
         field_values = list(cls.model_fields.values())
-        return len(field_values) == 1
+        return len(field_values) == 1 and field_values[0].annotation in BASIC_TYPES
 
     @classmethod
     def xml_start_tag(cls) -> str:
@@ -100,7 +104,7 @@ class Model(BaseXmlModel):
 
     @classmethod
     def extract_xml(cls, content: str) -> tuple[ModelGeneric, str]:
-        pattern = r"(<([\w-]+)>((.*?)</\2>))"
+        pattern = r"(<([\w-]+).*?>((.*?)</\2>))"
 
         matches = re.findall(pattern, content, flags=re.DOTALL)
         matches_with_tag = [m for m in matches if m[1] == cls.__xml_tag__]
