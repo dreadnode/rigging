@@ -5,7 +5,7 @@ import typing as t
 from pydantic import Field, computed_field, model_validator
 from pydantic_xml import attr, element, wrapped
 
-from rigging.model import CoreModel
+from rigging.model import Model
 
 SUPPORTED_TOOL_ARGUMENT_TYPES = int | float | str | bool
 ToolArgumentTypesCast = {
@@ -21,7 +21,7 @@ ToolArgumentTypesCast = {
 #
 
 
-class ToolCallParameter(CoreModel):
+class ToolCallParameter(Model):
     name: str = attr()
     attr_value: SUPPORTED_TOOL_ARGUMENT_TYPES | None = attr("value", default=None, exclude=True)
     text_value: SUPPORTED_TOOL_ARGUMENT_TYPES | None = Field(default=None, exclude=True)
@@ -37,7 +37,7 @@ class ToolCallParameter(CoreModel):
         return self
 
 
-class ToolCall(CoreModel, tag="call"):
+class ToolCall(Model, tag="call"):
     tool: str = attr()
     function: str = attr()
     parameters: list[ToolCallParameter] = element(tag="parameter")
@@ -48,7 +48,7 @@ class ToolCall(CoreModel, tag="call"):
 #
 
 
-class ToolCalls(CoreModel, tag="tool_calls"):
+class ToolCalls(Model, tag="tool_calls"):
     calls: list[ToolCall] = element()
 
     # This can be used in prompts to teach the model
@@ -81,33 +81,33 @@ class ToolCalls(CoreModel, tag="tool_calls"):
 
 
 # Description of a single tool parameter
-class ToolParameter(CoreModel, tag="parameter"):
+class ToolParameter(Model, tag="parameter"):
     name: str = attr()
     type: str = attr()
     description: str = attr()
 
 
 # Description of a single tool function
-class ToolFunction(CoreModel, tag="function"):
+class ToolFunction(Model, tag="function"):
     name: str = attr()
     description: str = attr()
     parameters: list[ToolParameter] = wrapped("parameters", element())
 
 
 # Description of an entire tool
-class ToolDescription(CoreModel, tag="tool"):
+class ToolDescription(Model, tag="tool"):
     name: str = attr()
     description: str = attr()
     functions: list[ToolFunction] = wrapped("functions", element())
 
 
 # A list of tools to present to the model
-class ToolDescriptionList(CoreModel, tag="tools"):
+class ToolDescriptionList(Model, tag="tools"):
     tools: list[ToolDescription] = element()
 
 
 # A single result from a tool call
-class ToolResult(CoreModel, tag="result"):
+class ToolResult(Model, tag="result"):
     tool: str = attr()
     function: str = attr()
     error: bool = attr()
@@ -115,7 +115,7 @@ class ToolResult(CoreModel, tag="result"):
 
 
 # How we pass back results from a set of calls
-class ToolResults(CoreModel, tag="tool_results"):
+class ToolResults(Model, tag="tool_results"):
     results: list[ToolResult] = element()
 
 

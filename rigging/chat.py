@@ -6,8 +6,8 @@ from pydantic import ValidationError
 from rigging.error import ExhaustedMaxRoundsError
 from rigging.message import Message, MessageDict, Messages
 from rigging.model import (
-    CoreModel,
-    CoreModelGeneric,
+    Model,
+    ModelGeneric,
     SystemErrorModel,
     ValidationErrorModel,
 )
@@ -32,6 +32,9 @@ class Chat:
         if next_messages is not None:
             self.next_messages = Message.fit_list(next_messages)
         self.pending_chat = pending
+
+    def __len__(self) -> int:
+        return len(self.messages) + len(self.next_messages)
 
     @property
     def all(self) -> list[Message]:
@@ -99,7 +102,7 @@ class Chat:
             message.apply(**kwargs)
         return self
 
-    def strip(self, model_type: type[CoreModel], fail_on_missing: bool = False) -> "Chat":
+    def strip(self, model_type: type[Model], fail_on_missing: bool = False) -> "Chat":
         new = self.clone()
         for message in new.all:
             message.strip(model_type, fail_on_missing)
@@ -129,9 +132,9 @@ class PendingChat:
         self.generator: "Generator" = generator
         self.chat: Chat = Chat(messages, pending=self)
 
-        # (callback, drop, max_rounds)
-        self.until_callbacks: list[tuple[UntilCallback, bool, int]] = []
-        self.until_types: list[type[CoreModel]] = []
+        # (callback, attempt_recovery, drop_dialog, max_rounds)
+        self.until_callbacks: list[tuple[UntilCallback, bool, bool, int]] = []
+        self.until_types: list[type[Model]] = []
         self.until_tools: list[Tool] = []
         self.inject_tool_prompt: bool = True
 
@@ -162,28 +165,43 @@ class PendingChat:
         new.chat.apply_to_all(**kwargs)
         return new
 
-    def until(self, callback: UntilCallback, drop: bool = True, max_rounds: int = DEFAULT_MAX_ROUNDS) -> "PendingChat":
-        self.until_callbacks.append((callback, drop, max_rounds))
+    def until(
+        self,
+        callback: UntilCallback,
+        *,
+        attempt_recovery: bool = False,
+        drop_dialog: bool = True,
+        max_rounds: int = DEFAULT_MAX_ROUNDS,
+    ) -> "PendingChat":
+        self.until_callbacks.append((callback, attempt_recovery, drop_dialog, max_rounds))
         return self
 
     def using(
-        self, tool: Tool | t.Sequence[Tool], max_rounds: int = DEFAULT_MAX_ROUNDS, inject_prompt: bool | None = None
+        self,
+        tool: Tool | t.Sequence[Tool],
+        *,
+        attempt_recovery: bool = True,
+        drop_dialog: bool = False,
+        max_rounds: int = DEFAULT_MAX_ROUNDS,
+        inject_prompt: bool | None = None,
     ) -> "PendingChat":
         self.until_tools += tool if isinstance(tool, t.Sequence) else [tool]
         self.inject_tool_prompt = inject_prompt or self.inject_tool_prompt
         if next((c for c in self.until_callbacks if c[0] == self._until_tools_callback), None) is None:
-            self.until_callbacks.append((self._until_tools_callback, False, max_rounds))
+            self.until_callbacks.append((self._until_tools_callback, attempt_recovery, drop_dialog, max_rounds))
         return self
 
     def until_parsed_as(
         self,
-        types: type[CoreModelGeneric] | t.Sequence[type[CoreModelGeneric]],
-        drop: bool = True,
+        types: type[ModelGeneric] | t.Sequence[type[ModelGeneric]],
+        *,
+        attempt_recovery: bool = False,
+        drop_dialog: bool = True,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
     ) -> "PendingChat":
         self.until_types += types if isinstance(types, t.Sequence) else [types]
         if next((c for c in self.until_callbacks if c[0] == self._until_parse_callback), None) is None:
-            self.until_callbacks.append((self._until_parse_callback, drop, max_rounds))
+            self.until_callbacks.append((self._until_parse_callback, attempt_recovery, drop_dialog, max_rounds))
 
         return self
 
@@ -246,23 +264,33 @@ class PendingChat:
 
         return (should_continue, next_messages)
 
-    def _until(self, messages: list[Message], callback: UntilCallback, drop: bool, max_rounds: int) -> list[Message]:
+    def _until(
+        self,
+        messages: list[Message],
+        callback: UntilCallback,
+        attempt_recovery: bool,
+        drop_dialog: bool,
+        max_rounds: int,
+    ) -> list[Message]:
         should_continue, step_messages = callback(messages[-1])
         if not should_continue:
             return step_messages
 
-        running_messages = step_messages
+        running_messages = step_messages if attempt_recovery else []
 
         for _ in range(max_rounds):
-            logger.trace(f"_until({callback.__name__}) round {_ + 1}/{max_rounds}")
+            logger.trace(
+                f"_until({callback.__name__}) round {_ + 1}/{max_rounds} (attempt_recovery={attempt_recovery})"
+            )
             next_message = self.generator.complete(messages[:-1] + running_messages, self.params)
             should_continue, step_messages = callback(next_message)
-            logger.trace(f" |- returned {should_continue} with {len(step_messages)} new messages")
+            logger.trace(f" |- returned {should_continue} with {len(step_messages)} new messages)")
 
-            if should_continue:
+            if not should_continue:
+                return step_messages if drop_dialog else running_messages + step_messages
+
+            if attempt_recovery:
                 running_messages += step_messages
-            else:
-                return step_messages if drop else running_messages + step_messages
 
         logger.warning(f"Exhausted max rounds ({max_rounds})")
         raise ExhaustedMaxRoundsError(max_rounds)
@@ -275,8 +303,10 @@ class PendingChat:
 
         new_messages: list[Message] = [self.generator.complete(self.chat.all, self.params)]
 
-        for callback, drop, max_rounds in self.until_callbacks:
-            next_messages = self._until(self.chat.all + new_messages, callback, drop, max_rounds)
+        for callback, reset_between, drop_internal, max_rounds in self.until_callbacks:
+            next_messages = self._until(
+                self.chat.all + new_messages, callback, reset_between, drop_internal, max_rounds
+            )
             new_messages = new_messages[:-1] + next_messages
 
         return new_messages

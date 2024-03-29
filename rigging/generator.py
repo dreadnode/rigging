@@ -34,7 +34,6 @@ class GenerateParams(BaseModel):
     stop: list[str] | None = None
     presence_penalty: float | None = None
     frequency_penalty: float | None = None
-    api_key: str | None = None
     api_base: str | None = None
     timeout: int | None = None
     seed: int | None = None
@@ -50,6 +49,7 @@ class GenerateParams(BaseModel):
 
 class Generator(BaseModel, abc.ABC):
     model: str
+    api_key: str | None = None
     params: GenerateParams
 
     def _merge_params(self, overloads: GenerateParams) -> dict[str, t.Any]:
@@ -85,7 +85,7 @@ class LiteLLMGenerator(Generator):
 
         messages_as_dicts = [message.model_dump() for message in messages]
         complete_params = self._merge_params(overloads)
-        result = litellm.completion(self.model, messages_as_dicts, **complete_params)
+        result = litellm.completion(self.model, messages_as_dicts, api_key=self.api_key, **complete_params)
         response = result.choices[-1].message.content.strip()
         next_message = Message(role="assistant", content=response)
 
@@ -124,6 +124,7 @@ def get_generator(identifier: str) -> Generator:
 
     provider: str = "litellm"
     model: str = identifier
+    api_key: str | None = None
     params: GenerateParams = GenerateParams()
 
     # Split provider, model, and kwargs
@@ -135,11 +136,12 @@ def get_generator(identifier: str) -> Generator:
         if "," in model:
             model, kwargs_str = model.split(",", 1)
             kwargs = dict(arg.split("=") for arg in kwargs_str.split(","))
+            api_key = kwargs.pop("api_key", None)
             params = GenerateParams(**kwargs)
     except Exception as e:
         raise InvalidModelSpecifiedError(identifier) from e
 
     if provider == "litellm":
-        return LiteLLMGenerator(model=model, params=params)
+        return LiteLLMGenerator(model=model, api_key=api_key, params=params)
     else:
         raise InvalidModelSpecifiedError(identifier)

@@ -4,6 +4,10 @@ Rigging is a lightweight LLM interaction framework built on Pydantic XML and Lit
 
 Modern python with type hints, pydantic validation, native serialization support, etc.
 
+```
+pip install rigging
+```
+
 ### Basic Chats
 
 ```python
@@ -39,7 +43,7 @@ print(chat.json)
 ```python
 import rigging as rg
 
-class Answer(rg.CoreModel):
+class Answer(rg.Model):
     content: str
 
 chat = (
@@ -66,6 +70,32 @@ chat.last.content = "new content" # Updating content strips parsed parts
 print(f"{chat.last!r}")
 
 # Message(role='assistant', parts=[], content='new content')
+```
+
+### Complex Models
+
+```python
+import rigging as rg
+
+class Inner(rg.Model):
+    type: str = rg.attr()
+    content: str
+
+class Outer(rg.Model):
+    name: str = rg.attr()
+    inners: list[Inner] = rg.element()
+
+outer = Outer(name="foo", inners=[
+    Inner(type="cat", content="meow"),
+    Inner(type="dog", content="bark")
+])
+
+print(outer.to_pretty_xml())
+
+# <outer name="foo">
+#    <inner type="cat">meow</inner>
+#    <inner type="dog">bark</inner>
+# </outer>
 ```
 
 ### Tools
@@ -163,7 +193,7 @@ for temp in [0.1, 0.5, 1.0]:
 ```python
 import rigging as rg
 
-class Reasoning(rg.CoreModel):
+class Reasoning(rg.Model):
     content: str
 
 meaning = rg.get_generator("claude-2.1").chat([
@@ -187,6 +217,42 @@ print("meaning of life:", without_reasons.last.content.strip())
 # follow_up = without_thoughts.continue_(...)
 ```
 
+### Custom Generator
+
+Any custom generator simply needs to implement a `complete` function, and 
+then it can be used anywhere inside rigging.
+
+```python
+class Custom(Generator):
+    # model: str
+    # api_key: str
+    # params: GeneratorParams
+    
+    custom_field: bool
+
+    def complete(
+        self,
+        messages: t.Sequence[rg.Message],
+        overloads: GenerateParams = GenerateParams(),
+    ) -> rg.Message:
+        # Access self vars where needed
+        api_key = self.api_key
+        model_id = self.model
+
+        # Merge in args for API overloads
+        marged: dict[str, t.Any] = self._merge_params(overloads)
+
+        # response: str = ...
+
+        return rg.Message("assistant", response)
+
+
+generator = Custom(model='foo', custom_field=True)
+generator.chat(...)
+```
+
+*Note: we currently don't have anyway to "register" custom generators for `get_generator`.*
+
 ### Logging
 
 By default rigging disables it's logger with loguru. To enable it run:
@@ -203,9 +269,9 @@ To configure loguru terminal + file logging format overrides:
 from rigging.logging import configure_logging
 
 configure_logging(
-    'info'      # stderr level
-    'out.log'   # log file (optional)
-    'trace'     # log file level
+    'info',      # stderr level
+    'out.log',   # log file (optional)
+    'trace'      # log file level
 )
 ```
 *(This will remove existing handlers, so you might prefer to configure them yourself)*
