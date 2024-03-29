@@ -7,7 +7,7 @@ from rigging.error import ExhaustedMaxRoundsError
 from rigging.message import Message, MessageDict, Messages
 from rigging.model import (
     Model,
-    ModelGeneric,
+    ModelT,
     SystemErrorModel,
     ValidationErrorModel,
 )
@@ -193,7 +193,7 @@ class PendingChat:
 
     def until_parsed_as(
         self,
-        types: type[ModelGeneric] | t.Sequence[type[ModelGeneric]],
+        types: type[ModelT] | t.Sequence[type[ModelT]],
         *,
         attempt_recovery: bool = False,
         drop_dialog: bool = True,
@@ -251,14 +251,15 @@ class PendingChat:
             should_continue = True
             next_messages.append(
                 Message.from_model(
-                    ValidationErrorModel(content=e), suffix="Rewrite your message with all the required tags."
+                    ValidationErrorModel(content=e),
+                    suffix="Rewrite your entire message with all the required elements.",
                 )
             )
         except Exception as e:
             should_continue = True
             next_messages.append(
                 Message.from_model(
-                    SystemErrorModel(content=e), suffix="Rewrite your message with all the required tags."
+                    SystemErrorModel(content=e), suffix="Rewrite your entire message with all the required elements."
                 )
             )
 

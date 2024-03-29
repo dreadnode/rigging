@@ -16,7 +16,7 @@ from rigging.error import MissingModelError
 # Core XML serializable models for messages
 #
 
-ModelGeneric = t.TypeVar("ModelGeneric", bound="Model")
+ModelT = t.TypeVar("ModelT", bound="Model")
 
 # TODO: pydantic-xml isn't a great fit for our use case given
 # It's strictness for parsing XML and expecting all interior
@@ -59,6 +59,8 @@ class Model(BaseXmlModel):
         ET.indent(tree, "   ")
         pretty_encoded_xml = ET.tostring(tree).decode()
 
+        # TODO: I didn't note why this edge case is here, but it makes
+        # me nervous - should investigate and remove if possible
         if self.__class__.is_simple():
             return pretty_encoded_xml.replace("&lt;", "<").replace("&gt;", ">")
         else:
@@ -67,8 +69,8 @@ class Model(BaseXmlModel):
     # XML parsing gets weird when the interior text contains tags like <br>.
     # Essentially it assumes all the text is valid XML first, then parses.
     # So we'll handle easy cases here and mark the model as "simple"
-    # if it only contains a single string field. It makes our parsing
-    # much more consistent
+    # if it only contains a single basic field. It makes our parsing
+    # much more consistent and is likely the most popular model type.
     @classmethod
     def is_simple(cls) -> bool:
         field_values = list(cls.model_fields.values())
@@ -103,39 +105,57 @@ class Model(BaseXmlModel):
     # about migrating from pydantic-xml
 
     @classmethod
-    def extract_xml(cls, content: str) -> tuple[ModelGeneric, str]:
+    def from_text(cls, content: str) -> list[tuple[ModelT, slice]]:
         pattern = r"(<([\w-]+).*?>((.*?)</\2>))"
+        matches = [m for m in re.finditer(pattern, content, flags=re.DOTALL) if m.group(2) == cls.__xml_tag__]
 
-        matches = re.findall(pattern, content, flags=re.DOTALL)
-        matches_with_tag = [m for m in matches if m[1] == cls.__xml_tag__]
-        if not matches or not matches_with_tag:
-            raise MissingModelError(f"Failed to find '<{cls.__xml_tag__}>' in message")
+        if not matches:
+            raise MissingModelError(f"Failed to find '{cls.xml_tags()}' in message")
 
-        # Sort matches_with_tag based on the length of the interior text, longest first
-        # this should help us avoid matching the model supplying hollow tags before the
-        # actual data.
-        sorted_matches = sorted(matches_with_tag, key=lambda m: len(m[3]), reverse=True)
+        # Sort matches_with_tag based on the length of the interior text,
+        # longest first. This should help us avoid matching the model
+        # supplying hollow tags before the actual data.
+        sorted_matches = sorted(matches, key=lambda m: len(m.group(4)), reverse=True)
 
-        for i, match in enumerate(sorted_matches):
-            full_text, tag, inner_with_end_tag, inner = match
-            while f"<{tag}>" in inner_with_end_tag:
-                matches = re.findall(r"(<(\w+)>((.*?)</\2>))", inner_with_end_tag, flags=re.DOTALL)
-                match = next((m for m in matches if m[1] == cls.__xml_tag__), None)
-                if not matches or not match:
-                    break
-                full_text, tag, inner_with_end_tag, inner = match
+        extracted: list[tuple[ModelT, slice]] = []
+        exceptions: list[Exception] = []
+        for match in sorted_matches:
+            full_text, _, inner_with_end_tag, inner = match.groups()
+
+            # The model might trip up regex by including partial tags
+            # in passing before actually using them. We'll continually try
+            # to parse the inner text until we can't extract our model anymore.
+            #
+            # Example: "Sure I'll use <answer> tags: <answer>hello</answer>"
+            #
+            inner_match: re.Match[str] | None = match
+            while inner_match is not None:
+                inner_matches = re.finditer(pattern, inner_with_end_tag, flags=re.DOTALL)
+                inner_match = next((m for m in inner_matches if m.group(2) == cls.__xml_tag__), None)
+                if inner_match is not None:
+                    full_text, _, inner_with_end_tag, inner = inner_match.groups()
 
             try:
-                if cls.is_simple():
-                    model = cls(**{next(iter(cls.model_fields)): inner})
-                else:
-                    model = cls.from_xml(full_text)
-                return model, full_text  # type: ignore [return-value]
+                model = cls(**{next(iter(cls.model_fields)): inner}) if cls.is_simple() else cls.from_xml(full_text)
+                extracted.append((model, slice(match.start(), match.end())))  # type: ignore [arg-type]
             except Exception as e:
-                if i == len(sorted_matches) - 1:
-                    raise e
+                exceptions.append(e)
+                continue
 
-        raise ValidationError(f"Failed to parse '<{cls.__xml_tag__}>' from message")
+        # TODO: This is poor form atm, but the exception stacking
+        # and final error should involve some careful thought
+
+        if not extracted:
+            raise exceptions[0]
+
+        return extracted
+
+    @classmethod
+    def one_from_text(cls, content: str, fail_on_many: bool = False) -> tuple[ModelT, slice]:
+        matches = cls.from_text(content)  # type: ignore [var-annotated]
+        if fail_on_many and len(matches) > 1:
+            raise ValidationError("Multiple matches found with 'fail_on_many=True'")
+        return max(matches, key=lambda x: x[1].stop - x[1].start)
 
 
 #
@@ -206,7 +226,7 @@ class DelimitedAnswer(Model):
 
     @field_validator("content", mode="before")
     def parse_str_to_list(cls, v: t.Any) -> t.Any:
-        if not isinstance(v, str) or not any(d in v for d in cls._delimiters):
+        if not isinstance(v, str):
             raise ValueError(f"Cannot parse content as a delimited list: {v}")
         return v
 
@@ -214,8 +234,13 @@ class DelimitedAnswer(Model):
 class CommaDelimitedAnswer(DelimitedAnswer):
     "Comma delimited answer (,)"
 
-    content: str
     _delimiters = [","]
+
+
+class NewlineDelimitedAnswer(DelimitedAnswer):
+    "Newline delimited answer (\n)"
+
+    _delimiters = ["\n"]
 
 
 class YesNoAnswer(Model):
