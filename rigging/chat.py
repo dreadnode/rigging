@@ -137,6 +137,7 @@ class PendingChat:
         self.until_types: list[type[Model]] = []
         self.until_tools: list[Tool] = []
         self.inject_tool_prompt: bool = True
+        self.force_tool: bool = False
 
         self.params = params
 
@@ -180,6 +181,7 @@ class PendingChat:
         self,
         tool: Tool | t.Sequence[Tool],
         *,
+        force: bool = False,
         attempt_recovery: bool = True,
         drop_dialog: bool = False,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
@@ -187,8 +189,16 @@ class PendingChat:
     ) -> "PendingChat":
         self.until_tools += tool if isinstance(tool, t.Sequence) else [tool]
         self.inject_tool_prompt = inject_prompt or self.inject_tool_prompt
+        self.force_tool = force
         if next((c for c in self.until_callbacks if c[0] == self._until_tools_callback), None) is None:
-            self.until_callbacks.append((self._until_tools_callback, attempt_recovery, drop_dialog, max_rounds))
+            self.until_callbacks.append(
+                (
+                    self._until_tools_callback,
+                    attempt_recovery,
+                    drop_dialog,
+                    max_rounds,
+                )
+            )
         return self
 
     def until_parsed_as(
@@ -215,8 +225,14 @@ class PendingChat:
             return (True, next_messages)
 
         if tool_calls is None:
-            logger.debug("No tool calls or types, returning message")
-            return (False, next_messages)
+            if self.force_tool:
+                logger.debug("No tool calls or types, returning error")
+                next_messages.append(Message.from_model(SystemErrorModel(content="You must use a tool")))
+            else:
+                logger.debug("No tool calls or types, returning message")
+            return (self.force_tool, next_messages)
+
+        self.force_tool = False
 
         tool_results: list[ToolResult] = []
         errors: list[SystemErrorModel] = []
@@ -298,7 +314,13 @@ class PendingChat:
 
     def _execute(self) -> list[Message]:
         if self.until_tools:
-            self.params.stop = [ToolCalls.xml_end_tag()]
+            # TODO: This can cause issues when certain APIs do not return
+            # the stop sequence as part of the response. This behavior
+            # seems like a larger issue than the model continuining after
+            # requesting a tool call, so we'll remove it for now.
+            #
+            # self.params.stop = [ToolCalls.xml_end_tag()]
+
             if self.inject_tool_prompt:
                 self.chat.inject_tool_prompt(self.until_tools)
 

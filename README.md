@@ -150,7 +150,7 @@ chat = (
             {"role": "user", "content": "What is the weather in London?"},
         ]
     )
-    .using(WeatherTool())
+    .using(WeatherTool(), force=True)
     .run()
 )
 
