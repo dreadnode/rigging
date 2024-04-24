@@ -61,32 +61,20 @@ class Chat:
             raise ValueError("Cannot restart chat that was not created with a PendingChat")
         return PendingChat(self.pending_chat.generator, self.messages, self.pending_chat.params)
 
-    @t.overload
-    def continue_(self, messages: t.Sequence[MessageDict]) -> "PendingChat":
-        ...
+    # TODO: Why are these overloads here? I wonder if IDEs preferred them
 
-    @t.overload
-    def continue_(self, messages: MessageDict) -> "PendingChat":
-        ...
-
-    @t.overload
-    def continue_(self, messages: t.Sequence[Message]) -> "PendingChat":
-        ...
-
-    @t.overload
-    def continue_(self, messages: Message) -> "PendingChat":
-        ...
-
-    def continue_(
-        self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | MessageDict
+    def fork(
+        self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | MessageDict | str
     ) -> "PendingChat":
         if self.pending_chat is None:
             raise ValueError("Cannot continue chat that was not created with a PendingChat")
 
-        messages_list: list[Message] = (
-            Message.fit_list(messages) if isinstance(messages, t.Sequence) else [Message.fit(messages)]
-        )
-        return PendingChat(self.pending_chat.generator, self.all + messages_list, self.pending_chat.params)
+        pending = PendingChat(self.pending_chat.generator, self.all, self.pending_chat.params)
+        pending.add(messages)
+        return pending
+
+    def continue_(self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | str) -> "PendingChat":
+        return self.fork(messages)
 
     def clone(self) -> "Chat":
         return Chat(
@@ -150,6 +138,32 @@ class PendingChat:
         if params is not None:
             self.params = params
         return self
+
+    def add(
+        self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
+    ) -> "PendingChat":
+        message_list: list[Message] = (
+            [Message.fit(messages)]
+            if not isinstance(messages, t.Sequence) or isinstance(messages, str)
+            else Message.fit_list(messages)
+        )
+        # If the last message is the same role as the first new message, append to it
+        if self.chat.next_messages and self.chat.next_messages[-1].role == message_list[0].role:
+            self.chat.next_messages[-1].content += "\n" + message_list[0].content
+            message_list = message_list[1:]
+        else:
+            self.chat.next_messages += message_list
+        return self
+
+    def fork(
+        self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
+    ) -> "PendingChat":
+        return self.clone().add(messages)
+
+    def continue_(
+        self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
+    ) -> "PendingChat":
+        return self.fork(messages)
 
     def clone(self) -> "PendingChat":
         new = PendingChat(self.generator, [], self.params)
@@ -333,6 +347,29 @@ class PendingChat:
             new_messages = new_messages[:-1] + next_messages
 
         return new_messages
+
+    @t.overload
+    def run_with(
+        self,
+        messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str,
+        count: t.Literal[None] = None,
+    ) -> Chat:
+        ...
+
+    @t.overload
+    def run_with(
+        self,
+        messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str,
+        count: int,
+    ) -> list[Chat]:
+        ...
+
+    def run_with(
+        self,
+        messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str,
+        count: int | None = None,
+    ) -> Chat | list[Chat]:
+        return self.add(messages).run(count)
 
     @t.overload
     def run(self, count: t.Literal[None] = None) -> Chat:

@@ -175,7 +175,9 @@ class Message(BaseModel):
         return [cls.fit(message) for message in messages]
 
     @classmethod
-    def fit(cls, message: t.Union["Message", MessageDict]) -> "Message":
+    def fit(cls, message: t.Union["Message", MessageDict, str]) -> "Message":
+        if isinstance(message, str):
+            return cls(role="user", content=message)
         return cls(**message) if isinstance(message, dict) else message
 
 

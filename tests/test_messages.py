@@ -161,6 +161,24 @@ def test_chat_continue() -> None:
     assert continued.all[2].content == "How are you?"
 
 
+def test_pending_chat_continue() -> None:
+    pending = PendingChat(get_generator("gpt-3.5"), [], GenerateParams())
+    continued = pending.continue_([Message("user", "Hello")])
+
+    assert continued != pending
+    assert len(continued.chat) == 1
+    assert continued.chat.all[0].content == "Hello"
+
+
+def test_pending_chat_add() -> None:
+    pending = PendingChat(get_generator("gpt-3.5"), [Message("user", "Hello")], GenerateParams())
+    added = pending.add(Message("user", "Hello"))
+
+    assert added == pending
+    assert len(added.chat) == 2
+    assert added.chat.all[0].content == "Hello"
+
+
 def test_chat_continue_maintains_parsed_models() -> None:
     chat = Chat(
         [
