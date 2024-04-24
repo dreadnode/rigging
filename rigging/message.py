@@ -151,7 +151,7 @@ class Message(BaseModel):
                 if fail_on_missing:
                     raise e
 
-        return parsed  # type: ignore [return-value]
+        return parsed
 
     @classmethod
     def from_model(
