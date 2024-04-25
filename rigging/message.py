@@ -73,16 +73,42 @@ class Message(BaseModel):
                 raise ValueError("Incoming part overlaps with an existing part")
         self.parts.append(part)
 
+    # Looks more complicated than it is. We just want to clean all the models
+    # in the message content by re-serializing them. As we do so, we'll need
+    # to watch for the total size of our message shifting and update the slices
+    # of the following parts accordingly. In other words, as A expands, B which
+    # follows will have a new start slice and end slice.
+    #
+    # TODO: We should probably just re-trigger parsing for everything
     def _sync_parts(self) -> None:
+        shift = 0
         for part in self.parts:
+            existing = self._content[part.slice_]
+
+            # Adjust for any previous shifts
+            part.slice_ = slice(part.slice_.start + shift, part.slice_.stop + shift)
+
+            # Check if the content has changed
             xml_content = part.model.to_pretty_xml()
+            if xml_content == existing:
+                continue
+
+            # Otherwise update content, add to shift, and update this slice
+            old_length = part.slice_.stop - part.slice_.start
+            new_length = len(xml_content)
+
             self._content = self._content[: part.slice_.start] + xml_content + self._content[part.slice_.stop :]
-            part.slice_ = slice(part.slice_.start, part.slice_.start + len(xml_content))
+            part.slice_ = slice(part.slice_.start, part.slice_.start + new_length)
+
+            shift += new_length - old_length
 
     @computed_field  # type: ignore[misc]
     @property
     def content(self) -> str:
-        self._sync_parts()
+        # We used to sync the models and content each time it was accessed,
+        # hence the getter. Now we just return the stored content.
+        # I'll leave it as is for now in case we want to add any
+        # logic here in the future.
         return self._content
 
     @content.setter
@@ -152,7 +178,7 @@ class Message(BaseModel):
             except MissingModelError as e:
                 if fail_on_missing:
                     raise e
-
+        self._sync_parts()
         return parsed
 
     @classmethod

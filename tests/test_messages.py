@@ -226,8 +226,13 @@ def test_double_parse() -> None:
 
 
 def test_double_parse_set() -> None:
-    msg = Message("user", "<person name='John'>30</person><person name='Jane'>25</person>")
+    msg = Message(
+        "user",
+        "Some test content <anothertag><person  name='John'>30</person> More mixed content <person name='omad'>90</person><person   name='Jane'>25</person>",
+    )
+    existing_len = len(msg.content)
     msg.parse_set(Person)
     msg.parse_set(Person)
 
-    assert len(msg.parts) == 2
+    assert len(msg.content) != existing_len
+    assert len(msg.parts) == 3
