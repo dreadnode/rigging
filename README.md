@@ -8,6 +8,31 @@ Modern python with type hints, pydantic validation, native serialization support
 pip install rigging
 ```
 
+### Overview
+
+The basic flow in rigging is:
+
+1. Get a generator object
+2. Call `.chat()` to produce a `PendingChat`
+3. Call `.run()` on a `PendingChat` to get a `Chat`
+
+`PendingChat` objects hold any messages waiting to be delivered to an LLM in exchange
+for a new response message. Afterwhich it is converted into a `Chat` which holds
+all messages prior to generation (`.prev`) and after generation (`.next`).
+
+You should think of `PendingChat` objects like the configurable pre-generation step
+with calls like `.overload()`, `.apply()`, `.until()`, `.using()`, etc. Once you call
+`.run()` the generator is used to produce the next message based on the prior context
+and any constraints you have in place. Once you have a `Chat` object, the interation
+is "done" and you can inspect/parse the messages.
+
+You'll often see us use functional styling chaining as most of our
+utility functions return the object back to you.
+
+```python
+chat = generator.chat(...).using(...).until(...).overload(...).run()
+```
+
 ### Basic Chats
 
 ```python
@@ -98,32 +123,6 @@ jokes = chat.last.parse_set(Joke)
 # ]
 ```
 
-### Complex Models
-
-```python
-import rigging as rg
-
-class Inner(rg.Model):
-    type: str = rg.attr()
-    content: str
-
-class Outer(rg.Model):
-    name: str = rg.attr()
-    inners: list[Inner] = rg.element()
-
-outer = Outer(name="foo", inners=[
-    Inner(type="cat", content="meow"),
-    Inner(type="dog", content="bark")
-])
-
-print(outer.to_pretty_xml())
-
-# <outer name="foo">
-#    <inner type="cat">meow</inner>
-#    <inner type="dog">bark</inner>
-# </outer>
-```
-
 ### Tools
 
 ```python
@@ -169,19 +168,18 @@ import rigging as rg
 generator = rg.get_generator("gpt-3.5-turbo")
 chat = generator.chat([
         {"role": "user", "content": "Hello, how are you?"},
-]).run()
+])
 
-print(chat.last.content)
+# We can fork (continue_) before generation has occured
+specific = chat.fork("Be specific please.").run()
+poetic = chat.fork("Be as poetic as possible").overload(temperature=1.5).run()
 
-# "Hello! I'm an AI language model, ..."
-
-cont = chat.continue_(
+# We can also fork (continue_) after generation
+next_chat = poetic.fork(
     {"role": "user", "content": "That's good, tell me a joke"}
-).run()
+)
 
-print(cont.last.content)
-
-# "Sure, here's a joke for you: ..."
+update = next_chat.run()
 ```
 
 ### Basic Templating
@@ -212,6 +210,32 @@ pending = rg.get_generator("gpt-3.5-turbo,max_tokens=50").chat([
 for temp in [0.1, 0.5, 1.0]:
     print(pending.overload(temperature=temp).run().last.content)
 
+```
+
+### Complex Models
+
+```python
+import rigging as rg
+
+class Inner(rg.Model):
+    type: str = rg.attr()
+    content: str
+
+class Outer(rg.Model):
+    name: str = rg.attr()
+    inners: list[Inner] = rg.element()
+
+outer = Outer(name="foo", inners=[
+    Inner(type="cat", content="meow"),
+    Inner(type="dog", content="bark")
+])
+
+print(outer.to_pretty_xml())
+
+# <outer name="foo">
+#    <inner type="cat">meow</inner>
+#    <inner type="dog">bark</inner>
+# </outer>
 ```
 
 ### Strip Parsed Sections
