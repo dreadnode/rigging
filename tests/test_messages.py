@@ -161,6 +161,24 @@ def test_chat_continue() -> None:
     assert continued.all[2].content == "How are you?"
 
 
+def test_pending_chat_continue() -> None:
+    pending = PendingChat(get_generator("gpt-3.5"), [], GenerateParams())
+    continued = pending.continue_([Message("user", "Hello")])
+
+    assert continued != pending
+    assert len(continued.chat) == 1
+    assert continued.chat.all[0].content == "Hello"
+
+
+def test_pending_chat_add() -> None:
+    pending = PendingChat(get_generator("gpt-3.5"), [Message("user", "Hello")], GenerateParams())
+    added = pending.add(Message("user", "Hello"))
+
+    assert added == pending
+    assert len(added.chat) == 2
+    assert added.chat.all[0].content == "Hello"
+
+
 def test_chat_continue_maintains_parsed_models() -> None:
     chat = Chat(
         [
@@ -197,3 +215,24 @@ def test_chat_strip() -> None:
 
     assert len(stripped.all[0].parts) == 1
     assert len(stripped.all[1].parts) == 0
+
+
+def test_double_parse() -> None:
+    msg = Message("user", "<person name='John'>30</person>")
+    msg.parse(Person)
+    msg.parse(Person)
+
+    assert len(msg.parts) == 1
+
+
+def test_double_parse_set() -> None:
+    msg = Message(
+        "user",
+        "Some test content <anothertag><person  name='John'>30</person> More mixed content <person name='omad'>90</person><person   name='Jane'>25</person>",
+    )
+    existing_len = len(msg.content)
+    msg.parse_set(Person)
+    msg.parse_set(Person)
+
+    assert len(msg.content) != existing_len
+    assert len(msg.parts) == 3

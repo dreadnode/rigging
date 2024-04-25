@@ -1,10 +1,24 @@
-from rigging.chat import Chat
-from rigging.generator import get_generator
+from rigging.chat import Chat, PendingChat
+from rigging.generator import GenerateParams, Generator, get_generator
 from rigging.message import Message, MessageDict, Messages
-from rigging.model import Model, attr, element
+from rigging.model import Model, attr, element, wrapped
 from rigging.tool import Tool
 
-__all__ = ["get_generator", "Message", "MessageDict", "Messages", "Tool", "Model", "attr", "element", "Chat"]
+__all__ = [
+    "get_generator",
+    "Message",
+    "MessageDict",
+    "Messages",
+    "Tool",
+    "Model",
+    "attr",
+    "element",
+    "wrapped",
+    "Chat",
+    "PendingChat",
+    "Generator",
+    "GenerateParams",
+]
 
 from loguru import logger
 
