@@ -67,6 +67,8 @@ class Message(BaseModel):
 
     def _add_part(self, part: ParsedMessagePart) -> None:
         for existing in self.parts:
+            if part.slice_ == existing.slice_ and isinstance(part.model, type(existing.model)):
+                return  # We clearly already have this part defined
             if max(part.slice_.start, existing.slice_.start) < min(part.slice_.stop, existing.slice_.stop):
                 raise ValueError("Incoming part overlaps with an existing part")
         self.parts.append(part)

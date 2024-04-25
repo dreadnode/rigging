@@ -215,3 +215,19 @@ def test_chat_strip() -> None:
 
     assert len(stripped.all[0].parts) == 1
     assert len(stripped.all[1].parts) == 0
+
+
+def test_double_parse() -> None:
+    msg = Message("user", "<person name='John'>30</person>")
+    msg.parse(Person)
+    msg.parse(Person)
+
+    assert len(msg.parts) == 1
+
+
+def test_double_parse_set() -> None:
+    msg = Message("user", "<person name='John'>30</person><person name='Jane'>25</person>")
+    msg.parse_set(Person)
+    msg.parse_set(Person)
+
+    assert len(msg.parts) == 2
