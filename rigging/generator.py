@@ -110,7 +110,7 @@ def get_generator(identifier: str) -> Generator:
     :raises InvalidModelSpecified: If the identifier is invalid
 
     Examples:
-        "gpt-3.5-turbo" -> LiteLLMGenerator(model="gpt-3.5-turbo")
+        `gpt-3.5-turbo" -> LiteLLMGenerator(model="gpt-3.5-turbo")`
         "litellm!claude-2.1" -> LiteLLMGenerator(model="claude-2.1")
         "mistral/mistral-tiny" -> LiteLLMGenerator(model="mistral/mistral-tiny")
 

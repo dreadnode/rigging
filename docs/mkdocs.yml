@@ -1,0 +1,54 @@
+site_name: Rigging
+site_url: https://rigging.dreadnode.io
+repo_url: https://github.com/dreadnode/rigging
+theme:
+  logo: images/logo.png
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    scheme: slate
+  features:
+    - toc.integrate
+    - navigation.footer
+    - navigation.indexes
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - content.code.copy
+    - navigation.top
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          rendering:
+            show_source: true
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - admonition
+  - pymdownx.details
+
+nav:
+  - introduction: index.md
+  - generators: tutorial/generators.md
+  - chats: tutorial/chat.md
+  - models: tutorial/model.md
+  - tools: tutorial/tools.md
+  - logging: tutorial/logging.md
+  - API:
+      - chat: api/chat.md
+      - generator: api/generators.md
+      - message: api/message.md
+      - model: api/model.md
+      - prompt: api/prompt.md
+      - tools: api/tools.md
+      - logging: api/logging.md
+      - exceptions: api/errors.md

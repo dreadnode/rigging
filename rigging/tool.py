@@ -22,6 +22,24 @@ ToolArgumentTypesCast = {
 
 
 class ToolCallParameter(Model):
+    """
+    Represents a parameter for a tool call.
+
+    Attributes:
+        name (str): The name of the parameter.
+        attr_value (SUPPORTED_TOOL_ARGUMENT_TYPES | None): The attribute value of the parameter.
+        text_value (SUPPORTED_TOOL_ARGUMENT_TYPES | None): The text value of the parameter.
+
+    Computed Attributes:
+        value (SUPPORTED_TOOL_ARGUMENT_TYPES): The computed value of the parameter.
+
+    Methods:
+        validate_value: Validates the value of the parameter.
+
+    Raises:
+        ValueError: If the parameter value is missing.
+    """
+
     name: str = attr()
     attr_value: SUPPORTED_TOOL_ARGUMENT_TYPES | None = attr("value", default=None, exclude=True)
     text_value: SUPPORTED_TOOL_ARGUMENT_TYPES | None = Field(default=None, exclude=True)
@@ -49,6 +67,13 @@ class ToolCall(Model, tag="call"):
 
 
 class ToolCalls(Model, tag="tool_calls"):
+    """
+    Represents a collection of tool calls.
+
+    Attributes:
+        calls (list[ToolCall]): The list of tool calls.
+    """
+
     calls: list[ToolCall] = element()
 
     # This can be used in prompts to teach the model
@@ -57,8 +82,15 @@ class ToolCalls(Model, tag="tool_calls"):
     # TODO: We should consider building a base model
     # interface for both simple tags (<thing></thing>)
     # and full examples will filled in template vars
+
     @classmethod
     def xml_example(cls) -> str:
+        """
+        Generates an XML example of the ToolCalls structure.
+
+        Returns:
+            str: The XML example.
+        """
         return cls(
             calls=[
                 ToolCall(
@@ -82,6 +114,15 @@ class ToolCalls(Model, tag="tool_calls"):
 
 # Description of a single tool parameter
 class ToolParameter(Model, tag="parameter"):
+    """
+    Represents a parameter for a tool.
+    
+    Attributes:
+        name (str): The name of the parameter.
+        type (str): The type of the parameter.
+        description (str): A description of the parameter.
+    """
+    
     name: str = attr()
     type: str = attr()
     description: str = attr()
