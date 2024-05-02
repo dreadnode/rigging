@@ -27,6 +27,25 @@ ModelT = t.TypeVar("ModelT", bound="Model")
 BASIC_TYPES = [int, str, float, bool]
 
 
+def escape_xml(xml_string: str) -> str:
+    prepared = re.sub(r"&(?!(?:amp|lt|gt|apos|quot);)", "&amp;", xml_string)
+
+    return prepared
+
+
+def unescape_xml(xml_string: str) -> str:
+    # We only expect to use this in our "simple"
+    # models, but I'd like a better long-term solution
+
+    unescaped = re.sub(r"&amp;", "&", xml_string)
+    unescaped = re.sub(r"&lt;", "<", unescaped)
+    unescaped = re.sub(r"&gt;", ">", unescaped)
+    unescaped = re.sub(r"&apos;", "'", unescaped)
+    unescaped = re.sub(r"&quot;", '"', unescaped)
+
+    return unescaped
+
+
 class XmlTagDescriptor:
     def __get__(self, _: t.Any, owner: t.Any) -> str:
         return to_snake(next(iter(owner.mro())).__name__).replace("_", "-")
@@ -60,10 +79,8 @@ class Model(BaseXmlModel):
         ET.indent(tree, "   ")
         pretty_encoded_xml = ET.tostring(tree).decode()
 
-        # TODO: I didn't note why this edge case is here, but it makes
-        # me nervous - should investigate and remove if possible
         if self.__class__.is_simple():
-            return pretty_encoded_xml.replace("&lt;", "<").replace("&gt;", ">")
+            return unescape_xml(pretty_encoded_xml)
         else:
             return pretty_encoded_xml
 
@@ -137,7 +154,11 @@ class Model(BaseXmlModel):
                     full_text, _, inner_with_end_tag, inner = inner_match.groups()
 
             try:
-                model = cls(**{next(iter(cls.model_fields)): inner}) if cls.is_simple() else cls.from_xml(full_text)
+                model = (
+                    cls(**{next(iter(cls.model_fields)): inner})
+                    if cls.is_simple()
+                    else cls.from_xml(escape_xml(full_text))
+                )
                 extracted.append((model, slice(match.start(), match.end())))  # type: ignore [arg-type]
             except Exception as e:
                 exceptions.append(e)

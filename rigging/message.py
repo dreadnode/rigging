@@ -81,6 +81,8 @@ class Message(BaseModel):
     #
     # TODO: We should probably just re-trigger parsing for everything
     def _sync_parts(self) -> None:
+        self.parts = sorted(self.parts, key=lambda p: p.slice_.start)
+
         shift = 0
         for part in self.parts:
             existing = self._content[part.slice_]
