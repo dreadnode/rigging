@@ -60,9 +60,24 @@ class Message(BaseModel):
     def __str__(self) -> str:
         return f"[{self.role}]: {self.content}"
 
+    # TODO: In general the add/remove/sync_part methods are
+    # overly complicated. We should probably just update content,
+    # then reparse all the models to get their fresh slices.
+    #
+    # I don't like all this manual slice recalculation logic, seems brittle.
+
     def _remove_part(self, part: ParsedMessagePart) -> str:
+        removed_length = part.slice_.stop - part.slice_.start
         self._content = self._content[: part.slice_.start] + self._content[part.slice_.stop :]
         self.parts.remove(part)
+
+        # Update slices of any parts that come after the removed part
+        for other_part in self.parts:
+            if other_part.slice_.start > part.slice_.start:
+                other_part.slice_ = slice(
+                    other_part.slice_.start - removed_length, other_part.slice_.stop - removed_length
+                )
+
         return self._content
 
     def _add_part(self, part: ParsedMessagePart) -> None:
@@ -204,6 +219,8 @@ class Message(BaseModel):
     def fit_as_list(
         cls, messages: t.Sequence[MessageDict] | t.Sequence["Message"] | MessageDict | "Message" | str
     ) -> list["Message"]:
+        if isinstance(messages, Message | dict | str):
+            return [cls.fit(messages)]
         return [cls.fit(message) for message in messages]
 
     @classmethod

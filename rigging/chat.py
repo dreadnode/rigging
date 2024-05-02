@@ -1,8 +1,9 @@
+import asyncio
 import typing as t
-from uuid import UUID, uuid4
 
 from loguru import logger
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from typing_extensions import Self
 
 from rigging.error import ExhaustedMaxRoundsError
 from rigging.message import Message, MessageDict, Messages
@@ -22,21 +23,23 @@ DEFAULT_MAX_ROUNDS = 5
 
 
 class Chat(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     messages: list[Message]
     next_messages: list[Message] = Field(default_factory=list)
-    pending_chat: "PendingChat" | None = None
+    pending: t.Optional["PendingChatBase"] = Field(None, exclude=True)
 
     def __init__(
         self,
         messages: Messages,
         next_messages: Messages | None = None,
-        pending: t.Optional["PendingChat"] = None,
+        pending: t.Optional["PendingChatBase"] = None,
     ):
-        self.messages: list[Message] = Message.fit_as_list(messages)
-        self.next_messages: list[Message] = []
-        if next_messages is not None:
-            self.next_messages = Message.fit_as_list(next_messages)
-        self.pending_chat = pending
+        super().__init__(
+            messages=Message.fit_as_list(messages),
+            next_messages=Message.fit_as_list(next_messages) if next_messages is not None else [],
+            pending=pending,
+        )
 
     def __len__(self) -> int:
         return len(self.messages) + len(self.next_messages)
@@ -57,34 +60,35 @@ class Chat(BaseModel):
     def last(self) -> Message:
         return self.next_messages[-1]
 
-    @property
-    def json(self) -> list[MessageDict]:
-        return [t.cast(MessageDict, message.model_dump()) for message in self.all]
-
-    def restart(self) -> "PendingChat":
-        if self.pending_chat is None:
+    def restart(self, generator: t.Optional["Generator"] = None) -> "PendingChat":
+        if generator is not None:
+            return generator.chat(self.messages)
+        elif self.pending is None:
             raise ValueError("Cannot restart chat that was not created with a PendingChat")
-        return PendingChat(self.pending_chat.generator, self.messages, self.pending_chat.params)
+        return PendingChat(self.pending.generator, self.messages, self.pending.params)
 
-    # TODO: Why are these overloads here? I wonder if IDEs preferred them
+    def arestart(self, generator: t.Optional["Generator"] = None) -> "AsyncPendingChat":
+        if generator is not None:
+            return generator.achat(self.messages)
+        elif self.pending is None:
+            raise ValueError("Cannot restart chat that was not created with a PendingChat")
+        return AsyncPendingChat(self.pending.generator, self.messages, self.pending.params)
 
     def fork(
         self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | MessageDict | str
     ) -> "PendingChat":
-        if self.pending_chat is None:
-            raise ValueError("Cannot continue chat that was not created with a PendingChat")
+        return self.restart().add(messages)
 
-        pending = PendingChat(self.pending_chat.generator, self.all, self.pending_chat.params)
-        pending.add(messages)
-        return pending
+    def afork(
+        self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | MessageDict | str
+    ) -> "AsyncPendingChat":
+        return self.arestart().add(messages)
 
     def continue_(self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | str) -> "PendingChat":
         return self.fork(messages)
 
     def clone(self) -> "Chat":
-        return Chat(
-            [m.model_copy() for m in self.messages], [m.model_copy() for m in self.next_messages], self.pending_chat
-        )
+        return Chat([m.model_copy() for m in self.messages], [m.model_copy() for m in self.next_messages], self.pending)
 
     def apply(self, **kwargs: str) -> "Chat":
         self.messages[-1].apply(**kwargs)
@@ -120,14 +124,10 @@ class Chat(BaseModel):
 UntilCallback = t.Callable[[Message], tuple[bool, list[Message]]]
 
 
-class PendingChat(BaseModel):
-    uuid: UUID = Field(default_factory=uuid4)
-    parent: "PendingChat" | None = None
-    generator: "Generator"
-    params: "GenerateParams" | None = None
-    chat: Chat
-
-    def __init__(self, generator: "Generator", messages: t.Sequence[Message], params: "GenerateParams" | None = None):
+class PendingChatBase:
+    def __init__(
+        self, generator: "Generator", messages: t.Sequence[Message], params: t.Optional["GenerateParams"] = None
+    ):
         self.generator: "Generator" = generator
         self.chat: Chat = Chat(messages, pending=self)
         self.params = params
@@ -139,12 +139,12 @@ class PendingChat(BaseModel):
         self.inject_tool_prompt: bool = True
         self.force_tool: bool = False
 
-    def overload(self, **kwargs: t.Any) -> "PendingChat":
+    def overload(self, **kwargs: t.Any) -> Self:
         from rigging.generator import GenerateParams
 
         return self.with_params(GenerateParams(**kwargs))
 
-    def with_params(self, params: "GenerateParams") -> "PendingChat":
+    def with_params(self, params: "GenerateParams") -> Self:
         if self.params is not None:
             new = self.clone()
             new.params = params
@@ -153,30 +153,24 @@ class PendingChat(BaseModel):
         self.params = params
         return self
 
-    def add(
-        self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
-    ) -> "PendingChat":
+    def add(self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str) -> Self:
         message_list = Message.fit_as_list(messages)
         # If the last message is the same role as the first new message, append to it
-        if self.chat.next_messages and self.chat.next_messages[-1].role == message_list[0].role:
-            self.chat.next_messages[-1].content += "\n" + message_list[0].content
+        if self.chat.all and self.chat.all[-1].role == message_list[0].role:
+            self.chat.all[-1].content += "\n" + message_list[0].content
             message_list = message_list[1:]
         else:
             self.chat.next_messages += message_list
         return self
 
-    def fork(
-        self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
-    ) -> "PendingChat":
+    def fork(self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str) -> Self:
         return self.clone().add(messages)
 
-    def continue_(
-        self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
-    ) -> "PendingChat":
+    def continue_(self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str) -> Self:
         return self.fork(messages)
 
-    def clone(self) -> "PendingChat":
-        new = PendingChat(self.generator, [], self.params)
+    def clone(self) -> Self:
+        new = self.__class__(self.generator, [], self.params)
         new.chat = self.chat.clone()
         new.until_callbacks = self.until_callbacks.copy()
         new.until_types = self.until_types.copy()
@@ -185,12 +179,12 @@ class PendingChat(BaseModel):
         new.force_tool = self.force_tool
         return new
 
-    def apply(self, **kwargs: str) -> "PendingChat":
+    def apply(self, **kwargs: str) -> Self:
         new = self.clone()
         new.chat.apply(**kwargs)
         return new
 
-    def apply_to_all(self, **kwargs: str) -> "PendingChat":
+    def apply_to_all(self, **kwargs: str) -> Self:
         new = self.clone()
         new.chat.apply_to_all(**kwargs)
         return new
@@ -202,7 +196,7 @@ class PendingChat(BaseModel):
         attempt_recovery: bool = False,
         drop_dialog: bool = True,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
-    ) -> "PendingChat":
+    ) -> Self:
         self.until_callbacks.append((callback, attempt_recovery, drop_dialog, max_rounds))
         return self
 
@@ -215,7 +209,7 @@ class PendingChat(BaseModel):
         drop_dialog: bool = False,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
         inject_prompt: bool | None = None,
-    ) -> "PendingChat":
+    ) -> Self:
         self.until_tools += tool if isinstance(tool, t.Sequence) else [tool]
         self.inject_tool_prompt = inject_prompt or self.inject_tool_prompt
         self.force_tool = force
@@ -237,7 +231,7 @@ class PendingChat(BaseModel):
         attempt_recovery: bool = False,
         drop_dialog: bool = True,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
-    ) -> "PendingChat":
+    ) -> Self:
         self.until_types += types if isinstance(types, t.Sequence) else [types]
         if next((c for c in self.until_callbacks if c[0] == self._until_parse_callback), None) is None:
             self.until_callbacks.append((self._until_parse_callback, attempt_recovery, drop_dialog, max_rounds))
@@ -317,7 +311,7 @@ class PendingChat(BaseModel):
         attempt_recovery: bool,
         drop_dialog: bool,
         max_rounds: int,
-    ) -> list[Message]:
+    ) -> t.Generator[list[Message], Message, list[Message]]:
         should_continue, step_messages = callback(messages[-1])
         if not should_continue:
             return step_messages
@@ -328,7 +322,7 @@ class PendingChat(BaseModel):
             logger.trace(
                 f"_until({callback.__name__}) round {_ + 1}/{max_rounds} (attempt_recovery={attempt_recovery})"
             )
-            next_message = self.generator.complete(messages[:-1] + running_messages, self.params or GenerateParams())
+            next_message = yield messages[:-1] + running_messages
             should_continue, step_messages = callback(next_message)
             logger.trace(f" |- returned {should_continue} with {len(step_messages)} new messages)")
 
@@ -341,7 +335,7 @@ class PendingChat(BaseModel):
         logger.warning(f"Exhausted max rounds ({max_rounds})")
         raise ExhaustedMaxRoundsError(max_rounds)
 
-    def _execute(self) -> list[Message]:
+    def _execute(self) -> t.Generator[list[Message], Message, list[Message]]:
         if self.until_tools:
             # TODO: This can cause issues when certain APIs do not return
             # the stop sequence as part of the response. This behavior
@@ -352,17 +346,21 @@ class PendingChat(BaseModel):
 
             if self.inject_tool_prompt:
                 self.chat.inject_tool_prompt(self.until_tools)
+                self.inject_tool_prompt = False
 
-        new_messages: list[Message] = [self.generator.complete(self.chat.all, self.params or GenerateParams())]
+        first_message = yield self.chat.all
 
+        new_messages = [first_message]
         for callback, reset_between, drop_internal, max_rounds in self.until_callbacks:
-            next_messages = self._until(
+            next_messages = yield from self._until(
                 self.chat.all + new_messages, callback, reset_between, drop_internal, max_rounds
             )
             new_messages = new_messages[:-1] + next_messages
 
         return new_messages
 
+
+class PendingChat(PendingChatBase):
     @t.overload
     def run(self, count: t.Literal[None] = None) -> Chat:
         ...
@@ -374,13 +372,52 @@ class PendingChat(BaseModel):
     def run(self, count: int | None = None) -> Chat | list[Chat]:
         if count is not None:
             return self.run_many(count)
-        else:
-            return Chat(self.chat.all, self._execute(), pending=self)
+
+        executor = self._execute()
+        outbound = next(executor)
+
+        try:
+            while True:
+                inbound = self.generator.complete(outbound, self.params)
+                outbound = executor.send(inbound)
+        except StopIteration as stop:
+            outbound = t.cast(list[Message], stop.value)
+
+        return Chat(self.chat.all, outbound, pending=self)
 
     def run_many(self, count: int) -> list[Chat]:
-        return [Chat(self.chat.all, self._execute(), pending=self) for _ in range(count)]
+        return [self.run() for _ in range(count)]
 
     __call__ = run
 
 
+class AsyncPendingChat(PendingChatBase):
+    @t.overload
+    async def run(self, count: t.Literal[None] = None) -> Chat:
+        ...
 
+    @t.overload
+    async def run(self, count: int) -> list[Chat]:
+        ...
+
+    async def run(self, count: int | None = None) -> Chat | list[Chat]:
+        if count is not None:
+            return await self.run_many(count)
+
+        executor = self._execute()
+        outbound = next(executor)
+
+        try:
+            while True:
+                inbound = await self.generator.acomplete(outbound, self.params)
+                outbound = executor.send(inbound)
+        except StopIteration as stop:
+            outbound = t.cast(list[Message], stop.value)
+
+        return Chat(self.chat.all, outbound, pending=self)
+
+    async def run_many(self, count: int) -> list[Chat]:
+        chats = await asyncio.gather(*[self.run() for _ in range(count)])
+        return list(chats)
+
+    __call__ = run

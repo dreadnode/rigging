@@ -1,7 +1,8 @@
 import pytest
 
 from rigging.error import InvalidModelSpecifiedError
-from rigging.generator import GenerateParams, LiteLLMGenerator, get_generator
+from rigging.generator import GenerateParams, LiteLLMGenerator, get_generator, register_generator
+from tests.test_generation import EchoGenerator
 
 
 @pytest.mark.parametrize("identifier", ["test_model", "litellm!test_model"])
@@ -44,3 +45,12 @@ def test_get_generator_invalid_structure_format(identifier: str) -> None:
 def test_get_generator_invalid_params(identifier: str) -> None:
     with pytest.raises(InvalidModelSpecifiedError):
         get_generator(identifier)
+
+
+def test_register_generator() -> None:
+    with pytest.raises(InvalidModelSpecifiedError):
+        get_generator("echo!test")
+
+    register_generator("echo", EchoGenerator)
+    generator = get_generator("echo!test")
+    assert isinstance(generator, EchoGenerator)

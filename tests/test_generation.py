@@ -8,16 +8,22 @@ from rigging.model import YesNoAnswer
 
 
 class EchoGenerator(Generator):
-    def complete(self, messages: t.Sequence[Message], overloads: GenerateParams) -> Message:
+    def complete(self, messages: t.Sequence[Message], overloads: GenerateParams | None = None) -> Message:
         return Message(role="assistant", content=messages[-1].content)
+
+    async def acomplete(self, messages: t.Sequence[Message], overloads: GenerateParams | None = None) -> Message:
+        return self.complete(messages, overloads)
 
 
 class CallbackGenerator(Generator):
     callback: t.Callable[["CallbackGenerator", t.Sequence[Message]], str] | None = None
 
-    def complete(self, messages: t.Sequence[Message], overloads: GenerateParams) -> Message:
+    def complete(self, messages: t.Sequence[Message], overloads: GenerateParams | None = None) -> Message:
         assert self.callback is not None, "Callback must be defined for CallbackGenerator"
         return Message(role="assistant", content=self.callback(self, messages))
+
+    async def acomplete(self, messages: t.Sequence[Message], overloads: GenerateParams | None = None) -> Message:
+        return self.complete(messages, overloads)
 
 
 def test_until_parsed_as_with_reset() -> None:

@@ -5,7 +5,7 @@ import litellm  # type: ignore
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from rigging.chat import PendingChat
+from rigging.chat import AsyncPendingChat, PendingChat
 from rigging.error import InvalidModelSpecifiedError
 from rigging.message import (
     Message,
@@ -95,7 +95,7 @@ class Generator(BaseModel, abc.ABC):
         """
         raise NotImplementedError("complete_text is not supported by this generator.")
 
-    def acomplete_text(self, text: str, overloads: GenerateParams | None = None) -> t.Coroutine[None, None, str]:
+    async def acomplete_text(self, text: str, overloads: GenerateParams | None = None) -> str:
         """
         Asynchronously generates a string completion of the given text.
 
@@ -127,9 +127,7 @@ class Generator(BaseModel, abc.ABC):
         ...
 
     @abc.abstractmethod
-    def acomplete(
-        self, messages: t.Sequence[Message], overloads: GenerateParams | None = None
-    ) -> t.Coroutine[None, None, Message]:
+    async def acomplete(self, messages: t.Sequence[Message], overloads: GenerateParams | None = None) -> Message:
         """
         Asynchronously generates the next message for a given set of messages.
 
@@ -143,6 +141,17 @@ class Generator(BaseModel, abc.ABC):
         """
         ...
 
+    # These type overloads look unnecessary, but mypy
+    # doesn't pick up on MessageDict args for some reason
+
+    @t.overload
+    def chat(self, messages: t.Sequence[MessageDict]) -> PendingChat:
+        ...
+
+    @t.overload
+    def chat(self, messages: t.Sequence[Message] | str) -> PendingChat:
+        ...
+
     def chat(
         self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | str, overloads: GenerateParams | None = None
     ) -> PendingChat:
@@ -154,13 +163,55 @@ class Generator(BaseModel, abc.ABC):
             overloads (GenerateParams | None, optional): Optional parameters for generating responses. Defaults to None.
 
         Returns:
-            PendingChat: A PendingChat object representing the ongoing chat.
+            PendingChat: Pending chat to run.
 
         """
         return PendingChat(self, Message.fit_as_list(messages), overloads)
 
+    @t.overload
+    def achat(self, messages: t.Sequence[MessageDict]) -> AsyncPendingChat:
+        ...
+
+    @t.overload
+    def achat(self, messages: t.Sequence[Message] | str) -> AsyncPendingChat:
+        ...
+
+    def achat(
+        self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | str, overloads: GenerateParams | None = None
+    ) -> AsyncPendingChat:
+        """
+        Initiates an async pending chat with the given messages and optional overloads.
+
+        Args:
+            messages (Sequence[MessageDict] | Sequence[Message] | str): The messages to be sent in the chat.
+            overloads (GenerateParams | None, optional): Optional parameters for generating responses. Defaults to None.
+
+        Returns:
+            AsyncPendingChat: Pending chat to run.
+
+        """
+        return AsyncPendingChat(self, Message.fit_as_list(messages), overloads)
+
 
 # Helper function external to a generator
+
+
+@t.overload
+def chat(
+    generator: "Generator",
+    messages: t.Sequence[MessageDict],
+    overloads: GenerateParams | None = None,
+) -> PendingChat:
+    ...
+
+
+@t.overload
+def chat(
+    generator: "Generator",
+    messages: t.Sequence[Message] | str,
+    overloads: GenerateParams | None = None,
+) -> PendingChat:
+    ...
 
 
 def chat(
@@ -179,10 +230,46 @@ def chat(
             Defaults to None.
 
     Returns:
-        PendingChat: The pending chat object.
+        PendingChat: Pending chat to run.
 
     """
     return PendingChat(generator, Message.fit_as_list(messages), overloads)
+
+
+@t.overload
+def achat(
+    generator: "Generator", messages: t.Sequence[MessageDict], overloads: GenerateParams | None = None
+) -> AsyncPendingChat:
+    ...
+
+
+@t.overload
+def achat(
+    generator: "Generator", messages: t.Sequence[Message] | str, overloads: GenerateParams | None = None
+) -> AsyncPendingChat:
+    ...
+
+
+def achat(
+    generator: "Generator",
+    messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str,
+    overloads: GenerateParams | None = None,
+) -> AsyncPendingChat:
+    """
+    Creates an async pending chat using the given generator, messages, and overloads.
+
+    Args:
+        generator (Generator): The generator to use for creating the chat.
+        messages (Sequence[MessageDict] | Sequence[Message] | MessageDict | Message | str):
+            The messages to include in the chat. Can be a single message or a sequence of messages.
+        overloads (GenerateParams | None, optional): Additional parameters for generating the chat.
+            Defaults to None.
+
+    Returns:
+        AsyncPendingChat: Pending chat to run.
+
+    """
+    return AsyncPendingChat(generator, Message.fit_as_list(messages), overloads)
 
 
 def trace_messages(messages: t.Sequence[Message], title: str) -> None:
@@ -242,7 +329,7 @@ class LiteLLMGenerator(Generator):
 
 
 g_providers: dict[str, type["Generator"]] = {
-    "litellm": "LiteLLMGenerator",
+    "litellm": LiteLLMGenerator,
 }
 
 
@@ -272,7 +359,7 @@ def get_generator(identifier: str) -> Generator:
         (These get parsed as GenerateParams)
     """
 
-    provider: str = g_providers.keys()[0]
+    provider: str = list(g_providers.keys())[0]
     model: str = identifier
     api_key: str | None = None
     params: GenerateParams = GenerateParams()
