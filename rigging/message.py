@@ -201,7 +201,9 @@ class Message(BaseModel):
         return cls(role=role, content=content, parts=parts)
 
     @classmethod
-    def fit_list(cls, messages: t.Sequence["Message"] | t.Sequence[MessageDict]) -> list["Message"]:
+    def fit_as_list(
+        cls, messages: t.Sequence[MessageDict] | t.Sequence["Message"] | MessageDict | "Message" | str
+    ) -> list["Message"]:
         return [cls.fit(message) for message in messages]
 
     @classmethod

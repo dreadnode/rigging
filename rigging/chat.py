@@ -1,7 +1,8 @@
 import typing as t
+from uuid import UUID, uuid4
 
 from loguru import logger
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from rigging.error import ExhaustedMaxRoundsError
 from rigging.message import Message, MessageDict, Messages
@@ -20,17 +21,21 @@ if t.TYPE_CHECKING:
 DEFAULT_MAX_ROUNDS = 5
 
 
-class Chat:
+class Chat(BaseModel):
+    messages: list[Message]
+    next_messages: list[Message] = Field(default_factory=list)
+    pending_chat: "PendingChat" | None = None
+
     def __init__(
         self,
         messages: Messages,
         next_messages: Messages | None = None,
         pending: t.Optional["PendingChat"] = None,
     ):
-        self.messages: list[Message] = Message.fit_list(messages)
+        self.messages: list[Message] = Message.fit_as_list(messages)
         self.next_messages: list[Message] = []
         if next_messages is not None:
-            self.next_messages = Message.fit_list(next_messages)
+            self.next_messages = Message.fit_as_list(next_messages)
         self.pending_chat = pending
 
     def __len__(self) -> int:
@@ -115,10 +120,17 @@ class Chat:
 UntilCallback = t.Callable[[Message], tuple[bool, list[Message]]]
 
 
-class PendingChat:
-    def __init__(self, generator: "Generator", messages: t.Sequence[Message], params: "GenerateParams"):
+class PendingChat(BaseModel):
+    uuid: UUID = Field(default_factory=uuid4)
+    parent: "PendingChat" | None = None
+    generator: "Generator"
+    params: "GenerateParams" | None = None
+    chat: Chat
+
+    def __init__(self, generator: "Generator", messages: t.Sequence[Message], params: "GenerateParams" | None = None):
         self.generator: "Generator" = generator
         self.chat: Chat = Chat(messages, pending=self)
+        self.params = params
 
         # (callback, attempt_recovery, drop_dialog, max_rounds)
         self.until_callbacks: list[tuple[UntilCallback, bool, bool, int]] = []
@@ -127,26 +139,24 @@ class PendingChat:
         self.inject_tool_prompt: bool = True
         self.force_tool: bool = False
 
-        self.params = params
-
     def overload(self, **kwargs: t.Any) -> "PendingChat":
         from rigging.generator import GenerateParams
 
         return self.with_params(GenerateParams(**kwargs))
 
     def with_params(self, params: "GenerateParams") -> "PendingChat":
-        if params is not None:
-            self.params = params
+        if self.params is not None:
+            new = self.clone()
+            new.params = params
+            return new
+
+        self.params = params
         return self
 
     def add(
         self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
     ) -> "PendingChat":
-        message_list: list[Message] = (
-            [Message.fit(messages)]
-            if not isinstance(messages, t.Sequence) or isinstance(messages, str)
-            else Message.fit_list(messages)
-        )
+        message_list = Message.fit_as_list(messages)
         # If the last message is the same role as the first new message, append to it
         if self.chat.next_messages and self.chat.next_messages[-1].role == message_list[0].role:
             self.chat.next_messages[-1].content += "\n" + message_list[0].content
@@ -168,6 +178,11 @@ class PendingChat:
     def clone(self) -> "PendingChat":
         new = PendingChat(self.generator, [], self.params)
         new.chat = self.chat.clone()
+        new.until_callbacks = self.until_callbacks.copy()
+        new.until_types = self.until_types.copy()
+        new.until_tools = self.until_tools.copy()
+        new.inject_tool_prompt = self.inject_tool_prompt
+        new.force_tool = self.force_tool
         return new
 
     def apply(self, **kwargs: str) -> "PendingChat":
@@ -313,7 +328,7 @@ class PendingChat:
             logger.trace(
                 f"_until({callback.__name__}) round {_ + 1}/{max_rounds} (attempt_recovery={attempt_recovery})"
             )
-            next_message = self.generator.complete(messages[:-1] + running_messages, self.params)
+            next_message = self.generator.complete(messages[:-1] + running_messages, self.params or GenerateParams())
             should_continue, step_messages = callback(next_message)
             logger.trace(f" |- returned {should_continue} with {len(step_messages)} new messages)")
 
@@ -338,7 +353,7 @@ class PendingChat:
             if self.inject_tool_prompt:
                 self.chat.inject_tool_prompt(self.until_tools)
 
-        new_messages: list[Message] = [self.generator.complete(self.chat.all, self.params)]
+        new_messages: list[Message] = [self.generator.complete(self.chat.all, self.params or GenerateParams())]
 
         for callback, reset_between, drop_internal, max_rounds in self.until_callbacks:
             next_messages = self._until(
@@ -347,29 +362,6 @@ class PendingChat:
             new_messages = new_messages[:-1] + next_messages
 
         return new_messages
-
-    @t.overload
-    def run_with(
-        self,
-        messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str,
-        count: t.Literal[None] = None,
-    ) -> Chat:
-        ...
-
-    @t.overload
-    def run_with(
-        self,
-        messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str,
-        count: int,
-    ) -> list[Chat]:
-        ...
-
-    def run_with(
-        self,
-        messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str,
-        count: int | None = None,
-    ) -> Chat | list[Chat]:
-        return self.add(messages).run(count)
 
     @t.overload
     def run(self, count: t.Literal[None] = None) -> Chat:
@@ -389,3 +381,6 @@ class PendingChat:
         return [Chat(self.chat.all, self._execute(), pending=self) for _ in range(count)]
 
     __call__ = run
+
+
+

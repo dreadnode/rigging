@@ -63,18 +63,21 @@ class Generator(BaseModel, abc.ABC):
     def complete(self, messages: t.Sequence[Message], overloads: GenerateParams) -> Message:
         ...
 
-    @t.overload
-    def chat(self, messages: t.Sequence[MessageDict], overloads: GenerateParams | None = None) -> PendingChat:
-        ...
-
-    @t.overload
-    def chat(self, messages: t.Sequence[Message], overloads: GenerateParams | None = None) -> PendingChat:
-        ...
-
     def chat(
-        self, messages: t.Sequence[MessageDict] | t.Sequence[Message], overloads: GenerateParams | None = None
+        self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | str, overloads: GenerateParams | None = None
     ) -> PendingChat:
-        return PendingChat(self, Message.fit_list(messages), overloads or GenerateParams())
+        return PendingChat(self, Message.fit_as_list(messages), overloads)
+
+
+# Helper function external to a generator
+
+
+def chat(
+    generator: "Generator",
+    messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str,
+    overloads: GenerateParams | None = None,
+) -> PendingChat:
+    return PendingChat(generator, Message.fit_as_list(messages), overloads)
 
 
 class LiteLLMGenerator(Generator):

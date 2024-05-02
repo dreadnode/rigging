@@ -105,7 +105,7 @@ def test_message_from_model() -> None:
 
 def test_messages_fit_list() -> None:
     messages: t.Any = [{"role": "system", "content": "You are an AI assistant."}, Message("user", "Hello!")]
-    fitted = Message.fit_list(messages)
+    fitted = Message.fit_as_list(messages)
     assert len(fitted) == 2
     assert isinstance(fitted[0], Message)
     assert isinstance(fitted[1], Message)
