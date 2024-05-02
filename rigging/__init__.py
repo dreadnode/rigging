@@ -1,5 +1,5 @@
-from rigging.chat import AsyncPendingChat, Chat, PendingChat
-from rigging.generator import GenerateParams, Generator, achat, chat, get_generator
+from rigging.chat import Chat, PendingChat
+from rigging.generator import GenerateParams, Generator, chat, get_generator
 from rigging.message import Message, MessageDict, Messages
 from rigging.model import Model, attr, element, wrapped
 from rigging.tool import Tool
@@ -16,7 +16,6 @@ __all__ = [
     "wrapped",
     "Chat",
     "PendingChat",
-    "AsyncPendingChat",
     "Generator",
     "GenerateParams",
     "chat",

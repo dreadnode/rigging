@@ -3,7 +3,6 @@ import typing as t
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from typing_extensions import Self
 
 from rigging.error import ExhaustedMaxRoundsError
 from rigging.message import Message, MessageDict, Messages
@@ -27,13 +26,13 @@ class Chat(BaseModel):
 
     messages: list[Message]
     next_messages: list[Message] = Field(default_factory=list)
-    pending: t.Optional["PendingChatBase"] = Field(None, exclude=True)
+    pending: t.Optional["PendingChat"] = Field(None, exclude=True)
 
     def __init__(
         self,
         messages: Messages,
         next_messages: Messages | None = None,
-        pending: t.Optional["PendingChatBase"] = None,
+        pending: t.Optional["PendingChat"] = None,
     ):
         super().__init__(
             messages=Message.fit_as_list(messages),
@@ -67,22 +66,10 @@ class Chat(BaseModel):
             raise ValueError("Cannot restart chat that was not created with a PendingChat")
         return PendingChat(self.pending.generator, self.messages, self.pending.params)
 
-    def arestart(self, generator: t.Optional["Generator"] = None) -> "AsyncPendingChat":
-        if generator is not None:
-            return generator.achat(self.messages)
-        elif self.pending is None:
-            raise ValueError("Cannot restart chat that was not created with a PendingChat")
-        return AsyncPendingChat(self.pending.generator, self.messages, self.pending.params)
-
     def fork(
         self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | MessageDict | str
     ) -> "PendingChat":
         return self.restart().add(messages)
-
-    def afork(
-        self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | MessageDict | str
-    ) -> "AsyncPendingChat":
-        return self.arestart().add(messages)
 
     def continue_(self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | str) -> "PendingChat":
         return self.fork(messages)
@@ -124,7 +111,7 @@ class Chat(BaseModel):
 UntilCallback = t.Callable[[Message], tuple[bool, list[Message]]]
 
 
-class PendingChatBase:
+class PendingChat:
     def __init__(
         self, generator: "Generator", messages: t.Sequence[Message], params: t.Optional["GenerateParams"] = None
     ):
@@ -139,12 +126,12 @@ class PendingChatBase:
         self.inject_tool_prompt: bool = True
         self.force_tool: bool = False
 
-    def overload(self, **kwargs: t.Any) -> Self:
+    def overload(self, **kwargs: t.Any) -> "PendingChat":
         from rigging.generator import GenerateParams
 
         return self.with_params(GenerateParams(**kwargs))
 
-    def with_params(self, params: "GenerateParams") -> Self:
+    def with_params(self, params: "GenerateParams") -> "PendingChat":
         if self.params is not None:
             new = self.clone()
             new.params = params
@@ -153,7 +140,9 @@ class PendingChatBase:
         self.params = params
         return self
 
-    def add(self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str) -> Self:
+    def add(
+        self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
+    ) -> "PendingChat":
         message_list = Message.fit_as_list(messages)
         # If the last message is the same role as the first new message, append to it
         if self.chat.all and self.chat.all[-1].role == message_list[0].role:
@@ -163,14 +152,18 @@ class PendingChatBase:
             self.chat.next_messages += message_list
         return self
 
-    def fork(self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str) -> Self:
+    def fork(
+        self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
+    ) -> "PendingChat":
         return self.clone().add(messages)
 
-    def continue_(self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str) -> Self:
+    def continue_(
+        self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
+    ) -> "PendingChat":
         return self.fork(messages)
 
-    def clone(self) -> Self:
-        new = self.__class__(self.generator, [], self.params)
+    def clone(self) -> "PendingChat":
+        new = PendingChat(self.generator, [], self.params)
         new.chat = self.chat.clone()
         new.until_callbacks = self.until_callbacks.copy()
         new.until_types = self.until_types.copy()
@@ -179,12 +172,12 @@ class PendingChatBase:
         new.force_tool = self.force_tool
         return new
 
-    def apply(self, **kwargs: str) -> Self:
+    def apply(self, **kwargs: str) -> "PendingChat":
         new = self.clone()
         new.chat.apply(**kwargs)
         return new
 
-    def apply_to_all(self, **kwargs: str) -> Self:
+    def apply_to_all(self, **kwargs: str) -> "PendingChat":
         new = self.clone()
         new.chat.apply_to_all(**kwargs)
         return new
@@ -196,7 +189,7 @@ class PendingChatBase:
         attempt_recovery: bool = False,
         drop_dialog: bool = True,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
-    ) -> Self:
+    ) -> "PendingChat":
         self.until_callbacks.append((callback, attempt_recovery, drop_dialog, max_rounds))
         return self
 
@@ -209,7 +202,7 @@ class PendingChatBase:
         drop_dialog: bool = False,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
         inject_prompt: bool | None = None,
-    ) -> Self:
+    ) -> "PendingChat":
         self.until_tools += tool if isinstance(tool, t.Sequence) else [tool]
         self.inject_tool_prompt = inject_prompt or self.inject_tool_prompt
         self.force_tool = force
@@ -231,7 +224,7 @@ class PendingChatBase:
         attempt_recovery: bool = False,
         drop_dialog: bool = True,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
-    ) -> Self:
+    ) -> "PendingChat":
         self.until_types += types if isinstance(types, t.Sequence) else [types]
         if next((c for c in self.until_callbacks if c[0] == self._until_parse_callback), None) is None:
             self.until_callbacks.append((self._until_parse_callback, attempt_recovery, drop_dialog, max_rounds))
@@ -359,8 +352,6 @@ class PendingChatBase:
 
         return new_messages
 
-
-class PendingChat(PendingChatBase):
     @t.overload
     def run(self, count: t.Literal[None] = None) -> Chat:
         ...
@@ -390,19 +381,17 @@ class PendingChat(PendingChatBase):
 
     __call__ = run
 
-
-class AsyncPendingChat(PendingChatBase):
     @t.overload
-    async def run(self, count: t.Literal[None] = None) -> Chat:
+    async def arun(self, count: t.Literal[None] = None) -> Chat:
         ...
 
     @t.overload
-    async def run(self, count: int) -> list[Chat]:
+    async def arun(self, count: int) -> list[Chat]:
         ...
 
-    async def run(self, count: int | None = None) -> Chat | list[Chat]:
+    async def arun(self, count: int | None = None) -> Chat | list[Chat]:
         if count is not None:
-            return await self.run_many(count)
+            return await self.arun_many(count)
 
         executor = self._execute()
         outbound = next(executor)
@@ -416,8 +405,6 @@ class AsyncPendingChat(PendingChatBase):
 
         return Chat(self.chat.all, outbound, pending=self)
 
-    async def run_many(self, count: int) -> list[Chat]:
-        chats = await asyncio.gather(*[self.run() for _ in range(count)])
+    async def arun_many(self, count: int) -> list[Chat]:
+        chats = await asyncio.gather(*[self.arun() for _ in range(count)])
         return list(chats)
-
-    __call__ = run
