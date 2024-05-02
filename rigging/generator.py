@@ -26,6 +26,10 @@ litellm.drop_params = True
 # parallel generation eventually -> need to
 # update our interfaces to support that
 class GenerateParams(BaseModel):
+    """
+    Common parameters for generating text using a language model.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     temperature: float | None = None
@@ -52,20 +56,107 @@ class Generator(BaseModel, abc.ABC):
     api_key: str | None = None
     params: GenerateParams
 
-    def _merge_params(self, overloads: GenerateParams) -> dict[str, t.Any]:
+    def _merge_params(self, overloads: GenerateParams | None = None) -> dict[str, t.Any]:
+        """
+        Helper to merge the parameters of the current instance with the provided `overloads` parameters.
+
+        Typically used to prepare a dictionary of API parameters for a request.
+
+        Args:
+            overloads (GenerateParams): The parameters to be merged with the current instance's parameters.
+
+        Returns:
+            dict[str, t.Any]: The merged parameters.
+
+        """
         params: dict[str, t.Any] = self.params.model_dump(exclude_unset=True) if self.params else {}
+        if overloads is None:
+            return params
+
         for name, value in overloads.model_dump(exclude_unset=True).items():
             if value is not None:
                 params[name] = value
+
         return params
 
+    def complete_text(self, text: str, overloads: GenerateParams | None = None) -> str:
+        """
+        Generates a string completion of the given text.
+
+        Args:
+            text (str): The input text to be completed.
+            overloads (GenerateParams | None, optional): The parameters to be used for completion.
+
+        Returns:
+            str: The completed text.
+
+        Raises:
+            NotImplementedError: This generator does not support the `complete_text` method.
+        """
+        raise NotImplementedError("complete_text is not supported by this generator.")
+
+    def acomplete_text(self, text: str, overloads: GenerateParams | None = None) -> t.Coroutine[None, None, str]:
+        """
+        Asynchronously generates a string completion of the given text.
+
+        Args:
+            text (str): The input text to be completed.
+            overloads (GenerateParams | None, optional): The parameters to be used for completion.
+
+        Returns:
+            Coroutine[None, None, str]: A coroutine that yields the completed text.
+
+        Raises:
+            NotImplementedError: This generator does not support the `acomplete_text` method.
+        """
+        raise NotImplementedError("acomplete_text is not supported by this generator.")
+
     @abc.abstractmethod
-    def complete(self, messages: t.Sequence[Message], overloads: GenerateParams) -> Message:
+    def complete(self, messages: t.Sequence[Message], overloads: GenerateParams | None = None) -> Message:
+        """
+        Generates the next message for a given set of messages.
+
+        Args:
+            messages (Sequence[Message]): The list of messages to generate completion for.
+            overloads (GenerateParams | None, optional): The parameters to be used for completion.
+
+        Returns:
+            Message: The generated completion message.
+
+        """
+        ...
+
+    @abc.abstractmethod
+    def acomplete(
+        self, messages: t.Sequence[Message], overloads: GenerateParams | None = None
+    ) -> t.Coroutine[None, None, Message]:
+        """
+        Asynchronously generates the next message for a given set of messages.
+
+        Args:
+            messages (Sequence[Message]): A sequence of messages.
+            overloads (GenerateParams | None, optional): The parameters to be used for completion.
+
+        Returns:
+            Coroutine[None, None, Message]: A coroutine that yields completion messages.
+
+        """
         ...
 
     def chat(
         self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | str, overloads: GenerateParams | None = None
     ) -> PendingChat:
+        """
+        Initiates a pending chat with the given messages and optional overloads.
+
+        Args:
+            messages (Sequence[MessageDict] | Sequence[Message] | str): The messages to be sent in the chat.
+            overloads (GenerateParams | None, optional): Optional parameters for generating responses. Defaults to None.
+
+        Returns:
+            PendingChat: A PendingChat object representing the ongoing chat.
+
+        """
         return PendingChat(self, Message.fit_as_list(messages), overloads)
 
 
@@ -77,26 +168,82 @@ def chat(
     messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str,
     overloads: GenerateParams | None = None,
 ) -> PendingChat:
+    """
+    Creates a pending chat using the given generator, messages, and overloads.
+
+    Args:
+        generator (Generator): The generator to use for creating the chat.
+        messages (Sequence[MessageDict] | Sequence[Message] | MessageDict | Message | str):
+            The messages to include in the chat. Can be a single message or a sequence of messages.
+        overloads (GenerateParams | None, optional): Additional parameters for generating the chat.
+            Defaults to None.
+
+    Returns:
+        PendingChat: The pending chat object.
+
+    """
     return PendingChat(generator, Message.fit_as_list(messages), overloads)
 
 
+def trace_messages(messages: t.Sequence[Message], title: str) -> None:
+    logger.trace(f"--- {title} ---")
+    logger.trace("\n".join([str(msg) for msg in messages]))
+    logger.trace("---")
+
+
+def trace_str(content: str, title: str) -> None:
+    logger.trace(f"--- {title} ---")
+    logger.trace(content)
+    logger.trace("---")
+
+
 class LiteLLMGenerator(Generator):
-    def complete(self, messages: t.Sequence[Message], overloads: GenerateParams = GenerateParams()) -> Message:
-        logger.trace("--- Conversation ---")
-        logger.trace("\n".join([str(msg) for msg in messages]))
-        logger.trace("---")
+    def complete(self, messages: t.Sequence[Message], overloads: GenerateParams | None = None) -> Message:
+        trace_messages(messages, "Conversations")
 
         messages_as_dicts = [message.model_dump() for message in messages]
-        complete_params = self._merge_params(overloads)
-        result = litellm.completion(self.model, messages_as_dicts, api_key=self.api_key, **complete_params)
+        params = self._merge_params(overloads)
+        result = litellm.completion(self.model, messages_as_dicts, api_key=self.api_key, **params)
         response = result.choices[-1].message.content.strip()
         next_message = Message(role="assistant", content=response)
 
-        logger.trace("--- Response ---")
-        logger.trace(str(next_message))
-        logger.trace("---")
+        trace_messages([next_message], "Response")
 
         return next_message
+
+    async def acomplete(self, messages: t.Sequence[Message], overloads: GenerateParams | None = None) -> Message:
+        trace_messages(messages, "Conversations")
+
+        messages_as_dicts = [message.model_dump() for message in messages]
+        params = self._merge_params(overloads)
+        result = await litellm.acompletion(self.model, messages_as_dicts, api_key=self.api_key, **params)
+        response = result.choices[-1].message.content.strip()
+        next_message = Message(role="assistant", content=response)
+
+        trace_messages([next_message], "Response")
+
+        return next_message
+
+    def complete_text(self, text: str, overloads: GenerateParams | None = None) -> str:
+        trace_str(text, "Text")
+        params = self._merge_params(overloads)
+        result = litellm.text_completion(self.model, text, api_key=self.api_key, **params)
+        completion: str = result.choices[-1]["text"]
+        trace_str(completion, "Completion")
+        return completion
+
+    async def acomplete_text(self, text: str, overloads: GenerateParams | None = None) -> str:
+        trace_str(text, "Text")
+        params = self._merge_params(overloads)
+        result = await litellm.atext_completion(self.model, text, api_key=self.api_key, **params)
+        completion: str = result.choices[-1]["text"]
+        trace_str(completion, "Completion")
+        return completion
+
+
+g_providers: dict[str, type["Generator"]] = {
+    "litellm": "LiteLLMGenerator",
+}
 
 
 def get_generator(identifier: str) -> Generator:
@@ -125,7 +272,7 @@ def get_generator(identifier: str) -> Generator:
         (These get parsed as GenerateParams)
     """
 
-    provider: str = "litellm"
+    provider: str = g_providers.keys()[0]
     model: str = identifier
     api_key: str | None = None
     params: GenerateParams = GenerateParams()
@@ -144,7 +291,23 @@ def get_generator(identifier: str) -> Generator:
     except Exception as e:
         raise InvalidModelSpecifiedError(identifier) from e
 
-    if provider == "litellm":
-        return LiteLLMGenerator(model=model, api_key=api_key, params=params)
-    else:
+    if provider not in g_providers:
         raise InvalidModelSpecifiedError(identifier)
+
+    generator_cls = g_providers[provider]
+    return generator_cls(model=model, api_key=api_key, params=params)
+
+
+def register_generator(provider: str, generator_cls: type[Generator]) -> None:
+    """
+    Register a generator class for a provider id.
+
+    Args:
+        provider (str): The name of the provider.
+        generator_cls (type[Generator]): The generator class to register.
+
+    Returns:
+        None
+    """
+    global g_providers
+    g_providers[provider] = generator_cls
