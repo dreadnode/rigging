@@ -1,5 +1,6 @@
 import asyncio
 import typing as t
+from copy import deepcopy
 from datetime import datetime
 from uuid import UUID, uuid4
 
@@ -144,6 +145,7 @@ class PendingChat:
         self.generator: "Generator" = generator
         self.chat: Chat = Chat(messages, pending=self)
         self.params = params
+        self.metadata: dict[str, t.Any] = {}
 
         # (callback, attempt_recovery, drop_dialog, max_rounds)
         self.until_callbacks: list[tuple[UntilCallback, bool, bool, int]] = []
@@ -188,15 +190,21 @@ class PendingChat:
     ) -> "PendingChat":
         return self.fork(messages)
 
-    def clone(self) -> "PendingChat":
+    def clone(self, *, only_messages: bool = False) -> "PendingChat":
         new = PendingChat(self.generator, [], self.params)
         new.chat = self.chat.clone()
-        new.until_callbacks = self.until_callbacks.copy()
-        new.until_types = self.until_types.copy()
-        new.until_tools = self.until_tools.copy()
-        new.inject_tool_prompt = self.inject_tool_prompt
-        new.force_tool = self.force_tool
+        if not only_messages:
+            new.until_callbacks = self.until_callbacks.copy()
+            new.until_types = self.until_types.copy()
+            new.until_tools = self.until_tools.copy()
+            new.inject_tool_prompt = self.inject_tool_prompt
+            new.force_tool = self.force_tool
+            new.metadata = deepcopy(self.metadata)
         return new
+
+    def meta(self, **kwargs: t.Any) -> "PendingChat":
+        self.metadata.update(kwargs)
+        return self
 
     def apply(self, **kwargs: str) -> "PendingChat":
         new = self.clone()
