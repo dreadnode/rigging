@@ -9,7 +9,7 @@ from pydantic_xml import attr as attr
 from pydantic_xml import element as element
 from pydantic_xml import wrapped as wrapped
 from pydantic_xml.element import SearchMode  # type: ignore [attr-defined]
-from pydantic_xml.typedefs import NsMap
+from pydantic_xml.typedefs import EntityLocation, NsMap
 
 from rigging.error import MissingModelError
 
@@ -73,7 +73,8 @@ class Model(BaseXmlModel):
         cls.__xml_tag__ = XmlTagDescriptor()  # type: ignore [assignment]
 
     # to_xml() doesn't prettify normally, and extended
-    # requirements like lxml seemed like poor form
+    # requirements like lxml seemed like poor form for
+    # just this feature
     def to_pretty_xml(self) -> str:
         tree = self.to_xml_tree()
         ET.indent(tree, "   ")
@@ -89,6 +90,8 @@ class Model(BaseXmlModel):
     # So we'll handle easy cases here and mark the model as "simple"
     # if it only contains a single basic field. It makes our parsing
     # much more consistent and is likely the most popular model type.
+    #
+    # TODO: lxml with the recover option is likely a better approach
     @classmethod
     def is_simple(cls) -> bool:
         field_values = list(cls.model_fields.values())
@@ -112,6 +115,18 @@ class Model(BaseXmlModel):
     def xml_example(cls) -> str:
         return cls.xml_tags()
 
+    @classmethod
+    def ensure_valid(cls) -> None:
+        # Do a sanity check for models with a single
+        # attr field, which our parsing currently doesn't support
+        #
+        # TODO: Add support for <thing attr="value" /> style models
+
+        if len(cls.model_fields) == 1:
+            field_info = next(iter(cls.model_fields.values()))
+            if hasattr(field_info, "location") and field_info.location == EntityLocation.ATTRIBUTE:
+                raise ValueError(f"Model '{cls.__name__}' has a single attr() field which is not supported")
+
     # Attempt to extract this object from an arbitrary string
     # which may contain other XML elements or text, returns
     # the object and the string from which is was parsed.
@@ -124,6 +139,8 @@ class Model(BaseXmlModel):
 
     @classmethod
     def from_text(cls, content: str) -> list[tuple[ModelT, slice]]:
+        cls.ensure_valid()
+
         pattern = r"(<([\w-]+).*?>((.*?)</\2>))"
         matches = [m for m in re.finditer(pattern, content, flags=re.DOTALL) if m.group(2) == cls.__xml_tag__]
 
@@ -146,6 +163,9 @@ class Model(BaseXmlModel):
             #
             # Example: "Sure I'll use <answer> tags: <answer>hello</answer>"
             #
+            # TODO: The opposite could be true, and we could greedily parse
+            # backwards if we get failures. This is a simple solution for now.
+
             inner_match: re.Match[str] | None = match
             while inner_match is not None:
                 inner_matches = re.finditer(pattern, inner_with_end_tag, flags=re.DOTALL)
