@@ -1,3 +1,7 @@
+"""
+Generators produce completions for a given set of messages or text.
+"""
+
 import abc
 import typing as t
 
@@ -27,7 +31,22 @@ litellm.drop_params = True
 # update our interfaces to support that
 class GenerateParams(BaseModel):
     """
-    Common parameters for generating text using a language model.
+    Parameters for generating text using a language model.
+
+    These are designed to generally overlap with underlying
+    APIs like litellm, but will be extended as needed.
+
+    Attributes:
+        temperature (float | None): The sampling temperature.
+        max_tokens (int | None): The maximum number of tokens to generate.
+        top_p (float | None): The nucleus sampling probability.
+        stop (list[str] | None): A list of stop sequences to stop generation at.
+        presence_penalty (float | None): The presence penalty.
+        frequency_penalty (float | None): The frequency penalty.
+        api_base (str | None): The base URL for the API.
+        timeout (int | None): The timeout for the API request.
+        seed (int | None): The seed.
+        extra (dict[str, t.Any]): Extra parameters.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -41,6 +60,7 @@ class GenerateParams(BaseModel):
     api_base: str | None = None
     timeout: int | None = None
     seed: int | None = None
+    extra: dict[str, t.Any] = Field(default_factory=dict)
 
     @field_validator("stop", mode="before")
     def validate_stop(cls, value: t.Any) -> t.Any:
@@ -52,18 +72,46 @@ class GenerateParams(BaseModel):
 
 
 class Generator(BaseModel, abc.ABC):
+    """
+    Base class for all rigging generators.
+
+    This class provides common functionality and methods for generating completion messages.
+
+    Attributes:
+        model (str): The model used by the generator.
+        api_key (str | None): The API key used for authentication. Defaults to None.
+        params (GenerateParams): The parameters used for generating completion messages.
+    """
+
     model: str
     api_key: str | None = Field(None, exclude=True)
     params: GenerateParams
 
     def to_identifier(self, overloads: GenerateParams | None = None) -> str:
+        """
+        Converts the generator instance back into a rigging identifier string.
+
+        Note:
+            Extra parameters are not supported in identifiers.
+
+        Args:
+            overloads (GenerateParams | None, optional): The parameters to be used for generating the identifier.
+
+        Returns:
+            str: The identifier string.
+        """
         provider = next(name for name, klass in g_providers.items() if isinstance(self, klass))
         params_dict = self._merge_params(overloads)
         if not params_dict:
             return f"{provider}!{self.model}"
 
+        if "extra" in params_dict:
+            logger.warning("Extra parameters are not supported in identifiers.")
+            params_dict.pop("extra")
+
         if "stop" in params_dict:
             params_dict["stop"] = ";".join(params_dict["stop"])
+
         params = ",".join([f"{k}={v}" for k, v in params_dict.items()])
 
         return f"{provider}!{self.model},{params}"
@@ -79,13 +127,16 @@ class Generator(BaseModel, abc.ABC):
 
         Returns:
             dict[str, t.Any]: The merged parameters.
-
         """
         params: dict[str, t.Any] = self.params.model_dump(exclude_unset=True) if self.params else {}
         if overloads is None:
             return params
 
-        for name, value in overloads.model_dump(exclude_unset=True).items():
+        overloads_dict = overloads.model_dump(exclude_unset=True)
+        if "extra" in overloads_dict:
+            params.update(overloads_dict.pop("extra"))
+
+        for name, value in overloads_dict.items():
             if value is not None:
                 params[name] = value
 
@@ -134,7 +185,6 @@ class Generator(BaseModel, abc.ABC):
 
         Returns:
             Message: The generated completion message.
-
         """
         ...
 
@@ -149,12 +199,8 @@ class Generator(BaseModel, abc.ABC):
 
         Returns:
             Coroutine[None, None, Message]: A coroutine that yields completion messages.
-
         """
         ...
-
-    # These type overloads look unnecessary, but mypy
-    # doesn't pick up on MessageDict args for some reason
 
     @t.overload
     def chat(self, messages: t.Sequence[MessageDict]) -> PendingChat:
@@ -168,7 +214,7 @@ class Generator(BaseModel, abc.ABC):
         self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | str, overloads: GenerateParams | None = None
     ) -> PendingChat:
         """
-        Initiates a pending chat with the given messages and optional overloads.
+        Builds a pending chat with the given messages and optional overloads.
 
         Args:
             messages (Sequence[MessageDict] | Sequence[Message] | str): The messages to be sent in the chat.
@@ -176,7 +222,6 @@ class Generator(BaseModel, abc.ABC):
 
         Returns:
             PendingChat: Pending chat to run.
-
         """
         return PendingChat(self, Message.fit_as_list(messages), overloads)
 
@@ -219,24 +264,50 @@ def chat(
 
     Returns:
         PendingChat: Pending chat to run.
-
     """
     return PendingChat(generator, Message.fit_as_list(messages), overloads)
 
 
 def trace_messages(messages: t.Sequence[Message], title: str) -> None:
+    """
+    Helper function to trace log a sequence of Message objects.
+
+    Args:
+        messages (Sequence[Message]): A sequence of Message objects to be logged.
+        title (str): The title to be displayed in the log.
+
+    Returns:
+        None
+    """
     logger.trace(f"--- {title} ---")
     logger.trace("\n".join([str(msg) for msg in messages]))
     logger.trace("---")
 
 
 def trace_str(content: str, title: str) -> None:
+    """
+    Helper function to trace log a string.
+
+    Parameters:
+        content (str): The string content to be logged.
+        title (str): The title of the log entry.
+
+    Returns:
+        None
+    """
     logger.trace(f"--- {title} ---")
     logger.trace(content)
     logger.trace("---")
 
 
 class LiteLLMGenerator(Generator):
+    """
+    Generator backed by the LiteLLM library.
+
+    !!! note
+        Find more information about supported models and formats [in their docs.](https://docs.litellm.ai/docs/providers).
+    """
+
     def complete(self, messages: t.Sequence[Message], overloads: GenerateParams | None = None) -> Message:
         trace_messages(messages, "Conversations")
 
@@ -286,6 +357,18 @@ g_providers: dict[str, type["Generator"]] = {
 
 
 def get_identifier(generator: Generator, overloads: GenerateParams | None = None) -> str:
+    """
+    Returns the identifier for the given generator.
+
+    Delegates to [rigging.generator.Generator.to_identifier][]
+
+    Args:
+        generator (Generator): The generator object.
+        overloads (GenerateParams | None, optional): The generate parameters. Defaults to None.
+
+    Returns:
+        str: The identifier for the generator.
+    """
     return generator.to_identifier(overloads)
 
 
@@ -293,26 +376,32 @@ def get_generator(identifier: str) -> Generator:
     """
     Get a generator by an identifier string. Uses LiteLLM by default.
 
-    <provider>!<model>,<**kwargs>
+    Identifier strings are formatted like `<provider>!<model>,<**kwargs>`
 
     (provider is optional and defaults to "litellm" if not specified)
 
-    :param identifier: The identifier string to use to get a generator
-    :return: The generator
-
-    :raises InvalidModelSpecified: If the identifier is invalid
-
     Examples:
-        "gpt-3.5-turbo" -> LiteLLMGenerator(model="gpt-3.5-turbo")
-        "litellm!claude-2.1" -> LiteLLMGenerator(model="claude-2.1")
-        "mistral/mistral-tiny" -> LiteLLMGenerator(model="mistral/mistral-tiny")
 
-    You can also specify arguments to the generator by comma-separating them#
-        "mistral/mistral-medium,max_tokens=1024"
-        "gpt-4-0613,temperature=0.9,max_tokens=512"
-        "claude-2.1,stop_sequences=Human:;test,max_tokens=100"
+    - "gpt-3.5-turbo" -> `LiteLLMGenerator(model="gpt-3.5-turbo")`
+    - "litellm!claude-2.1" -> `LiteLLMGenerator(model="claude-2.1")`
+    - "mistral/mistral-tiny" -> `LiteLLMGenerator(model="mistral/mistral-tiny")`
 
-        (These get parsed as GenerateParams)
+    You can also specify arguments to the generator by comma-separating them:
+
+    - "mistral/mistral-medium,max_tokens=1024"
+    - "gpt-4-0613,temperature=0.9,max_tokens=512"
+    - "claude-2.1,stop_sequences=Human:;test,max_tokens=100"
+
+    (These get parsed as [rigging.generator.GenerateParams][])
+
+    Args:
+        identifier (str): The identifier string to use to get a generator.
+
+    Returns:
+        Generator: The generator object.
+
+    Raises:
+        InvalidModelSpecified: If the identifier is invalid.
     """
 
     provider: str = list(g_providers.keys())[0]
@@ -344,6 +433,8 @@ def get_generator(identifier: str) -> Generator:
 def register_generator(provider: str, generator_cls: type[Generator]) -> None:
     """
     Register a generator class for a provider id.
+
+    This let's you use [rigging.generator.get_generator][] with a custom generator class.
 
     Args:
         provider (str): The name of the provider.

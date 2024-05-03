@@ -1,3 +1,7 @@
+"""
+This module covers core message objects and handling.
+"""
+
 import string
 import typing as t
 
@@ -21,6 +25,14 @@ Role = t.Literal["system", "user", "assistant"]
 # Helper type for messages structured
 # more similarly to other libraries
 class MessageDict(t.TypedDict):
+    """
+    Helper to represent a [rigging.message.Message][] as a dictionary.
+
+    Attributes:
+        role (Role): The role of the message.
+        content (str): The content of the message.
+    """
+
     role: Role
     content: str
 
@@ -28,6 +40,14 @@ class MessageDict(t.TypedDict):
 # Structured portion of a message with
 # a slice indicating where is it located
 class ParsedMessagePart(BaseModel):
+    """
+    Represents a parsed message part.
+
+    Attributes:
+        model (SerializeAsAny[Model]): The rigging/pydantic model associated with the message part.
+        slice_ (slice): The slice representing the range into the message content.
+    """
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     model: SerializeAsAny[Model]
@@ -48,6 +68,15 @@ class ParsedMessagePart(BaseModel):
 
 
 class Message(BaseModel):
+    """
+    Represents a message with role, content, and parsed message parts.
+
+    Attributes:
+        role (Role): The role of the message.
+        content (str): The content of the message.
+        parts (List[ParsedMessagePart], optional): List of parsed part objects.
+    """
+
     role: Role
     parts: list[ParsedMessagePart] = Field(default_factory=list)
 
@@ -139,10 +168,34 @@ class Message(BaseModel):
         self._content = value
 
     def apply(self, **kwargs: str) -> None:
+        """
+        Applies the given keyword arguments with string templating to the content of the message.
+
+        Uses [string.Template.safe_substitute](https://docs.python.org/3/library/string.html#string.Template.safe_substitute) underneath.
+
+        Args:
+            **kwargs: Keyword arguments to substitute in the message content.
+
+        Returns:
+            None
+        """
         template = string.Template(self.content)
         self.content = template.safe_substitute(**kwargs)
 
-    def strip(self, model_type: type[Model], fail_on_missing: bool = False) -> list[ParsedMessagePart]:
+    def strip(self, model_type: type[Model], *, fail_on_missing: bool = False) -> list[ParsedMessagePart]:
+        """
+        Removes and returns a list of ParsedMessagePart objects from the message that match the specified model type.
+
+        Args:
+            model_type (type[Model]): The type of model to match.
+            fail_on_missing (bool, optional): If True, raises a TypeError if no matching model is found. Defaults to False.
+
+        Returns:
+            list[ParsedMessagePart]: A list of removed ParsedMessagePart objects.
+
+        Raises:
+            TypeError: If no matching model is found and fail_on_missing is True.
+        """
         removed: list[ParsedMessagePart] = []
         for part in self.parts[:]:
             if isinstance(part.model, model_type):
@@ -156,35 +209,113 @@ class Message(BaseModel):
 
     @property
     def models(self) -> list[Model]:
+        """Returns a list of models parsed from the message."""
         return [part.model for part in self.parts]
 
     def parse(self, model_type: type[ModelT]) -> ModelT:
-        for model in self.models:
-            if isinstance(model, model_type):
-                return model
+        """
+        Parses a model from the message content.
+
+        Args:
+            model_type (type): The type of model to parse.
+
+        Returns:
+            ModelT: The parsed model.
+
+        Raises:
+            ValueError: If no models of the given type are found and `fail_on_missing` is set to `True`.
+        """
+        # TODO: We should validate, but I only predict problems
+        # grabbing existing models from the message. We should
+        # probably always just reparse - it's a cheap operation.
+
+        # for model in self.models:
+        #     if isinstance(model, model_type):
+        #         return model
         return self.try_parse_many([model_type], fail_on_missing=True)[0]
 
     def try_parse(self, model_type: type[ModelT]) -> ModelT | None:
-        for model in self.models:
-            if isinstance(model, model_type):
-                return model
+        """
+        Tries to parse a model from the message content.
+
+        Args:
+            model_type (type[ModelT]): The type of model to search for.
+
+        Returns:
+            ModelT | None: The first model that matches the given model type, or None if no match is found.
+        """
+        # for model in self.models:
+        #     if isinstance(model, model_type):
+        #         return model
         return next(iter(self.try_parse_many([model_type])), None)
 
     def parse_set(self, model_type: type[ModelT], minimum: int | None = None) -> list[ModelT]:
+        """
+        Parses a set of models of the specified identical type from the message content.
+
+        Args:
+            model_type (type[ModelT]): The type of models to parse.
+            minimum (int | None, optional): The minimum number of models required. Defaults to None.
+
+        Returns:
+            list[ModelT]: A list of parsed models.
+
+        Raises:
+            MissingModelError: If the minimum number of models is not met.
+        """
         return self.try_parse_set(model_type, minimum=minimum, fail_on_missing=True)
 
     def try_parse_set(
         self, model_type: type[ModelT], minimum: int | None = None, fail_on_missing: bool = False
     ) -> list[ModelT]:
+        """
+        Tries to parse a set of models from the message content.
+
+        Args:
+            model_type (type[ModelT]): The type of model to parse.
+            minimum (int | None, optional): The minimum number of models expected. Defaults to None.
+            fail_on_missing (bool, optional): Whether to raise an exception if models are missing. Defaults to False.
+
+        Returns:
+            list[ModelT]: The parsed models.
+
+        Raises:
+            MissingModelError: If the number of parsed models is less than the minimum required.
+        """
         models = self.try_parse_many([model_type], fail_on_missing=fail_on_missing)
         if minimum is not None and len(models) < minimum:
             raise MissingModelError(f"Expected at least {minimum} {model_type.__name__} in message")
         return models
 
     def parse_many(self, types: t.Sequence[type[ModelT]]) -> list[ModelT]:
+        """
+        Parses multiple models of the specified non-identical types from the message content.
+
+        Args:
+            types (Sequence[type[ModelT]]): A sequence of model types to parse.
+
+        Returns:
+            list[ModelT]: A list of parsed models.
+
+        Raises:
+            MissingModelError: If any of the models are missing.
+        """
         return self.try_parse_many(types, fail_on_missing=True)
 
     def try_parse_many(self, types: t.Sequence[type[ModelT]], fail_on_missing: bool = False) -> list[ModelT]:
+        """
+        Tries to parse multiple models from the content of the message.
+
+        Args:
+            types (Sequence[type[ModelT]]): A sequence of model types to parse.
+            fail_on_missing (bool, optional): Whether to raise an exception if a model type is missing. Defaults to False.
+
+        Returns:
+            list[ModelT]: A list of parsed models.
+
+        Raises:
+            MissingModelError: If a model type is missing and `fail_on_missing` is True.
+        """
         model: ModelT
         parsed: list[ModelT] = []
         for model_class in types:
@@ -202,6 +333,18 @@ class Message(BaseModel):
     def from_model(
         cls: type["Message"], models: Model | t.Sequence[Model], role: Role = "user", suffix: str | None = None
     ) -> "Message":
+        """
+        Create a Message object from one or more Model objects.
+
+        Args:
+            cls (type["Message"]): The class of the Message object.
+            models (Model | t.Sequence[Model]): The Model object(s) to convert to a Message.
+            role (Role, optional): The role of the Message. Defaults to "user".
+            suffix (str | None, optional): A suffix to append to the content. Defaults to None.
+
+        Returns:
+            Message: The created Message object.
+        """
         parts: list[ParsedMessagePart] = []
         content: str = ""
         for model in models if isinstance(models, list) else [models]:
@@ -219,12 +362,14 @@ class Message(BaseModel):
     def fit_as_list(
         cls, messages: t.Sequence[MessageDict] | t.Sequence["Message"] | MessageDict | "Message" | str
     ) -> list["Message"]:
+        """Helper function to convert various common types to a strict list of Message objects."""
         if isinstance(messages, Message | dict | str):
             return [cls.fit(messages)]
         return [cls.fit(message) for message in messages]
 
     @classmethod
     def fit(cls, message: t.Union["Message", MessageDict, str]) -> "Message":
+        """Helper function to convert various common types to a Message object."""
         if isinstance(message, str):
             return cls(role="user", content=message)
         return cls(**message) if isinstance(message, dict) else message

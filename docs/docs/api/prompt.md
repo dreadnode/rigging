@@ -1,1 +1,0 @@
-:::rigging.prompt.system_tool_extension

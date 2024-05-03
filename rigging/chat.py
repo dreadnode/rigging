@@ -1,3 +1,7 @@
+"""
+Chats are used pre and post generation to hold messages, and are the primary way to interact with the generator.
+"""
+
 import asyncio
 import typing as t
 from copy import deepcopy
@@ -31,6 +35,18 @@ DEFAULT_MAX_ROUNDS = 5
 
 
 class Chat(BaseModel):
+    """
+    Represents a completed chat conversation.
+
+    Attributes:
+        uuid (UUID): The unique identifier for the chat.
+        timestamp (datetime): The timestamp when the chat was created.
+        messages (list[Message]): The list of messages prior to generation.
+        next_messages (list[Message]): The list of messages resulting from the generation.
+        pending (Optional[PendingChat]): The pending chat associated with the chat.
+        generator_id (Optional[str]): The identifier of the generator used to create the chat
+    """
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     uuid: UUID = Field(default_factory=uuid4)
@@ -53,6 +69,16 @@ class Chat(BaseModel):
         pending: t.Optional["PendingChat"] = None,
         **kwargs: t.Any,
     ):
+        """
+        Initialize a Chat object.
+
+        Args:
+            messages (Messages): The messages for the chat.
+            next_messages (Messages | None, optional): The next messages for the chat. Defaults to None.
+            pending (Optional[PendingChat], optional): The pending chat. Defaults to None.
+            **kwargs (Any): Additional keyword arguments (typically used for deserialization)
+
+        """
         from rigging.generator import get_generator
 
         if "generator_id" in kwargs and pending is None:
@@ -71,21 +97,40 @@ class Chat(BaseModel):
 
     @property
     def all(self) -> list[Message]:
+        """Returns all messages in the chat, including the next messages."""
         return self.messages + self.next_messages
 
     @property
     def prev(self) -> list[Message]:
+        """Alias for the .messages property"""
         return self.messages
 
     @property
     def next(self) -> list[Message]:
+        """Alias for the .next_messages property"""
         return self.next_messages
 
     @property
     def last(self) -> Message:
+        """Alias for .next_messages[-1]"""
         return self.next_messages[-1]
 
     def restart(self, *, generator: t.Optional["Generator"] = None, include_next: bool = False) -> "PendingChat":
+        """
+        Attempt to convert back to a PendingChat for further generation.
+
+        Args:
+            generator (Optional[Generator]): The generator to use for the restarted chat. Otherwise
+                the generator from the original PendingChat will be used.
+            include_next (bool): Whether to include the next messages in the restarted chat. Defaults to False.
+
+        Returns:
+            PendingChat: The restarted chat.
+
+        Raises:
+            ValueError: If the chat was not created with a PendingChat and no generator is provided.
+        """
+
         messages = self.all if include_next else self.messages
         if generator is not None:
             return generator.chat(messages)
@@ -96,27 +141,59 @@ class Chat(BaseModel):
     def fork(
         self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | MessageDict | str
     ) -> "PendingChat":
+        """
+        Forks the chat by creating calling [rigging.chat.Chat.restart][] and appending the specified messages.
+
+        Args:
+            messages (Union[Sequence[Message], Sequence[MessageDict], Message, MessageDict, str]):
+                The messages to be added to the new `PendingChat` instance.
+
+        Returns:
+            PendingChat: A new instance of `PendingChat` with the specified messages added.
+
+        """
         return self.restart().add(messages)
 
     def continue_(self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | str) -> "PendingChat":
+        """Alias for the [rigging.chat.Chat.fork][]."""
         return self.fork(messages)
 
     def clone(self) -> "Chat":
+        """Creates a deep copy of the chat."""
         return Chat([m.model_copy() for m in self.messages], [m.model_copy() for m in self.next_messages], self.pending)
 
     def apply(self, **kwargs: str) -> "Chat":
-        self.messages[-1].apply(**kwargs)
+        """
+        Calls [rigging.message.Message.apply][] on the last message in the chat with the given keyword arguments.
+
+        Args:
+            **kwargs: The string mapping of replacements.
+
+        Returns:
+            Chat: The modified Chat object.
+        """
+        self.last.apply(**kwargs)
         return self
 
     def apply_to_all(self, **kwargs: str) -> "Chat":
-        for message in self.messages:
+        """
+        Calls [rigging.message.Message.apply][] on all messages in the chat with the given keyword arguments.
+
+        Args:
+            **kwargs: The string mapping of replacements.
+
+        Returns:
+            Chat: The modified chat object.
+
+        """
+        for message in self.all:
             message.apply(**kwargs)
         return self
 
     def strip(self, model_type: type[Model], fail_on_missing: bool = False) -> "Chat":
         new = self.clone()
         for message in new.all:
-            message.strip(model_type, fail_on_missing)
+            message.strip(model_type, fail_on_missing=fail_on_missing)
         return new
 
     def inject_system_content(self, content: str) -> Message:
