@@ -3,7 +3,7 @@ import typing as t
 
 import litellm  # type: ignore
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from rigging.chat import PendingChat
 from rigging.error import InvalidModelSpecifiedError
@@ -53,8 +53,20 @@ class GenerateParams(BaseModel):
 
 class Generator(BaseModel, abc.ABC):
     model: str
-    api_key: str | None = None
+    api_key: str | None = Field(None, exclude=True)
     params: GenerateParams
+
+    def to_identifier(self, overloads: GenerateParams | None = None) -> str:
+        provider = next(name for name, klass in g_providers.items() if isinstance(self, klass))
+        params_dict = self._merge_params(overloads)
+        if not params_dict:
+            return f"{provider}!{self.model}"
+
+        if "stop" in params_dict:
+            params_dict["stop"] = ";".join(params_dict["stop"])
+        params = ",".join([f"{k}={v}" for k, v in params_dict.items()])
+
+        return f"{provider}!{self.model},{params}"
 
     def _merge_params(self, overloads: GenerateParams | None = None) -> dict[str, t.Any]:
         """
@@ -271,6 +283,10 @@ class LiteLLMGenerator(Generator):
 g_providers: dict[str, type["Generator"]] = {
     "litellm": LiteLLMGenerator,
 }
+
+
+def get_identifier(generator: Generator, overloads: GenerateParams | None = None) -> str:
+    return generator.to_identifier(overloads)
 
 
 def get_generator(identifier: str) -> Generator:

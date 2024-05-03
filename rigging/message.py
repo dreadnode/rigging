@@ -49,7 +49,7 @@ class ParsedMessagePart(BaseModel):
 
 class Message(BaseModel):
     role: Role
-    parts: list[ParsedMessagePart] = Field(default_factory=list, exclude=True)
+    parts: list[ParsedMessagePart] = Field(default_factory=list)
 
     _content: str = ""
 

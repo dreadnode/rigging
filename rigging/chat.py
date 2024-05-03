@@ -1,8 +1,16 @@
 import asyncio
 import typing as t
+from datetime import datetime
+from uuid import UUID, uuid4
 
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    computed_field,
+)
 
 from rigging.error import ExhaustedMaxRoundsError
 from rigging.message import Message, MessageDict, Messages
@@ -24,20 +32,37 @@ DEFAULT_MAX_ROUNDS = 5
 class Chat(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    uuid: UUID = Field(default_factory=uuid4)
+    timestamp: datetime = Field(default_factory=datetime.now, repr=False)
     messages: list[Message]
     next_messages: list[Message] = Field(default_factory=list)
-    pending: t.Optional["PendingChat"] = Field(None, exclude=True)
+
+    pending: t.Optional["PendingChat"] = Field(None, exclude=True, repr=False)
+
+    @computed_field(repr=False)
+    def generator_id(self) -> str | None:
+        if self.pending is not None:
+            return self.pending.generator.to_identifier(self.pending.params)
+        return None
 
     def __init__(
         self,
         messages: Messages,
         next_messages: Messages | None = None,
         pending: t.Optional["PendingChat"] = None,
+        **kwargs: t.Any,
     ):
+        from rigging.generator import get_generator
+
+        if "generator_id" in kwargs and pending is None:
+            generator = get_generator(kwargs.pop("generator_id"))
+            pending = generator.chat(messages)
+
         super().__init__(
             messages=Message.fit_as_list(messages),
             next_messages=Message.fit_as_list(next_messages) if next_messages is not None else [],
             pending=pending,
+            **kwargs,
         )
 
     def __len__(self) -> int:
@@ -59,12 +84,13 @@ class Chat(BaseModel):
     def last(self) -> Message:
         return self.next_messages[-1]
 
-    def restart(self, generator: t.Optional["Generator"] = None) -> "PendingChat":
+    def restart(self, *, generator: t.Optional["Generator"] = None, include_next: bool = False) -> "PendingChat":
+        messages = self.all if include_next else self.messages
         if generator is not None:
-            return generator.chat(self.messages)
+            return generator.chat(messages)
         elif self.pending is None:
             raise ValueError("Cannot restart chat that was not created with a PendingChat")
-        return PendingChat(self.pending.generator, self.messages, self.pending.params)
+        return PendingChat(self.pending.generator, messages, self.pending.params)
 
     def fork(
         self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | MessageDict | str
