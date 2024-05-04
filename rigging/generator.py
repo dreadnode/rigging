@@ -42,32 +42,39 @@ class GenerateParams(BaseModel):
 
     Note:
         Use the `extra` field to pass additional parameters to the API.
-
-    Attributes:
-        temperature (float | None): The sampling temperature.
-        max_tokens (int | None): The maximum number of tokens to generate.
-        top_p (float | None): The nucleus sampling probability.
-        stop (list[str] | None): A list of stop sequences to stop generation at.
-        presence_penalty (float | None): The presence penalty.
-        frequency_penalty (float | None): The frequency penalty.
-        api_base (str | None): The base URL for the API.
-        timeout (int | None): The timeout for the API request.
-        seed (int | None): The seed.
-        extra (dict[str, t.Any]): Extra parameters.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     temperature: float | None = None
+    """The sampling temperature."""
+
     max_tokens: int | None = None
+    """The maximum number of tokens to generate."""
+
     top_p: float | None = None
+    """The nucleus sampling probability."""
+
     stop: list[str] | None = None
+    """A list of stop sequences to stop generation at."""
+
     presence_penalty: float | None = None
+    """The presence penalty."""
+
     frequency_penalty: float | None = None
+    """The frequency penalty."""
+
     api_base: str | None = None
+    """The base URL for the API."""
+
     timeout: int | None = None
+    """The timeout for the API request."""
+
     seed: int | None = None
+    """The random seed."""
+
     extra: dict[str, t.Any] = Field(default_factory=dict)
+    """Extra parameters to be passed to the API."""
 
     @field_validator("stop", mode="before")
     def validate_stop(cls, value: t.Any) -> t.Any:
@@ -92,16 +99,14 @@ class Generator(BaseModel):
     - `batch_texts`: Process a batch of texts.
 
     (In addition to async variants of these functions)
-
-    Attributes:
-        model (str): The model used by the generator.
-        api_key (str | None): The API key used for authentication. Defaults to None.
-        params (GenerateParams): The parameters used for generating completion messages.
     """
 
     model: str
+    """The model name to be used by the generator."""
     api_key: str | None = Field(None, exclude=True)
+    """The API key used for authentication."""
     params: GenerateParams
+    """The parameters used for generating completion messages."""
 
     def to_identifier(self, overloads: GenerateParams | None = None) -> str:
         """
@@ -111,10 +116,10 @@ class Generator(BaseModel):
             Extra parameters are not supported in identifiers.
 
         Args:
-            overloads (GenerateParams | None, optional): The parameters to be used for generating the identifier.
+            overloads: The parameters to be used for generating the identifier.
 
         Returns:
-            str: The identifier string.
+            The identifier string.
         """
         provider = next(name for name, klass in g_providers.items() if isinstance(self, klass))
         params_dict = self._merge_params(overloads)
@@ -139,10 +144,10 @@ class Generator(BaseModel):
         Typically used to prepare a dictionary of API parameters for a request.
 
         Args:
-            overloads (GenerateParams): The parameters to be merged with the current instance's parameters.
+            overloads: The parameters to be merged with the current instance's parameters.
 
         Returns:
-            dict[str, t.Any]: The merged parameters.
+            The merged parameters.
         """
         params: dict[str, t.Any] = self.params.model_dump(exclude_unset=True) if self.params else {}
         if overloads is None:
@@ -165,11 +170,11 @@ class Generator(BaseModel):
         Generates the next message for a given set of messages.
 
         Args:
-            messages (Sequence[Message]): The list of messages to generate completion for.
-            overloads (GenerateParams | None, optional): The parameters to be used for completion.
+            messages: The list of messages to generate completion for.
+            overloads: The parameters to be used for completion.
 
         Returns:
-            Message: The generated completion message.
+            The generated completion message.
 
         Raises:
             NotImplementedError: This generator does not support this method.
@@ -179,16 +184,7 @@ class Generator(BaseModel):
     async def agenerate_message(
         self, messages: t.Sequence[Message], overloads: GenerateParams | None = None
     ) -> Message:
-        """
-        Asynchronously generates the next message for a given set of messages.
-
-        Args:
-            messages (Sequence[Message]): A sequence of messages.
-            overloads (GenerateParams | None, optional): The parameters to be used for completion.
-
-        Returns:
-            Coroutine[None, None, Message]: A coroutine that yields completion messages.
-        """
+        """async version of [rigging.generator.Generator.generate_message][]"""
         raise NotImplementedError("agenerate_message is not supported by this generator.")
 
     # Text generation
@@ -198,11 +194,11 @@ class Generator(BaseModel):
         Generates a string completion of the given text.
 
         Args:
-            text (str): The input text to be completed.
-            overloads (GenerateParams | None, optional): The parameters to be used for completion.
+            text: The input text to be completed.
+            overloads: The parameters to be used for completion.
 
         Returns:
-            str: The completed text.
+            The completed text.
 
         Raises:
             NotImplementedError: This generator does not support this method.
@@ -210,19 +206,7 @@ class Generator(BaseModel):
         raise NotImplementedError("generate_text is not supported by this generator.")
 
     async def agenerate_text(self, text: str, overloads: GenerateParams | None = None) -> str:
-        """
-        Asynchronously generates a string completion of the given text.
-
-        Args:
-            text (str): The input text to be completed.
-            overloads (GenerateParams | None, optional): The parameters to be used for completion.
-
-        Returns:
-            Coroutine[None, None, str]: A coroutine that yields the completed text.
-
-        Raises:
-            NotImplementedError: This generator does not support this method.
-        """
+        """async version of [rigging.generator.Generator.generate_text][]"""
         raise NotImplementedError("agenerate_text is not supported by this generator.")
 
     # Batching messages
@@ -241,12 +225,12 @@ class Generator(BaseModel):
             If supplied, the length of `overloads` must be the same as the length of `many`.
 
         Args:
-            many (Sequence[Sequence[Message]]): A sequence of sequences of messages.
-            overloads (Sequence[GenerateParams | None], optional): A sequence of GenerateParams objects or None. Defaults to None.
-            fixed (Sequence[Message], optional): A sequence of fixed messages to be prefixed before every item of `many`. Defaults to None.
+            many: A sequence of sequences of messages.
+            overloads: A sequence of GenerateParams objects or None.
+            fixed: A sequence of fixed messages to be prefixed before every item of `many`.
 
         Returns:
-            Sequence[Message]: A sequence of generated messages.
+            Sequence[MessageA sequence of generated messages.
 
         Raises:
             NotImplementedError: This method is not supported by this generator.
@@ -260,23 +244,7 @@ class Generator(BaseModel):
         *,
         fixed: t.Sequence[Message],
     ) -> t.Sequence[Message]:
-        """
-        Asynchronously Generate a batch of messages based on the given parameters.
-
-        Note:
-            If supplied, the length of `overloads` must be the same as the length of `many`.
-
-        Args:
-            many (Sequence[Sequence[Message]]): A sequence of sequences of messages.
-            overloads (Sequence[GenerateParams | None], optional): A sequence of GenerateParams or None. Defaults to None.
-            fixed (Sequence[Message]): A sequence of fixed messages to be prefixed before every item of `many`. Defaults to None.
-
-        Returns:
-            Sequence[Message]: A sequence of generated messages.
-
-        Raises:
-            NotImplementedError: This method is not supported by this generator.
-        """
+        """async version of [rigging.generator.Generator.batch_messages][]"""
         raise NotImplementedError("abatch_messages is not supported by this generator.")
 
     # Batching texts
@@ -295,12 +263,12 @@ class Generator(BaseModel):
             If supplied, the length of `overloads` must be the same as the length of `many`.
 
         Args:
-            many (Sequence[str]): The input texts for generating the batch.
-            overloads (Sequence[GenerateParams | None] | None, optional): Additional parameters for generating each text in the batch. Defaults to None.
-            fixed (str | None, optional): A fixed input text to be used as a prefix for all of `many`. Defaults to None.
+            many: The input texts for generating the batch.
+            overloads: Additional parameters for generating each text in the batch.
+            fixed: A fixed input text to be used as a prefix for all of `many`.
 
         Returns:
-            Sequence[str]: The generated texts in the batch.
+            Sequence[strThe generated texts in the batch.
 
         Raises:
             NotImplementedError: This method is not supported by this generator.
@@ -314,20 +282,7 @@ class Generator(BaseModel):
         *,
         fixed: str | None = None,
     ) -> t.Sequence[str]:
-        """
-        Asynchronously Generate multiple texts in batch.
-
-        Args:
-            many (Sequence[str]): A sequence of texts to generate.
-            overloads (Sequence[GenerateParams | None] | None, optional): A sequence of optional parameters for each text. Defaults to None.
-            fixed (str | None, optional): A fixed parameter for all texts. Defaults to None.
-
-        Returns:
-            Sequence[str]: A sequence of generated texts.
-
-        Raises:
-            NotImplementedError: This method is not supported by this generator.
-        """
+        """async version of [rigging.generator.Generator.batch_texts][]"""
         raise NotImplementedError("abatch_texts is not supported by this generator.")
 
     # Helper alternative to chat(generator) -> generator.chat(...)
@@ -357,11 +312,11 @@ class Generator(BaseModel):
         Builds a pending chat with the given messages and optional overloads.
 
         Args:
-            messages (Sequence[MessageDict] | Sequence[Message] | str): The messages to be sent in the chat.
-            overloads (GenerateParams | None, optional): Optional parameters for generating responses. Defaults to None.
+            messages: The messages to be sent in the chat.
+            overloads: Optional parameters for generating responses.
 
         Returns:
-            PendingChat: Pending chat to run.
+            Pending chat to run.
         """
         return PendingChat(self, Message.fit_as_list(messages), overloads)
 
@@ -372,11 +327,11 @@ class Generator(BaseModel):
         Generates a pending string completion of the given text.
 
         Args:
-            text (str): The input text to be completed.
-            overloads (GenerateParams | None, optional): The parameters to be used for completion.
+            text: The input text to be completed.
+            overloads: The parameters to be used for completion.
 
         Returns:
-            str: The completed text.
+            The completed text.
         """
         return PendingCompletion(self, text, overloads)
 
@@ -408,14 +363,13 @@ def chat(
     Creates a pending chat using the given generator, messages, and overloads.
 
     Args:
-        generator (Generator): The generator to use for creating the chat.
-        messages (Sequence[MessageDict] | Sequence[Message] | MessageDict | Message | str):
+        generator: The generator to use for creating the chat.
+        messages:
             The messages to include in the chat. Can be a single message or a sequence of messages.
-        overloads (GenerateParams | None, optional): Additional parameters for generating the chat.
-            Defaults to None.
+        overloads: Additional parameters for generating the chat.
 
     Returns:
-        PendingChat: Pending chat to run.
+        Pending chat to run.
     """
     return generator.chat(messages, overloads)
 
@@ -435,11 +389,11 @@ def get_identifier(generator: Generator, overloads: GenerateParams | None = None
     Delegates to [rigging.generator.Generator.to_identifier][]
 
     Args:
-        generator (Generator): The generator object.
-        overloads (GenerateParams | None, optional): The generate parameters. Defaults to None.
+        generator: The generator object.
+        overloads: The generate parameters.
 
     Returns:
-        str: The identifier for the generator.
+        The identifier for the generator.
     """
     return generator.to_identifier(overloads)
 
@@ -450,7 +404,7 @@ def get_generator(identifier: str) -> Generator:
 
     Identifier strings are formatted like `<provider>!<model>,<**kwargs>`
 
-    (provider is optional and defaults to "litellm" if not specified)
+    (provider is optional andif not specified)
 
     Examples:
 
@@ -467,10 +421,10 @@ def get_generator(identifier: str) -> Generator:
     (These get parsed as [rigging.generator.GenerateParams][])
 
     Args:
-        identifier (str): The identifier string to use to get a generator.
+        identifier: The identifier string to use to get a generator.
 
     Returns:
-        Generator: The generator object.
+        The generator object.
 
     Raises:
         InvalidModelSpecified: If the identifier is invalid.
@@ -509,11 +463,8 @@ def register_generator(provider: str, generator_cls: type[Generator]) -> None:
     This let's you use [rigging.generator.get_generator][] with a custom generator class.
 
     Args:
-        provider (str): The name of the provider.
-        generator_cls (type[Generator]): The generator class to register.
-
-    Returns:
-        None
+        provider: The name of the provider.
+        generator_cls: The generator class to register.
     """
     global g_providers
     g_providers[provider] = generator_cls
@@ -524,8 +475,8 @@ def trace_messages(messages: t.Sequence[Message], title: str) -> None:
     Helper function to trace log a sequence of Message objects.
 
     Args:
-        messages (Sequence[Message]): A sequence of Message objects to be logged.
-        title (str): The title to be displayed in the log.
+        messages: A sequence of Message objects to be logged.
+        title: The title to be displayed in the log.
 
     Returns:
         None
@@ -540,8 +491,8 @@ def trace_str(content: str, title: str) -> None:
     Helper function to trace log a string.
 
     Parameters:
-        content (str): The string content to be logged.
-        title (str): The title of the log entry.
+        content: The string content to be logged.
+        title: The title of the log entry.
 
     Returns:
         None

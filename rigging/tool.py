@@ -153,14 +153,12 @@ class Tool:
     Note:
         All functions on the tool must have type hints for their parameters and
         use the `Annotated` type hint to provide a description for each parameter.
-
-    Attributes:
-        name (str): The name of the tool.
-        description (str): A description of the tool.
     """
 
     name: str
+    """Name of the tool"""
     description: str
+    """Description of the tool"""
 
     def __init_subclass__(cls, *, name: str | None = None, description: str | None = None, **kwargs: t.Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -213,6 +211,7 @@ class Tool:
         return str(result)
 
     def execute(self, call: ToolCall) -> ToolResult:
+        """Executes a function call on the tool."""
         try:
             content = self._execute(call)
             return ToolResult(tool=call.tool, function=call.function, error=False, content=content)
@@ -226,6 +225,7 @@ class Tool:
     # build a ToolDescription object that can be serialized
     # and passed to a model
     def get_description(self) -> ToolDescription:
+        """Creates a full description of the tool for use in prompting"""
         functions: list[ToolFunction] = []
         for method_name, method in inspect.getmembers(self.__class__, predicate=inspect.isfunction):
             if not method.__qualname__.startswith(self.__class__.__name__):

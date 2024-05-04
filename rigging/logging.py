@@ -28,17 +28,12 @@ def configure_logging(
     and you can control the formatting and log levels using the loguru API.
 
     Args:
-        log_level (str): The desired log level. Valid values are 'TRACE', 'DEBUG', 'INFO',
+        log_level: The desired log level. Valid values are 'TRACE', 'DEBUG', 'INFO',
             'SUCCESS', 'WARNING', 'ERROR', and 'CRITICAL'.
-        log_file (pathlib.Path | None, optional): The path to the log file. If None, logging
-            will only be done to the console. Defaults to None.
-        log_file_level (LogLevelLiteral, optional): The log level for the log file. Valid values
+        log_file: The path to the log file. If None, logging
+            will only be done to the console.
+        log_file_level: The log level for the log file. Valid values
             are 'TRACE', 'DEBUG', 'INFO', 'SUCCESS', 'WARNING', 'ERROR', and 'CRITICAL'.
-            Defaults to 'debug'.
-
-    Returns:
-        None: This function does not return anything.
-
     """
     global g_configured
 

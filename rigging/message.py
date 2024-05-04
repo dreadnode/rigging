@@ -21,6 +21,7 @@ from rigging.model import Model, ModelT
 from rigging.parsing import try_parse_many
 
 Role = t.Literal["system", "user", "assistant"]
+"""The role of a message. Can be 'system', 'user', or 'assistant'."""
 
 
 # Helper type for messages structured
@@ -28,14 +29,12 @@ Role = t.Literal["system", "user", "assistant"]
 class MessageDict(t.TypedDict):
     """
     Helper to represent a [rigging.message.Message][] as a dictionary.
-
-    Attributes:
-        role (Role): The role of the message.
-        content (str): The content of the message.
     """
 
     role: Role
+    """The role of the message."""
     content: str
+    """The content of the message."""
 
 
 # Structured portion of a message with
@@ -43,16 +42,14 @@ class MessageDict(t.TypedDict):
 class ParsedMessagePart(BaseModel):
     """
     Represents a parsed message part.
-
-    Attributes:
-        model (SerializeAsAny[Model]): The rigging/pydantic model associated with the message part.
-        slice_ (slice): The slice representing the range into the message content.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     model: SerializeAsAny[Model]
+    """The rigging/pydantic model associated with the message part."""
     slice_: slice
+    """The slice representing the range into the message content."""
 
     @field_serializer("slice_")
     def serialize_slice(self, slice_: slice, _info: FieldSerializationInfo) -> list[int]:
@@ -71,15 +68,12 @@ class ParsedMessagePart(BaseModel):
 class Message(BaseModel):
     """
     Represents a message with role, content, and parsed message parts.
-
-    Attributes:
-        role (Role): The role of the message.
-        content (str): The content of the message.
-        parts (List[ParsedMessagePart], optional): List of parsed part objects.
     """
 
     role: Role
+    """The role of the message."""
     parts: list[ParsedMessagePart] = Field(default_factory=list)
+    """The parsed message parts."""
 
     _content: str = ""
 
@@ -152,6 +146,7 @@ class Message(BaseModel):
     @computed_field  # type: ignore[misc]
     @property
     def content(self) -> str:
+        """The content of the message."""
         # We used to sync the models and content each time it was accessed,
         # hence the getter. Now we just return the stored content.
         # I'll leave it as is for now in case we want to add any
@@ -176,9 +171,6 @@ class Message(BaseModel):
 
         Args:
             **kwargs: Keyword arguments to substitute in the message content.
-
-        Returns:
-            None
         """
         template = string.Template(self.content)
         self.content = template.safe_substitute(**kwargs)
@@ -188,11 +180,11 @@ class Message(BaseModel):
         Removes and returns a list of ParsedMessagePart objects from the message that match the specified model type.
 
         Args:
-            model_type (type[Model]): The type of model to match.
-            fail_on_missing (bool, optional): If True, raises a TypeError if no matching model is found. Defaults to False.
+            model_type: The type of model to match.
+            fail_on_missing: If True, raises a TypeError if no matching model is found.
 
         Returns:
-            list[ParsedMessagePart]: A list of removed ParsedMessagePart objects.
+            A list of removed ParsedMessagePart objects.
 
         Raises:
             TypeError: If no matching model is found and fail_on_missing is True.
@@ -222,10 +214,10 @@ class Message(BaseModel):
         Parses a model from the message content.
 
         Args:
-            model_type (type): The type of model to parse.
+            model_type: The type of model to parse.
 
         Returns:
-            ModelT: The parsed model.
+            The parsed model.
 
         Raises:
             ValueError: If no models of the given type are found and `fail_on_missing` is set to `True`.
@@ -237,10 +229,10 @@ class Message(BaseModel):
         Tries to parse a model from the message content.
 
         Args:
-            model_type (type[ModelT]): The type of model to search for.
+            model_type: The type of model to search for.
 
         Returns:
-            ModelT | None: The first model that matches the given model type, or None if no match is found.
+            The first model that matches the given model type, or None if no match is found.
         """
         return next(iter(self.try_parse_many(model_type)), None)
 
@@ -249,11 +241,11 @@ class Message(BaseModel):
         Parses a set of models of the specified identical type from the message content.
 
         Args:
-            model_type (type[ModelT]): The type of models to parse.
-            minimum (int | None, optional): The minimum number of models required. Defaults to None.
+            model_type: The type of models to parse.
+            minimum: The minimum number of models required.
 
         Returns:
-            list[ModelT]: A list of parsed models.
+            A list of parsed models.
 
         Raises:
             MissingModelError: If the minimum number of models is not met.
@@ -267,12 +259,12 @@ class Message(BaseModel):
         Tries to parse a set of models from the message content.
 
         Args:
-            model_type (type[ModelT]): The type of model to parse.
-            minimum (int | None, optional): The minimum number of models expected. Defaults to None.
-            fail_on_missing (bool, optional): Whether to raise an exception if models are missing. Defaults to False.
+            model_type: The type of model to parse.
+            minimum: The minimum number of models expected.
+            fail_on_missing: Whether to raise an exception if models are missing.
 
         Returns:
-            list[ModelT]: The parsed models.
+            The parsed models.
 
         Raises:
             MissingModelError: If the number of parsed models is less than the minimum required.
@@ -287,10 +279,10 @@ class Message(BaseModel):
         Parses multiple models of the specified non-identical types from the message content.
 
         Args:
-            *types (type[ModelT]): The types of models to parse.
+            *types: The types of models to parse.
 
         Returns:
-            list[ModelT]: A list of parsed models.
+            A list of parsed models.
 
         Raises:
             MissingModelError: If any of the models are missing.
@@ -302,11 +294,11 @@ class Message(BaseModel):
         Tries to parse multiple models from the content of the message.
 
         Args:
-            *types (type[ModelT]): The types of models to parse.
-            fail_on_missing (bool, optional): Whether to raise an exception if a model type is missing. Defaults to False.
+            *types: The types of models to parse.
+            fail_on_missing: Whether to raise an exception if a model type is missing.
 
         Returns:
-            list[ModelT]: A list of parsed models.
+            A list of parsed models.
 
         Raises:
             MissingModelError: If a model type is missing and `fail_on_missing` is True.
@@ -326,13 +318,12 @@ class Message(BaseModel):
         Create a Message object from one or more Model objects.
 
         Args:
-            cls (type["Message"]): The class of the Message object.
-            models (Model | t.Sequence[Model]): The Model object(s) to convert to a Message.
-            role (Role, optional): The role of the Message. Defaults to "user".
-            suffix (str | None, optional): A suffix to append to the content. Defaults to None.
+            models: The Model object(s) to convert to a Message.
+            role: The role of the Message.
+            suffix: A suffix to append to the content.
 
         Returns:
-            Message: The created Message object.
+            The created Message object.
         """
         parts: list[ParsedMessagePart] = []
         content: str = ""

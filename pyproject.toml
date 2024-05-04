@@ -25,10 +25,12 @@ pytest = "^8.0.0"
 
 [tool.poetry.group.docs.dependencies]
 mkdocs = "^1.6.0"
-mkdocs-material = "^9.5.20"
+mkdocs-material = {extras = ["imaging"], version = "^9.5.20"}
 mkdocstrings = "^0.25.0"
 mkdocstrings-python = "^1.10.0"
 mkdocs-section-index = "^0.3.9"
+pymdown-extensions = "^10.8.1"
+pygments = "^2.18.0"
 
 [build-system]
 requires = ["poetry-core"]

@@ -1,6 +1,6 @@
 [data-md-color-scheme="slate"] {
     --md-primary-fg-color: #EAEAEA;
-    --md-accent-fg-color: hsla(250, 62%, 70%, 1);
+    --md-accent-fg-color: rgb(149, 133, 227);
 
     --md-primary-color: #EAEAEA;
     --md-primary-bg-color: #191919;
@@ -15,4 +15,17 @@
     --md-footer-bg-color--dark:        hsla(0, 0%, 8%, 1);
 
     --md-typeset-a-color:              var(--md-accent-fg-color);
+
+    --md-code-hl-number-color:         rgb(231, 107, 93);
+    --md-code-hl-special-color:        hsla(340, 83%, 66%, 1);
+    --md-code-hl-function-color:       hsla(291, 57%, 65%, 1);
+    --md-code-hl-constant-color:       hsla(250, 62%, 70%, 1);
+    --md-code-hl-keyword-color:        hsla(219, 66%, 64%, 1);
+    --md-code-hl-string-color:         var(--md-accent-fg-color);
+    --md-code-hl-name-color:           var(--md-default-fg-color--light);
+    --md-code-hl-operator-color:       var(--md-default-fg-color--light);
+    --md-code-hl-punctuation-color:    var(--md-default-fg-color--light);
+    --md-code-hl-comment-color:        rgb(55, 161, 108);
+    --md-code-hl-generic-color:        var(--md-default-fg-color--light);
+    --md-code-hl-variable-color:       var(--md-default-fg-color--light);
 }

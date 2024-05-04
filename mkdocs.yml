@@ -5,20 +5,24 @@ site_url: https://rigging.dreadnode.io
 repo_url: https://github.com/dreadnode/rigging
 
 nav:
-  - Introduction: index.md
-  - Generators: tutorial/generators.md
-  - Chats: tutorial/chat.md
-  - Models: tutorial/model.md
-  - Tools: tutorial/tools.md
-  - Logging: tutorial/logging.md
+  - Home: index.md
+  - Topics:
+    - Generators: topics/generators.md
+    - Chat: topics/chat.md
+    - Models: topics/model.md
+    - Tools: topics/tools.md
+    - Logging: topics/logging.md
   - API:
-      - rigging.chat: api/chat.md
-      - rigging.generator: api/generator.md
-      - rigging.message: api/message.md
-      - rigging.model: api/model.md
-      - rigging.tool: api/tool.md
-      - rigging.logging: api/logging.md
-      - rigging.error: api/error.md
+    - rigging.chat: api/chat.md
+    - rigging.completion: api/completion.md
+    - rigging.generator: api/generator.md
+    - rigging.model: api/model.md
+    - rigging.message: api/message.md
+    - rigging.tool: api/tool.md
+    - rigging.parsing: api/parsing.md
+    - rigging.logging: api/logging.md
+    - rigging.error: api/error.md
+
 
 theme:
   logo: assets/logo_black.png
@@ -30,24 +34,41 @@ theme:
     scheme: slate
     primary: custom
   features:
+    - content.code.copy
+    - content.code.annotate
     - toc.integrate
     - navigation.footer
     - navigation.indexes
     - navigation.sections
     - navigation.expand
     - navigation.path
-    - content.code.copy
     - navigation.top
+    - navigation.tabs
 
 plugins:
   - search
   - section-index
-  - mkdocstrings
+  - social
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [rigging]
+          options:
+            docstring_options:
+              ignore_init_summary: true
+            docstring_section_style: list
+            heading_level: 2
+            merge_init_into_class: true
+            show_signature_annotations: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            signature_crossrefs: true
 
 watch:
   - rigging/
 
 markdown_extensions:
+  - admonition
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span
@@ -55,8 +76,8 @@ markdown_extensions:
   - pymdownx.inlinehilite
   - pymdownx.snippets
   - pymdownx.superfences
-  - admonition
   - pymdownx.details
+  - pymdownx.tabbed
 
 extra_css:
   - stylesheets/extra.css
@@ -66,3 +87,10 @@ extra_javascript:
 
 extra:
   homepage: https://dreadnode.io
+  social:
+  - icon: fontawesome/brands/github
+    link: https://github.com/dreadnode
+  - icon: fontawesome/brands/twitter
+    link: https://twitter.com/dreadnode
+  - icon: fontawesome/brands/python
+    link: https://pypi.org/project/rigging/

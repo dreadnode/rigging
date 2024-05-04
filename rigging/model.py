@@ -84,7 +84,7 @@ class Model(BaseXmlModel):
         Converts the model to a pretty XML string with indents and newlines.
 
         Returns:
-            str: The pretty XML representation of the model.
+            The pretty XML representation of the model.
         """
         tree = self.to_xml_tree()
         ET.indent(tree, "   ")
@@ -111,7 +111,7 @@ class Model(BaseXmlModel):
         which can support it.
 
         Returns:
-            bool: True if the model is simple, False otherwise.
+            True if the model is simple, False otherwise.
         """
         field_values = list(cls.model_fields.values())
         return len(field_values) == 1 and field_values[0].annotation in BASIC_TYPES
@@ -176,10 +176,10 @@ class Model(BaseXmlModel):
         valid instances of a model from semi-structured text.
 
         Args:
-            content (str): The text content to parse.
+            content: The text content to parse.
 
         Returns:
-            list[tuple[ModelT, slice]]: A list of tuples containing the extracted models and their corresponding slices.
+            A list of tuples containing the extracted models and their corresponding slices.
 
         Raises:
             MissingModelError: If the specified model tags are not found in the message.
@@ -244,11 +244,11 @@ class Model(BaseXmlModel):
         Finds and returns a single match from the given text content.
 
         Args:
-            content (str): The text content to search for matches.
-            fail_on_many (bool, optional): If True, raises a ValidationError if multiple matches are found. Defaults to False.
+            content: The text content to search for matches.
+            fail_on_many: If True, raises a ValidationError if multiple matches are found.
 
         Returns:
-            tuple[ModelT, slice]: A tuple containing the matched model and the slice indicating the match location.
+            A tuple containing the matched model and the slice indicating the match location.
 
         Raises:
             ValidationError: If multiple matches are found and fail_on_many is True.
@@ -286,27 +286,41 @@ class ValidationErrorModel(ErrorModel, tag="validation_error"):
 
 
 class Thinking(Model):
+    """Quick model for thinking messages."""
+
     content: str
 
 
 class Question(Model):
+    """Quick model for questions."""
+
     content: str
 
 
 class Answer(Model):
+    """Quick model for answers."""
+
     content: str
 
 
 class QuestionAnswer(Model):
-    question: Question
-    answer: Answer
+    """Quick model for question-answer pairs."""
+
+    question: Question = element()
+    """The question"""
+    answer: Answer = element()
+    """The answer"""
 
 
 class Description(Model):
+    """Quick model for descriptions."""
+
     content: str
 
 
 class Instructions(Model):
+    """Quick model for instructions."""
+
     content: str
 
 
@@ -318,6 +332,7 @@ class DelimitedAnswer(Model):
 
     @property
     def items(self) -> list[str]:
+        """Parsed items from the content."""
         split_sizes: dict[str, int] = {}
         for delimiter in self._delimiters:
             split_sizes[delimiter] = len(self.content.split(delimiter))
@@ -348,6 +363,7 @@ class YesNoAnswer(Model):
     "Yes/No answer answer with coercion"
 
     boolean: bool
+    """The boolean value of the answer."""
 
     @field_validator("boolean", mode="before")
     def parse_str_to_bool(cls, v: t.Any) -> t.Any:

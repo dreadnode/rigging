@@ -39,29 +39,27 @@ DEFAULT_MAX_ROUNDS = 5
 class Chat(BaseModel):
     """
     Represents a completed chat conversation.
-
-    Attributes:
-        uuid (UUID): The unique identifier for the chat.
-        timestamp (datetime): The timestamp when the chat was created.
-        messages (list[Message]): The list of messages prior to generation.
-        generated (list[Message]): The list of messages resulting from the generation.
-        metadata (dict[str, Any]): Additional metadata for the chat.
-        pending (Optional[PendingChat]): The pending chat associated with the chat.
-        generator_id (Optional[str]): The identifier of the generator used to create the chat
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     uuid: UUID = Field(default_factory=uuid4)
+    """The unique identifier for the chat."""
     timestamp: datetime = Field(default_factory=datetime.now, repr=False)
+    """The timestamp when the chat was created."""
     messages: list[Message]
+    """The list of messages prior to generation."""
     generated: list[Message] = Field(default_factory=list)
+    """The list of messages resulting from the generation."""
     metadata: dict[str, t.Any] = Field(default_factory=dict)
+    """Additional metadata for the chat."""
 
     pending: t.Optional["PendingChat"] = Field(None, exclude=True, repr=False)
+    """The pending chat associated with the chat."""
 
     @computed_field(repr=False)
     def generator_id(self) -> str | None:
+        """The identifier of the generator used to create the chat"""
         if self.pending is not None:
             return self.pending.generator.to_identifier(self.pending.params)
         return None
@@ -77,11 +75,10 @@ class Chat(BaseModel):
         Initialize a Chat object.
 
         Args:
-            messages (Messages): The messages for the chat.
-            generated (Messages | None, optional): The next messages for the chat. Defaults to None.
-            pending (Optional[PendingChat], optional): The pending chat. Defaults to None.
-            **kwargs (Any): Additional keyword arguments (typically used for deserialization)
-
+            messages: The messages for the chat.
+            generated: The next messages for the chat.
+            pending: The pending chat.
+            **kwargs: Additional keyword arguments (typically used for deserialization)
         """
         from rigging.generator import get_generator
 
@@ -132,7 +129,7 @@ class Chat(BaseModel):
             **kwargs: Key-value pairs representing the metadata to be updated.
 
         Returns:
-            Chat: The updated chat object.
+            The updated chat object.
         """
         self.metadata.update(kwargs)
         return self
@@ -142,12 +139,12 @@ class Chat(BaseModel):
         Attempt to convert back to a PendingChat for further generation.
 
         Args:
-            generator (Optional[Generator]): The generator to use for the restarted chat. Otherwise
+            generator: The generator to use for the restarted chat. Otherwise
                 the generator from the original PendingChat will be used.
-            include_all (bool): Whether to include the next messages in the restarted chat. Defaults to False.
+            include_all: Whether to include the next messages in the restarted chat.
 
         Returns:
-            PendingChat: The restarted chat.
+            The restarted chat.
 
         Raises:
             ValueError: If the chat was not created with a PendingChat and no generator is provided.
@@ -170,12 +167,12 @@ class Chat(BaseModel):
         Forks the chat by creating calling [rigging.chat.Chat.restart][] and appending the specified messages.
 
         Args:
-            messages (Union[Sequence[Message], Sequence[MessageDict], Message, MessageDict, str]):
+            messages:
                 The messages to be added to the new `PendingChat` instance.
-            include_all (bool, optional): Whether to include the next messages in the restarted chat. Defaults to False.
+            include_all: Whether to include the next messages in the restarted chat.
 
         Returns:
-            PendingChat: A new instance of `PendingChat` with the specified messages added.
+            A new instance of `PendingChat` with the specified messages added.
 
         """
         return self.restart(include_all=include_all).add(messages)
@@ -203,7 +200,7 @@ class Chat(BaseModel):
             **kwargs: The string mapping of replacements.
 
         Returns:
-            Chat: The modified Chat object.
+            The modified Chat object.
         """
         self.last.apply(**kwargs)
         return self
@@ -216,20 +213,43 @@ class Chat(BaseModel):
             **kwargs: The string mapping of replacements.
 
         Returns:
-            Chat: The modified chat object.
-
+            The modified chat object.
         """
         for message in self.all:
             message.apply(**kwargs)
         return self
 
     def strip(self, model_type: type[Model], fail_on_missing: bool = False) -> "Chat":
+        """
+        Strips all parsed parts of a particular type from the message content.
+
+        Args:
+            model_type: The type of model to keep in the chat.
+            fail_on_missing: Whether to raise an exception if a message of the specified model type is not found.
+
+        Returns:
+            A new Chat object with only the messages of the specified model type.
+        """
         new = self.clone()
         for message in new.all:
             message.strip(model_type, fail_on_missing=fail_on_missing)
         return new
 
     def inject_system_content(self, content: str) -> Message:
+        """
+        Injects content into the chat as a system message.
+
+        Note:
+            If the chat is empty or the first message is not a system message,
+            a new system message with the given content is inserted at the beginning of the chat.
+            If the first message is a system message, the content is appended to it.
+
+        Args:
+            content: The content to be injected.
+
+        Returns:
+            The updated system message.
+        """
         if len(self.messages) == 0 or self.messages[0].role != "system":
             self.messages.insert(0, Message(role="system", content=content))
         elif self.messages[0].role == "system":
@@ -237,6 +257,12 @@ class Chat(BaseModel):
         return self.messages[0]
 
     def inject_tool_prompt(self, tools: t.Sequence[Tool]) -> None:
+        """
+        Injects a default tool use prompt into the system prompt.
+
+        Args:
+            tools: A sequence of Tool objects.
+        """
         call_format = ToolCalls.xml_example()
         tool_description_list = ToolDescriptionList(tools=[t.get_description() for t in tools])
         tool_system_prompt = system_tool_extension(call_format, tool_description_list.to_pretty_xml())
@@ -253,27 +279,19 @@ ThenChatCallback = t.Callable[[Chat], Chat | None]
 class PendingChat:
     """
     Represents a pending chat that can be modified and executed.
-
-    Attributes:
-        generator (Generator): The generator object responsible for generating the chat.
-        chat (Chat): The chat object representing the conversation.
-        params (Optional[GenerateParams]): The parameters for generating the chat.
-        metadata (dict[str, Any]): Additional metadata associated with the chat.
-        until_callbacks (list[tuple[UntilMessageCallback, bool, bool, int]]): List of until message callbacks.
-        until_types (list[type[Model]]): List of until message types.
-        until_tools (list[Tool]): List of until tools.
-        inject_tool_prompt (bool): Flag indicating whether to inject tool prompts. Default is True.
-        force_tool (bool): Flag indicating whether to force the use of a tool. Default is False.
-        then_callbacks (list[ThenChatCallback]): List of callbacks to be executed after generation.
     """
 
     def __init__(
         self, generator: "Generator", messages: t.Sequence[Message], params: t.Optional["GenerateParams"] = None
     ):
         self.generator: "Generator" = generator
+        """The generator object responsible for generating the chat."""
         self.chat: Chat = Chat(messages, pending=self)
+        """The chat object representing the conversation."""
         self.params = params
+        """The parameters for generating messages."""
         self.metadata: dict[str, t.Any] = {}
+        """Additional metadata associated with the chat."""
 
         # (callback, attempt_recovery, drop_dialog, max_rounds)
         self.until_callbacks: list[tuple[UntilMessageCallback, bool, bool, int]] = []
@@ -296,7 +314,7 @@ class PendingChat:
             **kwargs: Keyword arguments representing the parameters to be overloaded.
 
         Returns:
-            PendingChat: A new instance of PendingChat with the overloaded parameters.
+            A new instance of PendingChat with the overloaded parameters.
         """
         from rigging.generator import GenerateParams
 
@@ -310,10 +328,10 @@ class PendingChat:
             This will trigger a `clone` if overload params have already been set.
 
         Args:
-            params (GenerateParams): The parameters to set for the chat.
+            params: The parameters to set for the chat.
 
         Returns:
-            PendingChat: A new instance of PendingChat with the updated parameters.
+            A new instance of PendingChat with the updated parameters.
         """
         if self.params is not None:
             new = self.clone()
@@ -334,11 +352,10 @@ class PendingChat:
             the content will be appended. instead of a new message being created.
 
         Args:
-            messages (Union[Sequence[MessageDict], Sequence[Message], MessageDict, Message, str]):
-                The messages to be added to the chat. It can be a single message or a sequence of messages.
+            messages: The messages to be added to the chat. It can be a single message or a sequence of messages.
 
         Returns:
-            PendingChat: The updated PendingChat object.
+            The updated PendingChat object.
         """
         message_list = Message.fit_as_list(messages)
         # If the last message is the same role as the first new message, append to it
@@ -361,7 +378,7 @@ class PendingChat:
             messages: A sequence of messages or a single message to be added to the new chat.
 
         Returns:
-            A new instance of `PendingChat` with the specified messages added.
+            A new instance the pending chat with the specified messages added.
         """
         return self.clone().add(messages)
 
@@ -370,12 +387,12 @@ class PendingChat:
         Creates a clone of the current `PendingChat` instance.
 
         Args:
-            only_messages (bool, optional): If True, only the messages will be cloned.
+            only_messages: If True, only the messages will be cloned.
                 If False (default), the entire `PendingChat` instance will be cloned
                 including until callbacks, types, and tools.
 
         Returns:
-            PendingChat: A new instance of `PendingChat` that is a clone of the current instance.
+            A new instance of `PendingChat` that is a clone of the current instance.
         """
         new = PendingChat(self.generator, [], self.params)
         new.chat = self.chat.clone()
@@ -396,7 +413,7 @@ class PendingChat:
             **kwargs: Key-value pairs representing the metadata to be updated.
 
         Returns:
-            PendingChat: The updated chat object.
+            The updated chat object.
         """
         self.metadata.update(kwargs)
         return self
@@ -417,10 +434,10 @@ class PendingChat:
         ```
 
         Args:
-            callback (ThenChatCallback): The callback function to be executed.
+            callback: The callback function to be executed.
 
         Returns:
-            PendingChat: The current instance of the chat.
+            The current instance of the chat.
         """
         self.then_callbacks.append(callback)
         return self
@@ -433,7 +450,7 @@ class PendingChat:
             **kwargs: Keyword arguments to be applied to the chat.
 
         Returns:
-            PendingChat: A new instance of PendingChat with the applied arguments.
+            A new instance of PendingChat with the applied arguments.
         """
         new = self.clone()
         new.chat.apply(**kwargs)
@@ -447,7 +464,7 @@ class PendingChat:
             **kwargs: Keyword arguments to be applied to the chat.
 
         Returns:
-            PendingChat: A new instance of PendingChat with the applied arguments.
+            A new instance of PendingChat with the applied arguments.
         """
         new = self.clone()
         new.chat.apply_to_all(**kwargs)
@@ -483,16 +500,16 @@ class PendingChat:
             Whether these messages get used or discarded in the next round depends on `attempt_recovery`.
 
         Args:
-            callback (UntilMessageCallback): The callback function to be executed.
-            attempt_recovery (bool, optional): Whether to attempt recovery by continuing to append prior messages
-                before the next round of generation. Defaults to False.
-            drop_dialog (bool, optional): Whether to drop the intermediate dialog of recovery before returning
-                the final chat back to the caller. Defaults to True.
-            max_rounds (int, optional): The maximum number of rounds to attempt generation + callbacks
-                before giving uop. Defaults to DEFAULT_MAX_ROUNDS.
+            callback: The callback function to be executed.
+            attempt_recovery: Whether to attempt recovery by continuing to append prior messages
+                before the next round of generation.
+            drop_dialog: Whether to drop the intermediate dialog of recovery before returning
+                the final chat back to the caller.
+            max_rounds: The maximum number of rounds to attempt generation + callbacks
+                before giving uop.
 
         Returns:
-            PendingChat: The current instance of the chat.
+            The current instance of the chat.
         """
         self.until_callbacks.append((callback, attempt_recovery, drop_dialog, max_rounds))
         return self
@@ -511,18 +528,18 @@ class PendingChat:
         Adds a tool or a sequence of tools to participate in the generation process.
 
         Args:
-            tool (Tool | Sequence[Tool]): The tool or sequence of tools to be added.
-            force (bool, optional): Whether to force the use of the tool(s) at least once. Defaults to False.
-            attempt_recovery (bool, optional): Whether to attempt recovery if the tool(s) fail by providing
-                validation feedback to the model before the next round. Defaults to True.
-            drop_dialog (bool, optional): Whether to drop the intermediate dialog of recovery efforts
-                before returning the final chat to the caller. Defaults to False.
-            max_rounds (int, optional): The maximum number of rounds to attempt recovery. Defaults to DEFAULT_MAX_ROUNDS.
-            inject_prompt (bool | None, optional): Whether to inject the tool guidance prompt into a
-                system message. Defaults to None and will override self.inject_tool_prompt if provided.
+            tool: The tool or sequence of tools to be added.
+            force: Whether to force the use of the tool(s) at least once.
+            attempt_recovery: Whether to attempt recovery if the tool(s) fail by providing
+                validation feedback to the model before the next round.
+            drop_dialog: Whether to drop the intermediate dialog of recovery efforts
+                before returning the final chat to the caller.
+            max_rounds: The maximum number of rounds to attempt recovery.
+            inject_prompt: Whether to inject the tool guidance prompt into a
+                system message.and will override self.inject_tool_prompt if provided.
 
         Returns:
-            PendingChat: The updated PendingChat object.
+            The updated PendingChat object.
 
         """
         self.until_tools += tool if isinstance(tool, t.Sequence) else [tool]
@@ -551,16 +568,16 @@ class PendingChat:
         before the generation process completes.
 
         Args:
-            *types (type[ModelT]): The type or types of models to wait for.
-            attempt_recovery (bool, optional): Whether to attempt recovery if parsing fails by providing
-                validation feedback to the model before the next round. Defaults to True.
-            drop_dialog (bool, optional): Whether to drop the intermediate dialog of recovery efforts
-                before returning the final chat to the caller. Defaults to False.
-            max_rounds (int, optional): The maximum number of rounds to try to parse
-                successfully. Defaults to DEFAULT_MAX_ROUNDS.
+            *types: The type or types of models to wait for.
+            attempt_recovery: Whether to attempt recovery if parsing fails by providing
+                validation feedback to the model before the next round.
+            drop_dialog: Whether to drop the intermediate dialog of recovery efforts
+                before returning the final chat to the caller.
+            max_rounds: The maximum number of rounds to try to parse
+                successfully.
 
         Returns:
-            PendingChat: The updated PendingChat object.
+            The updated PendingChat object.
         """
         self.until_types += types
         if next((c for c in self.until_callbacks if c[0] == self._until_parse_callback), None) is None:
@@ -717,7 +734,7 @@ class PendingChat:
         If `count` is provided, `run_many` will be called instead.
 
         Args:
-            count (int | None, optional): The number of times to generate using the same inputs.
+            count: The number of times to generate using the same inputs.
 
         Returns:
             Chat | list[Chat]: The chat object or a list of chat objects, depending on the value of `count`.
@@ -743,12 +760,12 @@ class PendingChat:
         Executes the generation process multiple times with the same inputs.
 
         Parameters:
-            count (int): The number of times to execute the generation process.
+            count: The number of times to execute the generation process.
 
         Returns:
-            list[Chat]: A list of Chat objects representing the results of each execution.
+            list[ChatA list of Chat objects representing the results of each execution.
         """
-        return [self._then(self.run()) for _ in range(count)]
+        return [self.run() for _ in range(count)]
 
     __call__ = run
 
