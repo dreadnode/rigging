@@ -1,5 +1,7 @@
 """
-Chats are used pre and post generation to hold messages, and are the primary way to interact with the generator.
+Chats are used pre and post generation to hold messages.
+
+They are the primary way to interact with the generator.
 """
 
 import asyncio
@@ -42,7 +44,8 @@ class Chat(BaseModel):
         uuid (UUID): The unique identifier for the chat.
         timestamp (datetime): The timestamp when the chat was created.
         messages (list[Message]): The list of messages prior to generation.
-        next_messages (list[Message]): The list of messages resulting from the generation.
+        generated (list[Message]): The list of messages resulting from the generation.
+        metadata (dict[str, Any]): Additional metadata for the chat.
         pending (Optional[PendingChat]): The pending chat associated with the chat.
         generator_id (Optional[str]): The identifier of the generator used to create the chat
     """
@@ -52,7 +55,8 @@ class Chat(BaseModel):
     uuid: UUID = Field(default_factory=uuid4)
     timestamp: datetime = Field(default_factory=datetime.now, repr=False)
     messages: list[Message]
-    next_messages: list[Message] = Field(default_factory=list)
+    generated: list[Message] = Field(default_factory=list)
+    metadata: dict[str, t.Any] = Field(default_factory=dict)
 
     pending: t.Optional["PendingChat"] = Field(None, exclude=True, repr=False)
 
@@ -65,7 +69,7 @@ class Chat(BaseModel):
     def __init__(
         self,
         messages: Messages,
-        next_messages: Messages | None = None,
+        generated: Messages | None = None,
         pending: t.Optional["PendingChat"] = None,
         **kwargs: t.Any,
     ):
@@ -74,7 +78,7 @@ class Chat(BaseModel):
 
         Args:
             messages (Messages): The messages for the chat.
-            next_messages (Messages | None, optional): The next messages for the chat. Defaults to None.
+            generated (Messages | None, optional): The next messages for the chat. Defaults to None.
             pending (Optional[PendingChat], optional): The pending chat. Defaults to None.
             **kwargs (Any): Additional keyword arguments (typically used for deserialization)
 
@@ -87,18 +91,18 @@ class Chat(BaseModel):
 
         super().__init__(
             messages=Message.fit_as_list(messages),
-            next_messages=Message.fit_as_list(next_messages) if next_messages is not None else [],
+            generated=Message.fit_as_list(generated) if generated is not None else [],
             pending=pending,
             **kwargs,
         )
 
     def __len__(self) -> int:
-        return len(self.messages) + len(self.next_messages)
+        return len(self.messages) + len(self.generated)
 
     @property
     def all(self) -> list[Message]:
         """Returns all messages in the chat, including the next messages."""
-        return self.messages + self.next_messages
+        return self.messages + self.generated
 
     @property
     def prev(self) -> list[Message]:
@@ -107,22 +111,40 @@ class Chat(BaseModel):
 
     @property
     def next(self) -> list[Message]:
-        """Alias for the .next_messages property"""
-        return self.next_messages
+        """Alias for the .generated property"""
+        return self.generated
 
     @property
     def last(self) -> Message:
-        """Alias for .next_messages[-1]"""
-        return self.next_messages[-1]
+        """Alias for .generated[-1]"""
+        return self.generated[-1]
 
-    def restart(self, *, generator: t.Optional["Generator"] = None, include_next: bool = False) -> "PendingChat":
+    @property
+    def conversation(self) -> str:
+        """Returns a string representation of the chat."""
+        return "\n\n".join([str(m) for m in self.all])
+
+    def meta(self, **kwargs: t.Any) -> "Chat":
+        """
+        Updates the metadata of the chat with the provided key-value pairs.
+
+        Args:
+            **kwargs: Key-value pairs representing the metadata to be updated.
+
+        Returns:
+            Chat: The updated chat object.
+        """
+        self.metadata.update(kwargs)
+        return self
+
+    def restart(self, *, generator: t.Optional["Generator"] = None, include_all: bool = False) -> "PendingChat":
         """
         Attempt to convert back to a PendingChat for further generation.
 
         Args:
             generator (Optional[Generator]): The generator to use for the restarted chat. Otherwise
                 the generator from the original PendingChat will be used.
-            include_next (bool): Whether to include the next messages in the restarted chat. Defaults to False.
+            include_all (bool): Whether to include the next messages in the restarted chat. Defaults to False.
 
         Returns:
             PendingChat: The restarted chat.
@@ -131,7 +153,7 @@ class Chat(BaseModel):
             ValueError: If the chat was not created with a PendingChat and no generator is provided.
         """
 
-        messages = self.all if include_next else self.messages
+        messages = self.all if include_all else self.messages
         if generator is not None:
             return generator.chat(messages)
         elif self.pending is None:
@@ -139,7 +161,10 @@ class Chat(BaseModel):
         return PendingChat(self.pending.generator, messages, self.pending.params)
 
     def fork(
-        self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | MessageDict | str
+        self,
+        messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | MessageDict | str,
+        *,
+        include_all: bool = False,
     ) -> "PendingChat":
         """
         Forks the chat by creating calling [rigging.chat.Chat.restart][] and appending the specified messages.
@@ -147,20 +172,28 @@ class Chat(BaseModel):
         Args:
             messages (Union[Sequence[Message], Sequence[MessageDict], Message, MessageDict, str]):
                 The messages to be added to the new `PendingChat` instance.
+            include_all (bool, optional): Whether to include the next messages in the restarted chat. Defaults to False.
 
         Returns:
             PendingChat: A new instance of `PendingChat` with the specified messages added.
 
         """
-        return self.restart().add(messages)
+        return self.restart(include_all=include_all).add(messages)
 
     def continue_(self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | str) -> "PendingChat":
-        """Alias for the [rigging.chat.Chat.fork][]."""
-        return self.fork(messages)
+        """Alias for the [rigging.chat.Chat.fork][] with `include_all=True`."""
+        return self.fork(messages, include_all=True)
 
-    def clone(self) -> "Chat":
+    def clone(self, *, only_messages: bool = False) -> "Chat":
         """Creates a deep copy of the chat."""
-        return Chat([m.model_copy() for m in self.messages], [m.model_copy() for m in self.next_messages], self.pending)
+        new = Chat(
+            [m.model_copy() for m in self.messages],
+            [m.model_copy() for m in self.generated],
+            self.pending,
+        )
+        if not only_messages:
+            new.metadata = deepcopy(self.metadata)
+        return new
 
     def apply(self, **kwargs: str) -> "Chat":
         """
@@ -212,10 +245,28 @@ class Chat(BaseModel):
 
 # Passed the next message, returns whether or not to continue
 # and an optional list of messages to append before continuing
-UntilCallback = t.Callable[[Message], tuple[bool, list[Message]]]
+UntilMessageCallback = t.Callable[[Message], tuple[bool, list[Message]]]
+
+ThenChatCallback = t.Callable[[Chat], Chat | None]
 
 
 class PendingChat:
+    """
+    Represents a pending chat that can be modified and executed.
+
+    Attributes:
+        generator (Generator): The generator object responsible for generating the chat.
+        chat (Chat): The chat object representing the conversation.
+        params (Optional[GenerateParams]): The parameters for generating the chat.
+        metadata (dict[str, Any]): Additional metadata associated with the chat.
+        until_callbacks (list[tuple[UntilMessageCallback, bool, bool, int]]): List of until message callbacks.
+        until_types (list[type[Model]]): List of until message types.
+        until_tools (list[Tool]): List of until tools.
+        inject_tool_prompt (bool): Flag indicating whether to inject tool prompts. Default is True.
+        force_tool (bool): Flag indicating whether to force the use of a tool. Default is False.
+        then_callbacks (list[ThenChatCallback]): List of callbacks to be executed after generation.
+    """
+
     def __init__(
         self, generator: "Generator", messages: t.Sequence[Message], params: t.Optional["GenerateParams"] = None
     ):
@@ -225,18 +276,45 @@ class PendingChat:
         self.metadata: dict[str, t.Any] = {}
 
         # (callback, attempt_recovery, drop_dialog, max_rounds)
-        self.until_callbacks: list[tuple[UntilCallback, bool, bool, int]] = []
+        self.until_callbacks: list[tuple[UntilMessageCallback, bool, bool, int]] = []
         self.until_types: list[type[Model]] = []
         self.until_tools: list[Tool] = []
         self.inject_tool_prompt: bool = True
         self.force_tool: bool = False
+        self.then_callbacks: list[ThenChatCallback] = []
 
     def overload(self, **kwargs: t.Any) -> "PendingChat":
+        """
+        Overloads the current chat with the given parameters.
+
+        This is a convenience method for calling `with_params(GenerateParams(**kwargs))`.
+
+        Note:
+            This will trigger a `clone` if overload params have already been set.
+
+        Args:
+            **kwargs: Keyword arguments representing the parameters to be overloaded.
+
+        Returns:
+            PendingChat: A new instance of PendingChat with the overloaded parameters.
+        """
         from rigging.generator import GenerateParams
 
         return self.with_params(GenerateParams(**kwargs))
 
     def with_params(self, params: "GenerateParams") -> "PendingChat":
+        """
+        Sets the generation parameter overloads for the chat.
+
+        Note:
+            This will trigger a `clone` if overload params have already been set.
+
+        Args:
+            params (GenerateParams): The parameters to set for the chat.
+
+        Returns:
+            PendingChat: A new instance of PendingChat with the updated parameters.
+        """
         if self.params is not None:
             new = self.clone()
             new.params = params
@@ -248,26 +326,57 @@ class PendingChat:
     def add(
         self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
     ) -> "PendingChat":
+        """
+        Appends new message(s) to the internal chat before generation.
+
+        Note:
+            If the last message in the chat is the same role as the first new message,
+            the content will be appended. instead of a new message being created.
+
+        Args:
+            messages (Union[Sequence[MessageDict], Sequence[Message], MessageDict, Message, str]):
+                The messages to be added to the chat. It can be a single message or a sequence of messages.
+
+        Returns:
+            PendingChat: The updated PendingChat object.
+        """
         message_list = Message.fit_as_list(messages)
         # If the last message is the same role as the first new message, append to it
         if self.chat.all and self.chat.all[-1].role == message_list[0].role:
             self.chat.all[-1].content += "\n" + message_list[0].content
             message_list = message_list[1:]
         else:
-            self.chat.next_messages += message_list
+            self.chat.generated += message_list
         return self
 
     def fork(
         self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
     ) -> "PendingChat":
+        """
+        Creates a new instance of `PendingChat` by forking the current chat and adding the specified messages.
+
+        This is a convenience method for calling `clone().add(messages)`.
+
+        Args:
+            messages: A sequence of messages or a single message to be added to the new chat.
+
+        Returns:
+            A new instance of `PendingChat` with the specified messages added.
+        """
         return self.clone().add(messages)
 
-    def continue_(
-        self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
-    ) -> "PendingChat":
-        return self.fork(messages)
-
     def clone(self, *, only_messages: bool = False) -> "PendingChat":
+        """
+        Creates a clone of the current `PendingChat` instance.
+
+        Args:
+            only_messages (bool, optional): If True, only the messages will be cloned.
+                If False (default), the entire `PendingChat` instance will be cloned
+                including until callbacks, types, and tools.
+
+        Returns:
+            PendingChat: A new instance of `PendingChat` that is a clone of the current instance.
+        """
         new = PendingChat(self.generator, [], self.params)
         new.chat = self.chat.clone()
         if not only_messages:
@@ -280,27 +389,111 @@ class PendingChat:
         return new
 
     def meta(self, **kwargs: t.Any) -> "PendingChat":
+        """
+        Updates the metadata of the chat with the provided key-value pairs.
+
+        Args:
+            **kwargs: Key-value pairs representing the metadata to be updated.
+
+        Returns:
+            PendingChat: The updated chat object.
+        """
         self.metadata.update(kwargs)
         return self
 
+    def then(self, callback: ThenChatCallback) -> "PendingChat":
+        """
+        Registers a callback to be executed after the generation process completes.
+
+        Note:
+            Returning a Chat object from the callback will replace the current chat.
+            for the remainder of the callbacks + return value of `run()`.
+
+        ```
+        def process(chat: Chat) -> Chat | None:
+            ...
+
+        pending.then(process).run()
+        ```
+
+        Args:
+            callback (ThenChatCallback): The callback function to be executed.
+
+        Returns:
+            PendingChat: The current instance of the chat.
+        """
+        self.then_callbacks.append(callback)
+        return self
+
     def apply(self, **kwargs: str) -> "PendingChat":
+        """
+        Clones this pending chat and calls [rigging.chat.Chat.apply][] with the given keyword arguments.
+
+        Args:
+            **kwargs: Keyword arguments to be applied to the chat.
+
+        Returns:
+            PendingChat: A new instance of PendingChat with the applied arguments.
+        """
         new = self.clone()
         new.chat.apply(**kwargs)
         return new
 
     def apply_to_all(self, **kwargs: str) -> "PendingChat":
+        """
+        Clones this pending chat and calls [rigging.chat.Chat.apply_to_all][] with the given keyword arguments.
+
+        Args:
+            **kwargs: Keyword arguments to be applied to the chat.
+
+        Returns:
+            PendingChat: A new instance of PendingChat with the applied arguments.
+        """
         new = self.clone()
         new.chat.apply_to_all(**kwargs)
         return new
 
     def until(
         self,
-        callback: UntilCallback,
+        callback: UntilMessageCallback,
         *,
         attempt_recovery: bool = False,
         drop_dialog: bool = True,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
     ) -> "PendingChat":
+        """
+        Registers a callback to participate in validating the generation process.
+
+        ```python
+        # Takes the next message being generated, and returns whether or not to continue
+        # generating new messages in addition to a list of messages to append before continuing
+
+        def callback(message: Message) -> tuple[bool, list[Message]]:
+            if is_valid(message):
+                return (False, [message])
+            else:
+                return (True, [message, ...])
+
+        pending.until(callback).run()
+        ```
+
+        Note:
+            In general, your callback function should always include the message that was passed to it.
+
+            Whether these messages get used or discarded in the next round depends on `attempt_recovery`.
+
+        Args:
+            callback (UntilMessageCallback): The callback function to be executed.
+            attempt_recovery (bool, optional): Whether to attempt recovery by continuing to append prior messages
+                before the next round of generation. Defaults to False.
+            drop_dialog (bool, optional): Whether to drop the intermediate dialog of recovery before returning
+                the final chat back to the caller. Defaults to True.
+            max_rounds (int, optional): The maximum number of rounds to attempt generation + callbacks
+                before giving uop. Defaults to DEFAULT_MAX_ROUNDS.
+
+        Returns:
+            PendingChat: The current instance of the chat.
+        """
         self.until_callbacks.append((callback, attempt_recovery, drop_dialog, max_rounds))
         return self
 
@@ -314,6 +507,24 @@ class PendingChat:
         max_rounds: int = DEFAULT_MAX_ROUNDS,
         inject_prompt: bool | None = None,
     ) -> "PendingChat":
+        """
+        Adds a tool or a sequence of tools to participate in the generation process.
+
+        Args:
+            tool (Tool | Sequence[Tool]): The tool or sequence of tools to be added.
+            force (bool, optional): Whether to force the use of the tool(s) at least once. Defaults to False.
+            attempt_recovery (bool, optional): Whether to attempt recovery if the tool(s) fail by providing
+                validation feedback to the model before the next round. Defaults to True.
+            drop_dialog (bool, optional): Whether to drop the intermediate dialog of recovery efforts
+                before returning the final chat to the caller. Defaults to False.
+            max_rounds (int, optional): The maximum number of rounds to attempt recovery. Defaults to DEFAULT_MAX_ROUNDS.
+            inject_prompt (bool | None, optional): Whether to inject the tool guidance prompt into a
+                system message. Defaults to None and will override self.inject_tool_prompt if provided.
+
+        Returns:
+            PendingChat: The updated PendingChat object.
+
+        """
         self.until_tools += tool if isinstance(tool, t.Sequence) else [tool]
         self.inject_tool_prompt = inject_prompt or self.inject_tool_prompt
         self.force_tool = force
@@ -330,34 +541,49 @@ class PendingChat:
 
     def until_parsed_as(
         self,
-        types: type[ModelT] | t.Sequence[type[ModelT]],
-        *,
+        *types: type[ModelT],
         attempt_recovery: bool = False,
         drop_dialog: bool = True,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
     ) -> "PendingChat":
-        self.until_types += types if isinstance(types, t.Sequence) else [types]
+        """
+        Adds the specified types to the list of types which should successfully parse
+        before the generation process completes.
+
+        Args:
+            *types (type[ModelT]): The type or types of models to wait for.
+            attempt_recovery (bool, optional): Whether to attempt recovery if parsing fails by providing
+                validation feedback to the model before the next round. Defaults to True.
+            drop_dialog (bool, optional): Whether to drop the intermediate dialog of recovery efforts
+                before returning the final chat to the caller. Defaults to False.
+            max_rounds (int, optional): The maximum number of rounds to try to parse
+                successfully. Defaults to DEFAULT_MAX_ROUNDS.
+
+        Returns:
+            PendingChat: The updated PendingChat object.
+        """
+        self.until_types += types
         if next((c for c in self.until_callbacks if c[0] == self._until_parse_callback), None) is None:
             self.until_callbacks.append((self._until_parse_callback, attempt_recovery, drop_dialog, max_rounds))
 
         return self
 
     def _until_tools_callback(self, message: Message) -> tuple[bool, list[Message]]:
-        next_messages: list[Message] = [message]
+        generated: list[Message] = [message]
 
         try:
             tool_calls = message.try_parse(ToolCalls)
         except ValidationError as e:
-            next_messages.append(Message.from_model(ValidationErrorModel(content=e)))
-            return (True, next_messages)
+            generated.append(Message.from_model(ValidationErrorModel(content=e)))
+            return (True, generated)
 
         if tool_calls is None:
             if self.force_tool:
                 logger.debug("No tool calls or types, returning error")
-                next_messages.append(Message.from_model(SystemErrorModel(content="You must use a tool")))
+                generated.append(Message.from_model(SystemErrorModel(content="You must use a tool")))
             else:
                 logger.debug("No tool calls or types, returning message")
-            return (self.force_tool, next_messages)
+            return (self.force_tool, generated)
 
         self.force_tool = False
 
@@ -378,21 +604,21 @@ class PendingChat:
             tool_results.append(tool(call))
 
         if errors:
-            next_messages.append(Message.from_model(errors, suffix="Rewrite your message with all the required tags."))
+            generated.append(Message.from_model(errors, suffix="Rewrite your message with all the required tags."))
         else:
-            next_messages.append(Message.from_model(ToolResults(results=tool_results)))
+            generated.append(Message.from_model(ToolResults(results=tool_results)))
 
-        return (True, next_messages)
+        return (True, generated)
 
     def _until_parse_callback(self, message: Message) -> tuple[bool, list[Message]]:
         should_continue: bool = False
-        next_messages: list[Message] = [message]
+        generated: list[Message] = [message]
 
         try:
-            message.parse_many(self.until_types)
+            message.parse_many(*self.until_types)
         except ValidationError as e:
             should_continue = True
-            next_messages.append(
+            generated.append(
                 Message.from_model(
                     ValidationErrorModel(content=e),
                     suffix="Rewrite your entire message with all the required elements.",
@@ -400,18 +626,18 @@ class PendingChat:
             )
         except Exception as e:
             should_continue = True
-            next_messages.append(
+            generated.append(
                 Message.from_model(
                     SystemErrorModel(content=e), suffix="Rewrite your entire message with all the required elements."
                 )
             )
 
-        return (should_continue, next_messages)
+        return (should_continue, generated)
 
     def _until(
         self,
         messages: list[Message],
-        callback: UntilCallback,
+        callback: UntilMessageCallback,
         attempt_recovery: bool,
         drop_dialog: bool,
         max_rounds: int,
@@ -439,7 +665,20 @@ class PendingChat:
         logger.warning(f"Exhausted max rounds ({max_rounds})")
         raise ExhaustedMaxRoundsError(max_rounds)
 
+    def _then(self, chat: Chat) -> Chat:
+        # TODO: Adding async support here would be nice
+        for callback in self.then_callbacks:
+            chat = callback(chat) or chat
+        return chat
+
     def _execute(self) -> t.Generator[list[Message], Message, list[Message]]:
+        # TODO: Much like the PendingCompletion code, it's opaque
+        # exactly how multiple callbacks should be blended together
+        # when generating. I think we should look at limiting it to
+        # one callback in total, but I'll leave the behavior as is
+        # for now with the knowledge that behavior might be a bit
+        # unpredictable.
+
         if self.until_tools:
             # TODO: This can cause issues when certain APIs do not return
             # the stop sequence as part of the response. This behavior
@@ -456,10 +695,10 @@ class PendingChat:
 
         new_messages = [first_message]
         for callback, reset_between, drop_internal, max_rounds in self.until_callbacks:
-            next_messages = yield from self._until(
+            generated = yield from self._until(
                 self.chat.all + new_messages, callback, reset_between, drop_internal, max_rounds
             )
-            new_messages = new_messages[:-1] + next_messages
+            new_messages = new_messages[:-1] + generated
 
         return new_messages
 
@@ -472,6 +711,18 @@ class PendingChat:
         ...
 
     def run(self, count: int | None = None) -> Chat | list[Chat]:
+        """
+        Execute the generation process to produce the final chat.
+
+        If `count` is provided, `run_many` will be called instead.
+
+        Args:
+            count (int | None, optional): The number of times to generate using the same inputs.
+
+        Returns:
+            Chat | list[Chat]: The chat object or a list of chat objects, depending on the value of `count`.
+        """
+
         if count is not None:
             return self.run_many(count)
 
@@ -480,15 +731,24 @@ class PendingChat:
 
         try:
             while True:
-                inbound = self.generator.complete(outbound, self.params)
+                inbound = self.generator.generate_message(outbound, self.params)
                 outbound = executor.send(inbound)
         except StopIteration as stop:
             outbound = t.cast(list[Message], stop.value)
 
-        return Chat(self.chat.all, outbound, pending=self)
+        return self._then(Chat(self.chat.all, outbound, pending=self, metadata=self.metadata))
 
     def run_many(self, count: int) -> list[Chat]:
-        return [self.run() for _ in range(count)]
+        """
+        Executes the generation process multiple times with the same inputs.
+
+        Parameters:
+            count (int): The number of times to execute the generation process.
+
+        Returns:
+            list[Chat]: A list of Chat objects representing the results of each execution.
+        """
+        return [self._then(self.run()) for _ in range(count)]
 
     __call__ = run
 
@@ -501,6 +761,7 @@ class PendingChat:
         ...
 
     async def arun(self, count: int | None = None) -> Chat | list[Chat]:
+        """async variant of the [rigging.chat.PendingChat.run][] method."""
         if count is not None:
             return await self.arun_many(count)
 
@@ -509,13 +770,14 @@ class PendingChat:
 
         try:
             while True:
-                inbound = await self.generator.acomplete(outbound, self.params)
+                inbound = await self.generator.agenerate_message(outbound, self.params)
                 outbound = executor.send(inbound)
         except StopIteration as stop:
             outbound = t.cast(list[Message], stop.value)
 
-        return Chat(self.chat.all, outbound, pending=self)
+        return self._then(Chat(self.chat.all, outbound, pending=self, metadata=self.metadata))
 
     async def arun_many(self, count: int) -> list[Chat]:
+        """async variant of the [rigging.chat.PendingChat.run_many][] method."""
         chats = await asyncio.gather(*[self.arun() for _ in range(count)])
-        return list(chats)
+        return [self._then(chat) for chat in chats]

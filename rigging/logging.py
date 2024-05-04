@@ -1,5 +1,7 @@
 """
 We use loguru for logging. This module provides a function to configure the logging settings.
+
+To enable rigging logging, call `logger.enable("rigging")` after importing the module.
 """
 
 import pathlib

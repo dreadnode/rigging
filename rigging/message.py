@@ -18,6 +18,7 @@ from pydantic import (
 
 from rigging.error import MissingModelError
 from rigging.model import Model, ModelT
+from rigging.parsing import try_parse_many
 
 Role = t.Literal["system", "user", "assistant"]
 
@@ -212,6 +213,10 @@ class Message(BaseModel):
         """Returns a list of models parsed from the message."""
         return [part.model for part in self.parts]
 
+    # TODO: Many of these functions are duplicates from the parsing
+    # module, but here we don't hand back slices and want there
+    # to be a convient access model. We should probably consolidate.
+
     def parse(self, model_type: type[ModelT]) -> ModelT:
         """
         Parses a model from the message content.
@@ -225,14 +230,7 @@ class Message(BaseModel):
         Raises:
             ValueError: If no models of the given type are found and `fail_on_missing` is set to `True`.
         """
-        # TODO: We should validate, but I only predict problems
-        # grabbing existing models from the message. We should
-        # probably always just reparse - it's a cheap operation.
-
-        # for model in self.models:
-        #     if isinstance(model, model_type):
-        #         return model
-        return self.try_parse_many([model_type], fail_on_missing=True)[0]
+        return self.try_parse_many(model_type, fail_on_missing=True)[0]
 
     def try_parse(self, model_type: type[ModelT]) -> ModelT | None:
         """
@@ -244,10 +242,7 @@ class Message(BaseModel):
         Returns:
             ModelT | None: The first model that matches the given model type, or None if no match is found.
         """
-        # for model in self.models:
-        #     if isinstance(model, model_type):
-        #         return model
-        return next(iter(self.try_parse_many([model_type])), None)
+        return next(iter(self.try_parse_many(model_type)), None)
 
     def parse_set(self, model_type: type[ModelT], minimum: int | None = None) -> list[ModelT]:
         """
@@ -282,17 +277,17 @@ class Message(BaseModel):
         Raises:
             MissingModelError: If the number of parsed models is less than the minimum required.
         """
-        models = self.try_parse_many([model_type], fail_on_missing=fail_on_missing)
+        models = self.try_parse_many(model_type, fail_on_missing=fail_on_missing)
         if minimum is not None and len(models) < minimum:
             raise MissingModelError(f"Expected at least {minimum} {model_type.__name__} in message")
         return models
 
-    def parse_many(self, types: t.Sequence[type[ModelT]]) -> list[ModelT]:
+    def parse_many(self, *types: type[ModelT]) -> list[ModelT]:
         """
         Parses multiple models of the specified non-identical types from the message content.
 
         Args:
-            types (Sequence[type[ModelT]]): A sequence of model types to parse.
+            *types (type[ModelT]): The types of models to parse.
 
         Returns:
             list[ModelT]: A list of parsed models.
@@ -300,14 +295,14 @@ class Message(BaseModel):
         Raises:
             MissingModelError: If any of the models are missing.
         """
-        return self.try_parse_many(types, fail_on_missing=True)
+        return self.try_parse_many(*types, fail_on_missing=True)
 
-    def try_parse_many(self, types: t.Sequence[type[ModelT]], fail_on_missing: bool = False) -> list[ModelT]:
+    def try_parse_many(self, *types: type[ModelT], fail_on_missing: bool = False) -> list[ModelT]:
         """
         Tries to parse multiple models from the content of the message.
 
         Args:
-            types (Sequence[type[ModelT]]): A sequence of model types to parse.
+            *types (type[ModelT]): The types of models to parse.
             fail_on_missing (bool, optional): Whether to raise an exception if a model type is missing. Defaults to False.
 
         Returns:
@@ -317,17 +312,11 @@ class Message(BaseModel):
             MissingModelError: If a model type is missing and `fail_on_missing` is True.
         """
         model: ModelT
-        parsed: list[ModelT] = []
-        for model_class in types:
-            try:
-                for model, slice_ in model_class.from_text(self.content):
-                    self._add_part(ParsedMessagePart(model=model, slice_=slice_))
-                    parsed.append(model)
-            except MissingModelError as e:
-                if fail_on_missing:
-                    raise e
+        parsed: list[tuple[ModelT, slice]] = try_parse_many(self.content, *types, fail_on_missing=fail_on_missing)
+        for model, slice_ in parsed:
+            self._add_part(ParsedMessagePart(model=model, slice_=slice_))
         self._sync_parts()
-        return parsed
+        return [p[0] for p in parsed]
 
     @classmethod
     def from_model(

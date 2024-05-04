@@ -145,12 +145,12 @@ class Tool:
     chat = generator.chat(...).using(Hammer()).run()
     ```
 
-    !!! note
+    Note:
         The `name` and `description` attributes are required and can be defined
         as class attributes or properties. If you define them as properties,
         you must also define a getter for them.
 
-    !!! note
+    Note:
         All functions on the tool must have type hints for their parameters and
         use the `Annotated` type hint to provide a description for each parameter.
 
