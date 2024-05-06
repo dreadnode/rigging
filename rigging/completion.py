@@ -2,10 +2,10 @@
 Completions work with isolated strings of text pre and post generation.
 """
 
-import asyncio
 import string
 import typing as t
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID, uuid4
 
@@ -29,6 +29,9 @@ if t.TYPE_CHECKING:
 
 DEFAULT_MAX_ROUNDS = 5
 
+# TODO: Chats and Completions share a lot of structure and code.
+# Ideally we should build out a base class which they both inherit from.
+
 
 class Completion(BaseModel):
     """
@@ -45,6 +48,8 @@ class Completion(BaseModel):
     """The original text."""
     generated: str
     """The generated text."""
+    metadata: dict[str, t.Any] = Field(default_factory=dict)
+    """Additional metadata for the chat."""
 
     pending: t.Optional["PendingCompletion"] = Field(None, exclude=True, repr=False)
     """The pending completion associated with this completion."""
@@ -69,7 +74,7 @@ class Completion(BaseModel):
         Args:
             text: The original text.
             generated: The generated text.
-            pending: The pending completion associated with this completion
+            pending: The pending completion associated with this completion.
             **kwargs: Additional keyword arguments (typically used for serialization).
         """
         from rigging.generator import get_generator
@@ -137,6 +142,17 @@ class Completion(BaseModel):
 # and an optional list of messages to append before continuing
 UntilCompletionCallback = t.Callable[[str], bool]
 
+ThenCompletionCallback = t.Callable[[Completion], Completion | None]
+
+
+@dataclass
+class RunState:
+    text: str
+    params: "GenerateParams"
+    processor: t.Generator[None, str, str]
+    completion: Completion | None = None
+    done: bool = False
+
 
 class PendingCompletion:
     """
@@ -156,45 +172,57 @@ class PendingCompletion:
         # (callback, all_text, max_rounds)
         self.until_callbacks: list[tuple[UntilCompletionCallback, bool, int]] = []
         self.until_types: list[type[Model]] = []
+        self.then_callbacks: list[ThenCompletionCallback] = []
 
-    def overload(self, **kwargs: t.Any) -> "PendingCompletion":
+    def with_(self, params: t.Optional["GenerateParams"] = None, **kwargs: t.Any) -> "PendingCompletion":
         """
-        Overloads the current completion with the given parameters.
-
-        This is a convenience method for calling `with_params(GenerateParams(**kwargs))`.
-
-        Note:
-            This will trigger a `clone` if overload params have already been set.
-
-        Args:
-            **kwargs: Keyword arguments representing the parameters to be overloaded.
-
-        Returns:
-            A new instance of PendingCompletion with the overloaded parameters.
-        """
-        from rigging.generator import GenerateParams
-
-        return self.with_params(GenerateParams(**kwargs))
-
-    def with_params(self, params: "GenerateParams") -> "PendingCompletion":
-        """
-        Sets the generation parameter overloads for the completion.
+        Assign specific generation parameter overloads for this completion.
 
         Note:
             This will trigger a `clone` if overload params have already been set.
 
         Args:
             params: The parameters to set for the completion.
+            **kwargs: An alternative way to pass parameters as keyword arguments.
 
         Returns:
-            A new instance of PendingCompletion with the updated parameters.
+            The current (or cloned) instance of the completion.
         """
+        from rigging.generator import GenerateParams
+
+        if params is None:
+            params = GenerateParams(**kwargs)
+
         if self.params is not None:
             new = self.clone()
             new.params = params
             return new
 
         self.params = params
+        return self
+
+    def then(self, callback: ThenCompletionCallback) -> "PendingCompletion":
+        """
+        Registers a callback to be executed after the generation process completes.
+
+        Note:
+            Returning a Completion object from the callback will replace the current completion.
+            for the remainder of the callbacks + return value of `run()`.
+
+        ```
+        def process(chat: Completion) -> Completion | None:
+            ...
+
+        pending.then(process).run()
+        ```
+
+        Args:
+            callback: The callback function to be executed.
+
+        Returns:
+            The current instance of the pending completion.
+        """
+        self.then_callbacks.append(callback)
         return self
 
     def add(self, text: str) -> "PendingCompletion":
@@ -339,19 +367,37 @@ class PendingCompletion:
             return True
         return False
 
-    def _execute(self) -> t.Generator[str, str, str]:
+    def _then(self, chat: Completion) -> Completion:
+        # TODO: Adding async support here would be nice
+        for callback in self.then_callbacks:
+            chat = callback(chat) or chat
+        return chat
+
+    def _fit_params(
+        self, count: int, params: t.Sequence[t.Optional["GenerateParams"] | None] | None = None
+    ) -> list["GenerateParams"]:
+        from rigging.generator import GenerateParams
+
+        params = [None] * count if params is None else list(params)
+        if len(params) != count:
+            raise ValueError(f"The number of params must be {count}")
+        if self.params is not None:
+            params = [self.params.merge_with(p) for p in params]
+        return [(p or GenerateParams()) for p in params]
+
+    # TODO: It's opaque exactly how we should blend multiple
+    # until callbacks together, so here is the current implementation:
+    #
+    # - We take the lowest max_rounds from all until_callbacks
+    # - Each loop, we let every callback run, if any tell us to retry, we do
+    # - If we leave the loop with should_retry still True, we raise an error
+    # - Assuming every should_retry is False, we break out of the loop and return
+
+    def _process(self) -> t.Generator[None, str, str]:
         # If there are no until_callbacks, we can just yield the text
         if not self.until_callbacks:
-            generated = yield self.text
+            generated = yield
             return generated
-
-        # It's opaque exactly how we should blend multiple
-        # until callbacks together, so here is the current implementation:
-        #
-        # - We take the lowest max_rounds from all until_callbacks
-        # - Each loop, we let every callback run, if any tell us to retry, we do
-        # - If we leave the loop with should_retry still True, we raise an error
-        # - Assuming every should_retry is False, we break out of the loop and return
 
         lowest_max_rounds = min((c[2] for c in self.until_callbacks), default=1)
 
@@ -359,7 +405,7 @@ class PendingCompletion:
         should_retry = True
         while should_retry and current_round < lowest_max_rounds:
             current_round += 1
-            generated = yield self.text
+            generated = yield
             for callback, use_all_text, _ in self.until_callbacks:
                 should_retry = callback(self.text + generated if use_all_text else generated)
                 if should_retry:
@@ -371,81 +417,187 @@ class PendingCompletion:
 
         return generated
 
-    @t.overload
-    def run(self, count: t.Literal[None] = None) -> Completion:
-        ...
-
-    @t.overload
-    def run(self, count: int) -> list[Completion]:
-        ...
-
-    def run(self, count: int | None = None) -> Completion | list[Completion]:
+    def run(self) -> Completion:
         """
         Execute the generation process to produce the final completion.
 
-        If `count` is provided, `run_many` will be called instead.
-
-        Args:
-            count: The number of times to generate using the same inputs.
-
         Returns:
-            The completion object or a list of completion objects, depending on the value of `count`.
+            The generated Completion.
         """
-        if count is not None:
-            return self.run_many(count)
+        return self.run_many(1)[0]
 
-        executor = self._execute()
-        outbound = next(executor)
+    async def arun(self) -> Completion:
+        """async variant of the [rigging.chat.PendingChat.run][] method."""
+        return (await self.arun_many(1))[0]
 
-        try:
-            while True:
-                inbound = self.generator.generate_text(outbound, self.params)
-                outbound = executor.send(inbound)
-        except StopIteration as stop:
-            outbound = t.cast(str, stop.value)
+    __call__ = run
 
-        return Completion(self.text, outbound, pending=self)
+    # Many messages
 
-    def run_many(self, count: int) -> list[Completion]:
+    def run_many(
+        self,
+        count: int,
+        *,
+        params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
+        skip_failed: bool = False,
+    ) -> list[Completion]:
         """
         Executes the generation process multiple times with the same inputs.
 
         Parameters:
             count: The number of times to execute the generation process.
+            params: A sequence of parameters to be used for each execution.
+            skip_failed: Enable to ignore any max rounds errors and return only successful completions.
 
         Returns:
-            A list of Completion objects representing the results of each execution.
+            A list of generatated Completions.
         """
-        return [self.run() for _ in range(count)]
+        states: list[RunState] = [RunState(self.text, p, self._process()) for p in self._fit_params(count, params)]
+        _ = [next(state.processor) for state in states]
 
-    __call__ = run
+        pending_states = states
+        while pending_states:
+            inbounds = self.generator.generate_texts(
+                [s.text for s in pending_states], [s.params for s in pending_states]
+            )
 
-    @t.overload
-    async def arun(self, count: t.Literal[None] = None) -> Completion:
-        ...
+            for inbound, state in zip(inbounds, pending_states, strict=True):
+                try:
+                    state.processor.send(inbound)
+                except StopIteration as stop:
+                    state.done = True
+                    state.completion = Completion(
+                        self.text, t.cast(str, stop.value), pending=self, metadata=self.metadata
+                    )
+                except ExhaustedMaxRoundsError:
+                    if not skip_failed:
+                        raise
+                    state.done = True
 
-    @t.overload
-    async def arun(self, count: int) -> list[Completion]:
-        ...
+            pending_states = [s for s in pending_states if not s.done]
 
-    async def arun(self, count: int | None = None) -> Completion | list[Completion]:
-        """async variant of the [rigging.completion.PendingCompletion.run][] method."""
-        if count is not None:
-            return await self.arun_many(count)
+        return [self._then(s.completion) for s in states if s.completion is not None]
 
-        executor = self._execute()
-        outbound = next(executor)
+    async def arun_many(
+        self,
+        count: int,
+        *,
+        params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
+        skip_failed: bool = False,
+    ) -> list[Completion]:
+        """async variant of the [rigging.chat.PendingCompletion.run_many][] method."""
+        states: list[RunState] = [RunState(self.text, p, self._process()) for p in self._fit_params(count, params)]
+        _ = [next(state.processor) for state in states]
 
-        try:
-            while True:
-                inbound = await self.generator.agenerate_text(outbound, self.params)
-                outbound = executor.send(inbound)
-        except StopIteration as stop:
-            outbound = t.cast(str, stop.value)
+        pending_states = states
+        while pending_states:
+            inbounds = await self.generator.agenerate_texts(
+                [s.text for s in pending_states], [s.params for s in pending_states]
+            )
 
-        return Completion(self.text, outbound, pending=self)
+            for inbound, state in zip(inbounds, pending_states, strict=True):
+                try:
+                    state.processor.send(inbound)
+                except StopIteration as stop:
+                    state.done = True
+                    state.completion = Completion(
+                        self.text, t.cast(str, stop.value), pending=self, metadata=self.metadata
+                    )
+                except ExhaustedMaxRoundsError:
+                    if not skip_failed:
+                        raise
+                    state.done = True
 
-    async def arun_many(self, count: int) -> list[Completion]:
-        """async variant of the [rigging.completion.PendingCompletion.run_many][] method."""
-        chats = await asyncio.gather(*[self.arun() for _ in range(count)])
-        return list(chats)
+            pending_states = [s for s in pending_states if not s.done]
+
+        return [self._then(s.completion) for s in states if s.completion is not None]
+
+    # Batch completions
+
+    def run_batch(
+        self,
+        many: t.Sequence[str],
+        params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
+        *,
+        skip_failed: bool = False,
+    ) -> list[Completion]:
+        """
+        Executes the generation process accross multiple input messages.
+
+        Note:
+            Anything already in this pending completion will be used as the `prefix` parameter
+            to [rigging.generator.Generator.generate_messages][].
+
+        Parameters:
+            many: A sequence of texts to generate with.
+            params: A sequence of parameters to be used for each text.
+            skip_failed: Enable to ignore any max rounds errors and return only successful completions.
+
+        Returns:
+            A list of generatated Completions.
+        """
+        params = self._fit_params(len(many), params)
+        states: list[RunState] = [RunState(m, p, self._process()) for m, p in zip(many, params, strict=True)]
+        _ = [next(state.processor) for state in states]
+
+        pending_states = states
+        while pending_states:
+            inbounds = self.generator.generate_texts(
+                [s.text for s in pending_states],
+                [s.params for s in pending_states],
+                prefix=self.text,
+            )
+
+            for inbound, state in zip(inbounds, pending_states, strict=True):
+                try:
+                    state.processor.send(inbound)
+                except StopIteration as stop:
+                    state.done = True
+                    state.completion = Completion(
+                        self.text, t.cast(str, stop.value), pending=self, metadata=self.metadata
+                    )
+                except ExhaustedMaxRoundsError:
+                    if not skip_failed:
+                        raise
+                    state.done = True
+
+            pending_states = [s for s in pending_states if not s.done]
+
+        return [self._then(s.completion) for s in states if s.completion is not None]
+
+    async def arun_batch(
+        self,
+        many: t.Sequence[str],
+        params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
+        *,
+        skip_failed: bool = False,
+    ) -> list[Completion]:
+        """async variant of the [rigging.chat.PendingChat.run_batch][] method."""
+        params = self._fit_params(len(many), params)
+        states: list[RunState] = [RunState(m, p, self._process()) for m, p in zip(many, params, strict=True)]
+        _ = [next(state.processor) for state in states]
+
+        pending_states = states
+        while pending_states:
+            inbounds = await self.generator.agenerate_texts(
+                [s.text for s in pending_states],
+                [s.params for s in pending_states],
+                prefix=self.text,
+            )
+
+            for inbound, state in zip(inbounds, pending_states, strict=True):
+                try:
+                    state.processor.send(inbound)
+                except StopIteration as stop:
+                    state.done = True
+                    state.completion = Completion(
+                        self.text, t.cast(str, stop.value), pending=self, metadata=self.metadata
+                    )
+                except ExhaustedMaxRoundsError:
+                    if not skip_failed:
+                        raise
+                    state.done = True
+
+            pending_states = [s for s in pending_states if not s.done]
+
+        return [self._then(s.completion) for s in states if s.completion is not None]

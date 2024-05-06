@@ -84,6 +84,41 @@ class GenerateParams(BaseModel):
             return value
         raise ValueError("Stop sequences must be a list or a string separated by ';'")
 
+    def merge_with(self, *others: t.Optional["GenerateParams"]) -> "GenerateParams":
+        """
+        Apply a series of parameter overrides to the current instance and return a copy.
+
+        Args:
+            *others: The parameters to be merged with the current instance's parameters.
+                Can be multiple and overrides will be applied in order.
+
+        Returns:
+            The merged parameters instance.
+        """
+        if len(others) == 0 or all(p is None for p in others):
+            return self
+
+        updates: dict[str, t.Any] = {}
+        for other in [o for o in others if o is not None]:
+            other_dict = other.model_dump(exclude_unset=True)
+            for name, value in other_dict.items():
+                if value is not None:
+                    updates[name] = value
+
+        return self.model_copy(update=updates)
+
+    def to_dict(self) -> dict[str, t.Any]:
+        """
+        Convert the parameters to a dictionary.
+
+        Returns:
+            The parameters as a dictionary.
+        """
+        params = self.model_dump(exclude_unset=True)
+        if "extra" in params:
+            params.update(params.pop("extra"))
+        return params
+
 
 class Generator(BaseModel):
     """
@@ -93,10 +128,8 @@ class Generator(BaseModel):
 
     A subclass of this can implement any of the following:
 
-    - `generate_message`: Generate the next message for a given set of messages.
-    - `generate_text`: Generate a string completion of the given text.
-    - `batch_messages`: Process a batch of messages.
-    - `batch_texts`: Process a batch of texts.
+    - `generate_messages`: Process a batch of messages.
+    - `generate_texts`: Process a batch of texts.
 
     (In addition to async variants of these functions)
     """
@@ -108,239 +141,151 @@ class Generator(BaseModel):
     params: GenerateParams
     """The parameters used for generating completion messages."""
 
-    def to_identifier(self, overloads: GenerateParams | None = None) -> str:
+    def to_identifier(self, params: GenerateParams | None = None) -> str:
         """
         Converts the generator instance back into a rigging identifier string.
 
-        Note:
-            Extra parameters are not supported in identifiers.
+        This calls [rigging.generator.get_identifier][] with the current instance.
 
         Args:
-            overloads: The parameters to be used for generating the identifier.
+            params: The generation parameters.
 
         Returns:
             The identifier string.
         """
-        provider = next(name for name, klass in g_providers.items() if isinstance(self, klass))
-        params_dict = self._merge_params(overloads)
-        if not params_dict:
-            return f"{provider}!{self.model}"
+        return get_identifier(self, params)
 
-        if "extra" in params_dict:
-            logger.warning("Extra parameters are not supported in identifiers.")
-            params_dict.pop("extra")
-
-        if "stop" in params_dict:
-            params_dict["stop"] = ";".join(params_dict["stop"])
-
-        params = ",".join([f"{k}={v}" for k, v in params_dict.items()])
-
-        return f"{provider}!{self.model},{params}"
-
-    def _merge_params(self, overloads: GenerateParams | None = None) -> dict[str, t.Any]:
-        """
-        Helper to merge the parameters of the current instance with the provided `overloads` parameters.
-
-        Typically used to prepare a dictionary of API parameters for a request.
-
-        Args:
-            overloads: The parameters to be merged with the current instance's parameters.
-
-        Returns:
-            The merged parameters.
-        """
-        params: dict[str, t.Any] = self.params.model_dump(exclude_unset=True) if self.params else {}
-        if overloads is None:
-            return params
-
-        overloads_dict = overloads.model_dump(exclude_unset=True)
-        if "extra" in overloads_dict:
-            params.update(overloads_dict.pop("extra"))
-
-        for name, value in overloads_dict.items():
-            if value is not None:
-                params[name] = value
-
-        return params
-
-    # Message generation
-
-    def generate_message(self, messages: t.Sequence[Message], overloads: GenerateParams | None = None) -> Message:
-        """
-        Generates the next message for a given set of messages.
-
-        Args:
-            messages: The list of messages to generate completion for.
-            overloads: The parameters to be used for completion.
-
-        Returns:
-            The generated completion message.
-
-        Raises:
-            NotImplementedError: This generator does not support this method.
-        """
-        raise NotImplementedError("generate_message is not supported by this generator.")
-
-    async def agenerate_message(
-        self, messages: t.Sequence[Message], overloads: GenerateParams | None = None
-    ) -> Message:
-        """async version of [rigging.generator.Generator.generate_message][]"""
-        raise NotImplementedError("agenerate_message is not supported by this generator.")
-
-    # Text generation
-
-    def generate_text(self, text: str, overloads: GenerateParams | None = None) -> str:
-        """
-        Generates a string completion of the given text.
-
-        Args:
-            text: The input text to be completed.
-            overloads: The parameters to be used for completion.
-
-        Returns:
-            The completed text.
-
-        Raises:
-            NotImplementedError: This generator does not support this method.
-        """
-        raise NotImplementedError("generate_text is not supported by this generator.")
-
-    async def agenerate_text(self, text: str, overloads: GenerateParams | None = None) -> str:
-        """async version of [rigging.generator.Generator.generate_text][]"""
-        raise NotImplementedError("agenerate_text is not supported by this generator.")
-
-    # Batching messages
-
-    def batch_messages(
+    def generate_messages(
         self,
-        many: t.Sequence[t.Sequence[Message]],
-        overloads: t.Sequence[GenerateParams | None] | None = None,
+        messages: t.Sequence[t.Sequence[Message]],
+        params: t.Sequence[GenerateParams],
         *,
-        fixed: t.Sequence[Message] | None = None,
+        prefix: t.Sequence[Message] | None = None,
     ) -> t.Sequence[Message]:
         """
         Generate a batch of messages using the specified parameters.
 
         Note:
-            If supplied, the length of `overloads` must be the same as the length of `many`.
+            The length of `params` must be the same as the length of `many`.
 
         Args:
-            many: A sequence of sequences of messages.
-            overloads: A sequence of GenerateParams objects or None.
-            fixed: A sequence of fixed messages to be prefixed before every item of `many`.
+            messages: A sequence of sequences of messages.
+            params: A sequence of GenerateParams objects.
+            prefix: A sequence of fixed messages to be prefixed before every item of `many`.
 
         Returns:
-            Sequence[MessageA sequence of generated messages.
+            A sequence of generated messages.
 
         Raises:
             NotImplementedError: This method is not supported by this generator.
         """
-        raise NotImplementedError("batch_messages is not supported by this generator.")
+        raise NotImplementedError("`generate_messages` is not supported by this generator.")
 
-    async def abatch_messages(
+    async def agenerate_messages(
         self,
-        many: t.Sequence[t.Sequence[Message]],
-        overloads: t.Sequence[GenerateParams | None] | None = None,
+        messages: t.Sequence[t.Sequence[Message]],
+        params: t.Sequence[GenerateParams],
         *,
-        fixed: t.Sequence[Message],
+        prefix: t.Sequence[Message] | None = None,
     ) -> t.Sequence[Message]:
-        """async version of [rigging.generator.Generator.batch_messages][]"""
-        raise NotImplementedError("abatch_messages is not supported by this generator.")
+        """async version of [rigging.generator.Generator.generate_messages][]"""
+        raise NotImplementedError("`agenerate_messages` is not supported by this generator.")
 
-    # Batching texts
-
-    def batch_texts(
+    def generate_texts(
         self,
-        many: t.Sequence[str],
-        overloads: t.Sequence[GenerateParams | None] | None = None,
+        texts: t.Sequence[str],
+        params: t.Sequence[GenerateParams],
         *,
-        fixed: str | None = None,
+        prefix: str | None = None,
     ) -> t.Sequence[str]:
         """
-        Generate a batch of texts using the generator.
+        Generate a batch of text completions using the generator.
 
         Note:
-            If supplied, the length of `overloads` must be the same as the length of `many`.
+            This method falls back to looping over the inputs and calling `generate_text` for each item.
+
+        Note:
+            If supplied, the length of `params` must be the same as the length of `many`.
 
         Args:
-            many: The input texts for generating the batch.
-            overloads: Additional parameters for generating each text in the batch.
-            fixed: A fixed input text to be used as a prefix for all of `many`.
+            texts: The input texts for generating the batch.
+            params: Additional parameters for generating each text in the batch.
+            prefix: A fixed input text to be used as a prefix for all of `many`.
 
         Returns:
-            Sequence[strThe generated texts in the batch.
+            The generated texts.
 
         Raises:
             NotImplementedError: This method is not supported by this generator.
         """
-        raise NotImplementedError("batch_texts is not supported by this generator.")
+        raise NotImplementedError("`generate_texts` is not supported by this generator.")
 
-    async def abatch_texts(
+    async def agenerate_texts(
         self,
-        many: t.Sequence[str],
-        overloads: t.Sequence[GenerateParams | None] | None = None,
+        texts: t.Sequence[str],
+        params: t.Sequence[GenerateParams],
         *,
-        fixed: str | None = None,
+        prefix: str | None = None,
     ) -> t.Sequence[str]:
-        """async version of [rigging.generator.Generator.batch_texts][]"""
-        raise NotImplementedError("abatch_texts is not supported by this generator.")
+        """async version of [rigging.generator.Generator.generate_texts][]"""
+        raise NotImplementedError("`agenerate_texts` is not supported by this generator.")
 
     # Helper alternative to chat(generator) -> generator.chat(...)
     #
-    # Overloads seem odd, but mypy doesn't like the TypedDict in a list otherwise
+    # params seem odd, but mypy doesn't like the TypedDict in a list otherwise
 
     @t.overload
     def chat(
         self,
         messages: t.Sequence[MessageDict],
-        overloads: GenerateParams | None = None,
+        params: GenerateParams | None = None,
     ) -> PendingChat:
         ...
 
     @t.overload
     def chat(
-        self, messages: t.Sequence[Message] | MessageDict | Message | str, overloads: GenerateParams | None = None
+        self, messages: t.Sequence[Message] | MessageDict | Message | str, params: GenerateParams | None = None
     ) -> PendingChat:
         ...
 
     def chat(
         self,
         messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str,
-        overloads: GenerateParams | None = None,
+        params: GenerateParams | None = None,
     ) -> PendingChat:
         """
-        Builds a pending chat with the given messages and optional overloads.
+        Builds a pending chat with the given messages and optional params.
 
         Args:
             messages: The messages to be sent in the chat.
-            overloads: Optional parameters for generating responses.
+            params: Optional parameters for generating responses.
 
         Returns:
             Pending chat to run.
         """
-        return PendingChat(self, Message.fit_as_list(messages), overloads)
+        return PendingChat(self, Message.fit_as_list(messages), params)
 
     # Helper alternative to complete(generator) -> generator.complete(...)
 
-    def complete(self, text: str, overloads: GenerateParams | None = None) -> PendingCompletion:
+    def complete(self, text: str, params: GenerateParams | None = None) -> PendingCompletion:
         """
         Generates a pending string completion of the given text.
 
         Args:
             text: The input text to be completed.
-            overloads: The parameters to be used for completion.
+            params: The parameters to be used for completion.
 
         Returns:
             The completed text.
         """
-        return PendingCompletion(self, text, overloads)
+        return PendingCompletion(self, text, params)
 
 
 @t.overload
 def chat(
     generator: "Generator",
     messages: t.Sequence[MessageDict],
-    overloads: GenerateParams | None = None,
+    params: GenerateParams | None = None,
 ) -> PendingChat:
     ...
 
@@ -349,7 +294,7 @@ def chat(
 def chat(
     generator: "Generator",
     messages: t.Sequence[Message] | MessageDict | Message | str,
-    overloads: GenerateParams | None = None,
+    params: GenerateParams | None = None,
 ) -> PendingChat:
     ...
 
@@ -357,45 +302,61 @@ def chat(
 def chat(
     generator: "Generator",
     messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str,
-    overloads: GenerateParams | None = None,
+    params: GenerateParams | None = None,
 ) -> PendingChat:
     """
-    Creates a pending chat using the given generator, messages, and overloads.
+    Creates a pending chat using the given generator, messages, and params.
 
     Args:
         generator: The generator to use for creating the chat.
         messages:
             The messages to include in the chat. Can be a single message or a sequence of messages.
-        overloads: Additional parameters for generating the chat.
+        params: Additional parameters for generating the chat.
 
     Returns:
         Pending chat to run.
     """
-    return generator.chat(messages, overloads)
+    return generator.chat(messages, params)
 
 
 def complete(
     generator: Generator,
     text: str,
-    overloads: GenerateParams | None = None,
+    params: GenerateParams | None = None,
 ) -> PendingCompletion:
-    return generator.complete(text, overloads)
+    return generator.complete(text, params)
 
 
-def get_identifier(generator: Generator, overloads: GenerateParams | None = None) -> str:
+def get_identifier(generator: Generator, params: GenerateParams | None = None) -> str:
     """
-    Returns the identifier for the given generator.
+    Converts the generator instance back into a rigging identifier string.
 
-    Delegates to [rigging.generator.Generator.to_identifier][]
+    Warning:
+        The `extra` parameter field is not currently supported in identifiers.
 
     Args:
         generator: The generator object.
-        overloads: The generate parameters.
+        params: The generation parameters.
 
     Returns:
-        The identifier for the generator.
+        The identifier string for the generator.
     """
-    return generator.to_identifier(overloads)
+
+    provider = next(name for name, klass in g_providers.items() if isinstance(generator, klass))
+    identifier = f"{provider}!{generator.model}"
+
+    merged_params = generator.params.merge_with(params)
+    if merged_params.extra:
+        logger.warning("Extra parameters are not supported in identifiers.")
+        merged_params.extra = {}
+
+    params_dict = merged_params.to_dict()
+    if params_dict:
+        if "stop" in params_dict:
+            params_dict["stop"] = ";".join(params_dict["stop"])
+        identifier += f",{','.join([f'{k}={v}' for k, v in params_dict.items()])}"
+
+    return identifier
 
 
 def get_generator(identifier: str) -> Generator:
@@ -510,126 +471,118 @@ class LiteLLMGenerator(Generator):
         Find more information about supported models and formats [in their docs.](https://docs.litellm.ai/docs/providers).
 
     Note:
-        While this generator implements the batch methods, they are not performant and simply loop over the inputs.
+        Batching support is not performant and simply a loop over inputs.
     """
 
-    def generate_message(self, messages: t.Sequence[Message], overloads: GenerateParams | None = None) -> Message:
-        trace_messages(messages, "Conversations")
-
-        messages_as_dicts = [message.model_dump(include={"role", "content"}) for message in messages]
-        params = self._merge_params(overloads)
-        result = litellm.completion(self.model, messages_as_dicts, api_key=self.api_key, **params)
+    def _generate_message(self, messages: t.Sequence[Message], params: GenerateParams) -> Message:
+        result = litellm.completion(
+            self.model,
+            [message.model_dump(include={"role", "content"}) for message in messages],
+            api_key=self.api_key,
+            **self.params.merge_with(params).to_dict(),
+        )
         response = result.choices[-1].message.content.strip()
-        next_message = Message(role="assistant", content=response)
+        return Message(role="assistant", content=response)
 
-        trace_messages([next_message], "Response")
-
-        return next_message
-
-    async def agenerate_message(
-        self, messages: t.Sequence[Message], overloads: GenerateParams | None = None
-    ) -> Message:
-        trace_messages(messages, "Conversations")
-
-        messages_as_dicts = [message.model_dump(include={"role", "content"}) for message in messages]
-        params = self._merge_params(overloads)
-        result = await litellm.acompletion(self.model, messages_as_dicts, api_key=self.api_key, **params)
+    async def _agenerate_message(self, messages: t.Sequence[Message], params: GenerateParams) -> Message:
+        result = await litellm.acompletion(
+            self.model,
+            [message.model_dump(include={"role", "content"}) for message in messages],
+            api_key=self.api_key,
+            **self.params.merge_with(params).to_dict(),
+        )
         response = result.choices[-1].message.content.strip()
-        next_message = Message(role="assistant", content=response)
+        return Message(role="assistant", content=response)
 
-        trace_messages([next_message], "Response")
+    def _generate_text(self, text: str, params: GenerateParams) -> str:
+        result = litellm.text_completion(
+            text, self.model, api_key=self.api_key, **self.params.merge_with(params).to_dict()
+        )
+        return t.cast(str, result.choices[-1]["text"])
 
-        return next_message
+    async def _agenerate_text(self, text: str, params: GenerateParams) -> str:
+        result = await litellm.atext_completion(
+            text, self.model, api_key=self.api_key, **self.params.merge_with(params).to_dict()
+        )
+        return t.cast(str, result.choices[-1]["text"])
 
-    def generate_text(self, text: str, overloads: GenerateParams | None = None) -> str:
-        trace_str(text, "Text")
-
-        params = self._merge_params(overloads)
-        result = litellm.text_completion(text, self.model, api_key=self.api_key, **params)
-        completion: str = result.choices[-1]["text"]
-
-        trace_str(completion, "Completion")
-
-        return completion
-
-    async def agenerate_text(self, text: str, overloads: GenerateParams | None = None) -> str:
-        trace_str(text, "Text")
-
-        params = self._merge_params(overloads)
-        result = await litellm.atext_completion(text, self.model, api_key=self.api_key, **params)
-        completion: str = result.choices[-1]["text"]
-
-        trace_str(completion, "Completion")
-
-        return completion
-
-    def batch_messages(
+    def generate_messages(
         self,
-        many: t.Sequence[t.Sequence[Message]],
-        overloads: t.Sequence[GenerateParams | None] | None = None,
+        messages: t.Sequence[t.Sequence[Message]],
+        params: t.Sequence[GenerateParams],
         *,
-        fixed: t.Sequence[Message] | None = None,
+        prefix: t.Sequence[Message] | None = None,
     ) -> t.Sequence[Message]:
-        if overloads is not None and len(overloads) != len(many):
-            raise ValueError("Length of overloads must match the length of many.")
+        if prefix is not None:
+            messages = [list(prefix) + list(messages) for messages in messages]
 
-        overloads = [None] * len(many) if overloads is None else overloads
-        if fixed is not None:
-            many = [list(fixed) + list(messages) for messages in many]
+        generated: list[Message] = []
+        for i, (_messages, _params) in enumerate(zip(messages, params, strict=True)):
+            trace_messages(_messages, f"Messages {i+1}/{len(messages)}")
+            next_message = self._generate_message(_messages, _params)
+            generated.append(next_message)
+            trace_messages([next_message], f"Response {i+1}/{len(messages)}")
 
-        return [self.generate_message(messages, overload) for messages, overload in zip(many, overloads, strict=True)]
+        return generated
 
-    async def abatch_messages(
+    async def agenerate_messages(
         self,
-        many: t.Sequence[t.Sequence[Message]],
-        overloads: t.Sequence[GenerateParams | None] | None = None,
+        messages: t.Sequence[t.Sequence[Message]],
+        params: t.Sequence[GenerateParams],
         *,
-        fixed: t.Sequence[Message],
+        prefix: t.Sequence[Message] | None = None,
     ) -> t.Sequence[Message]:
-        if overloads is not None and len(overloads) != len(many):
-            raise ValueError("Length of overloads must match the length of many.")
+        if prefix is not None:
+            messages = [list(prefix) + list(messages) for messages in messages]
 
-        overloads = [None] * len(many) if overloads is None else overloads
-        if fixed is not None:
-            many = [list(fixed) + list(messages) for messages in many]
-
-        return await asyncio.gather(
-            *[self.agenerate_message(messages, overload) for messages, overload in zip(many, overloads, strict=True)]
+        generated: list[Message] = await asyncio.gather(
+            *[self._agenerate_message(_messages, _params) for _messages, _params in zip(messages, params, strict=True)]
         )
 
-    def batch_texts(
+        for i, (_messages, _generated) in enumerate(zip(messages, generated, strict=True)):
+            trace_messages(_messages, f"Messages {i+1}/{len(messages)}")
+            trace_messages([_generated], f"Response {i+1}/{len(messages)}")
+
+        return generated
+
+    def generate_texts(
         self,
-        many: t.Sequence[str],
-        overloads: t.Sequence[GenerateParams | None] | None = None,
+        texts: t.Sequence[str],
+        params: t.Sequence[GenerateParams],
         *,
-        fixed: str | None = None,
+        prefix: str | None = None,
     ) -> t.Sequence[str]:
-        if overloads is not None and len(overloads) != len(many):
-            raise ValueError("Length of overloads must match the length of many.")
+        if prefix is not None:
+            texts = [prefix + text for text in texts]
 
-        overloads = [None] * len(many) if overloads is None else overloads
-        if fixed is not None:
-            many = [fixed + message for message in many]
+        generated: list[str] = []
+        for i, (text, _params) in enumerate(zip(texts, params, strict=True)):
+            trace_str(text, f"Text {i+1}/{len(texts)}")
+            response = self._generate_text(text, _params)
+            generated.append(response)
+            trace_str(response, f"Generated {i+1}/{len(texts)}")
 
-        return [self.generate_text(message, overload) for message, overload in zip(many, overloads, strict=True)]
+        return generated
 
-    async def abatch_texts(
+    async def agenerate_texts(
         self,
-        many: t.Sequence[str],
-        overloads: t.Sequence[GenerateParams | None] | None = None,
+        texts: t.Sequence[str],
+        params: t.Sequence[GenerateParams],
         *,
-        fixed: str | None = None,
+        prefix: str | None = None,
     ) -> t.Sequence[str]:
-        if overloads is not None and len(overloads) != len(many):
-            raise ValueError("Length of overloads must match the length of many.")
+        if prefix is not None:
+            texts = [prefix + text for text in texts]
 
-        overloads = [None] * len(many) if overloads is None else overloads
-        if fixed is not None:
-            many = [fixed + message for message in many]
-
-        return await asyncio.gather(
-            *[self.agenerate_text(message, overload) for message, overload in zip(many, overloads, strict=True)]
+        generated: list[str] = await asyncio.gather(
+            *[self._agenerate_text(text, _params) for text, _params in zip(texts, params, strict=True)]
         )
+
+        for i, (text, response) in enumerate(zip(texts, generated, strict=True)):
+            trace_str(text, f"Text {i+1}/{len(texts)}")
+            trace_str(response, f"Generated {i+1}/{len(texts)}")
+
+        return generated
 
 
 g_providers["litellm"] = LiteLLMGenerator
