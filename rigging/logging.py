@@ -1,3 +1,9 @@
+"""
+We use loguru for logging. This module provides a function to configure the logging settings.
+
+To enable rigging logging, call `logger.enable("rigging")` after importing the module.
+"""
+
 import pathlib
 import sys
 import typing as t
@@ -15,6 +21,20 @@ def configure_logging(
     log_file: pathlib.Path | None = None,
     log_file_level: LogLevelLiteral = "debug",
 ) -> None:
+    """
+    Configures the loguru settings for the rigging module.
+
+    This is optional, and calling `logger.enable("rigging")` will enable the logging
+    and you can control the formatting and log levels using the loguru API.
+
+    Args:
+        log_level: The desired log level. Valid values are 'TRACE', 'DEBUG', 'INFO',
+            'SUCCESS', 'WARNING', 'ERROR', and 'CRITICAL'.
+        log_file: The path to the log file. If None, logging
+            will only be done to the console.
+        log_file_level: The log level for the log file. Valid values
+            are 'TRACE', 'DEBUG', 'INFO', 'SUCCESS', 'WARNING', 'ERROR', and 'CRITICAL'.
+    """
     global g_configured
 
     if g_configured:
