@@ -8,10 +8,10 @@ nav:
   - Home: index.md
   - Topics:
     - Generators: topics/generators.md
-    - Chat: topics/chat.md
-    - Models: topics/model.md
+    - Chats: topics/chats.md
+    - Models: topics/models.md
     - Tools: topics/tools.md
-    - Logging: topics/logging.md
+    - Logging: topics/setup_logging.md
   - API:
     - rigging.chat: api/chat.md
     - rigging.completion: api/completion.md

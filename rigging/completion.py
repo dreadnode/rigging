@@ -485,7 +485,7 @@ class PendingCompletion:
         params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
         skip_failed: bool = False,
     ) -> list[Completion]:
-        """async variant of the [rigging.chat.PendingCompletion.run_many][] method."""
+        """async variant of the [rigging.completion.PendingCompletion.run_many][] method."""
         states: list[RunState] = [RunState(self.text, p, self._process()) for p in self._fit_params(count, params)]
         _ = [next(state.processor) for state in states]
 

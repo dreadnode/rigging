@@ -143,6 +143,8 @@ class Message(BaseModel):
 
             shift += new_length - old_length
 
+        self.parts = sorted(self.parts, key=lambda p: p.slice_.start)
+
     @computed_field  # type: ignore[misc]
     @property
     def content(self) -> str:
