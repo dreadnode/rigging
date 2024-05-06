@@ -4,10 +4,12 @@ Chats are used pre and post generation to hold messages.
 They are the primary way to interact with the generator.
 """
 
+import asyncio
 import typing as t
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
+from typing import runtime_checkable
 from uuid import UUID, uuid4
 
 from loguru import logger
@@ -54,21 +56,23 @@ class Chat(BaseModel):
     metadata: dict[str, t.Any] = Field(default_factory=dict)
     """Additional metadata for the chat."""
 
-    pending: t.Optional["PendingChat"] = Field(None, exclude=True, repr=False)
-    """The pending chat associated with the chat."""
+    generator: t.Optional["Generator"] = Field(None, exclude=True, repr=False)
+    """The generator associated with the chat."""
+    params: t.Optional["GenerateParams"] = Field(None, exclude=True, repr=False)
+    """Any additional generation params used for this chat."""
 
     @computed_field(repr=False)
     def generator_id(self) -> str | None:
         """The identifier of the generator used to create the chat"""
-        if self.pending is not None:
-            return self.pending.generator.to_identifier(self.pending.params)
+        if self.generator is not None:
+            return self.generator.to_identifier(self.params)
         return None
 
     def __init__(
         self,
         messages: Messages,
         generated: Messages | None = None,
-        pending: t.Optional["PendingChat"] = None,
+        generator: t.Optional["Generator"] = None,
         **kwargs: t.Any,
     ):
         """
@@ -77,19 +81,19 @@ class Chat(BaseModel):
         Args:
             messages: The messages for the chat.
             generated: The next messages for the chat.
-            pending: The pending chat.
+            generator: The generator associated with this chat.
             **kwargs: Additional keyword arguments (typically used for deserialization)
         """
         from rigging.generator import get_generator
 
-        if "generator_id" in kwargs and pending is None:
+        if "generator_id" in kwargs and generator is None:
+            # TODO: Should we move params to self.params?
             generator = get_generator(kwargs.pop("generator_id"))
-            pending = generator.chat(messages)
 
         super().__init__(
             messages=Message.fit_as_list(messages),
             generated=Message.fit_as_list(generated) if generated is not None else [],
-            pending=pending,
+            generator=generator,
             **kwargs,
         )
 
@@ -149,13 +153,12 @@ class Chat(BaseModel):
         Raises:
             ValueError: If the chat was not created with a PendingChat and no generator is provided.
         """
-
         messages = self.all if include_all else self.messages
-        if generator is not None:
-            return generator.chat(messages)
-        elif self.pending is None:
-            raise ValueError("Cannot restart chat that was not created with a PendingChat")
-        return PendingChat(self.pending.generator, messages, self.pending.params)
+        if generator is None:
+            generator = self.generator
+        if generator is None:
+            raise ValueError("Cannot restart a chat without an associated generator")
+        return generator.chat(messages, self.params)
 
     def fork(
         self,
@@ -186,7 +189,7 @@ class Chat(BaseModel):
         new = Chat(
             [m.model_copy() for m in self.messages],
             [m.model_copy() for m in self.generated],
-            self.pending,
+            self.generator,
         )
         if not only_messages:
             new.metadata = deepcopy(self.metadata)
@@ -269,14 +272,61 @@ class Chat(BaseModel):
         self.inject_system_content(tool_system_prompt)
 
 
-# Passed the next message, returns whether or not to continue
-# and an optional list of messages to append before continuing
-UntilMessageCallback = t.Callable[[Message], tuple[bool, list[Message]]]
+# Callbacks for pending chat
 
-ThenChatCallback = t.Callable[[Chat], Chat | None]
+
+class UntilMessageCallback(t.Protocol):
+    def __call__(self, message: Message) -> tuple[bool, list[Message]]:
+        """
+        Passed the next message, returns whether or not to continue and an
+        optional list of messages to append before continuing.
+        """
+        ...
+
+
+@runtime_checkable
+class ThenChatCallback(t.Protocol):
+    def __call__(self, chat: Chat) -> Chat | None:
+        """
+        Passed a finalized chat to process and can return a new chat to replace it.
+        """
+        ...
+
+
+@runtime_checkable
+class AsyncThenChatCallback(t.Protocol):
+    async def __call__(self, chat: Chat) -> Chat | None:
+        """
+        async variant of the [rigging.chat.ThenChatCallback][] protocol.
+        """
+        ...
+
+
+@runtime_checkable
+class MapChatCallback(t.Protocol):
+    def __call__(self, chats: list[Chat]) -> list[Chat]:
+        """
+        Passed a finalized chats to process. Can replace chats in the pipeline by returning
+        a new chat object.
+        """
+        ...
+
+
+@runtime_checkable
+class AsyncMapChatCallback(t.Protocol):
+    async def __call__(self, chats: list[Chat]) -> list[Chat]:
+        """
+        async variant of the [rigging.chat.MapChatCallback][] protocol.
+        """
+        ...
+
+
+PostRunCallbacks = ThenChatCallback | AsyncThenChatCallback | MapChatCallback | AsyncMapChatCallback
 
 MessageProducer = t.Generator[t.Sequence[Message], None, None]
-BatchProducer = t.Generator[t.Sequence[t.Sequence[Message]], None, None]
+MessagesProducer = t.Generator[t.Sequence[t.Sequence[Message]], None, None]
+
+# Helper classes to manage complexity inside the run functions
 
 
 @dataclass
@@ -321,7 +371,7 @@ class PendingChat:
         self.until_tools: list[Tool] = []
         self.inject_tool_prompt: bool = True
         self.force_tool: bool = False
-        self.then_callbacks: list[ThenChatCallback] = []
+        self.post_run_callbacks: list[PostRunCallbacks] = []
         # self.producer: MessageProducer | None = None
 
     def with_(self, params: t.Optional["GenerateParams"] = None, **kwargs: t.Any) -> "PendingChat":
@@ -428,13 +478,18 @@ class PendingChat:
         self.metadata.update(kwargs)
         return self
 
-    def then(self, callback: ThenChatCallback) -> "PendingChat":
+    def then(self, callback: ThenChatCallback | AsyncThenChatCallback) -> "PendingChat":
         """
         Registers a callback to be executed after the generation process completes.
 
         Note:
             Returning a Chat object from the callback will replace the current chat.
-            for the remainder of the callbacks + return value of `run()`.
+            for the remainder of the callbacks + return value of `run()`. This is
+            optional.
+
+        Warning:
+            If you implement an async callback, you must use the async variant of the
+            run methods when executing the generation process.
 
         ```
         def process(chat: Chat) -> Chat | None:
@@ -449,7 +504,35 @@ class PendingChat:
         Returns:
             The current instance of the chat.
         """
-        self.then_callbacks.append(callback)
+        self.post_run_callbacks.append(callback)
+        return self
+
+    def map(self, callback: MapChatCallback | AsyncMapChatCallback) -> "PendingChat":
+        """
+        Registers a callback to be executed after the generation process completes.
+
+        Note:
+            You must return a list of Chat objects from the callback which will
+            represent the state of chats for the remainder of the callbacks and return.
+
+        Warning:
+            If you implement an async callback, you must use the async variant of the
+            run methods when executing the generation process.
+
+        ```
+        def process(chats: list[Chat]) -> list[Chat]:
+            ...
+
+        pending.map(process).run()
+        ```
+
+        Args:
+            callback: The callback function to be executed.
+
+        Returns:
+            The current instance of the chat.
+        """
+        self.post_run_callbacks.append(callback)
         return self
 
     # def from_(self, producer: MessageProducer) -> "PendingChat":
@@ -695,7 +778,7 @@ class PendingChat:
 
         for _ in range(max_rounds):
             logger.trace(
-                f"_until({callback.__name__}) round {_ + 1}/{max_rounds} (attempt_recovery={attempt_recovery})"
+                f"_until({callback.__call__.__name__}) round {_ + 1}/{max_rounds} (attempt_recovery={attempt_recovery})"
             )
             next_message = yield running_messages
             should_continue, step_messages = callback(next_message)
@@ -724,13 +807,31 @@ class PendingChat:
             new_messages = new_messages[:-1] + generated
         return new_messages
 
-    def _then(self, chat: Chat) -> Chat:
-        # TODO: Adding async support here would be nice
-        for callback in self.then_callbacks:
-            chat = callback(chat) or chat
-        return chat
+    def _post_run(self, chats: list[Chat]) -> list[Chat]:
+        for callback in self.post_run_callbacks:
+            if isinstance(callback, ThenChatCallback):
+                chats = [callback(chat) or chat for chat in chats]
+            elif isinstance(callback, MapChatCallback):
+                chats = callback(chats)
 
-    def _prepare(self) -> None:
+        return chats
+
+    async def _apost_run(self, chats: list[Chat]) -> list[Chat]:
+        if not all(
+            isinstance(callback, AsyncThenChatCallback | AsyncMapChatCallback) for callback in self.post_run_callbacks
+        ):
+            raise ValueError("Cannot use async then()/map() callbacks inside a non-async run call")
+
+        for callback in self.post_run_callbacks:
+            if isinstance(callback, AsyncThenChatCallback):
+                updated = await asyncio.gather(*[callback(chat) for chat in chats])
+                chats = [updated[i] or chat for i, chat in enumerate(chats)]
+            elif isinstance(callback, AsyncMapChatCallback):
+                chats = await callback(chats)
+
+        return chats
+
+    def _pre_run(self) -> None:
         if self.until_tools:
             if self.inject_tool_prompt:
                 self.chat.inject_tool_prompt(self.until_tools)
@@ -754,6 +855,18 @@ class PendingChat:
         if self.params is not None:
             params = [self.params.merge_with(p) for p in params]
         return [(p or GenerateParams()) for p in params]
+
+    def _fit_many(
+        self,
+        count: int,
+        many: t.Sequence[t.Sequence[Message]] | t.Sequence[Message] | t.Sequence[MessageDict] | t.Sequence[str],
+    ) -> list[list[Message]]:
+        many = [Message.fit_as_list(m) for m in many]
+        if len(many) < count:
+            if len(many) != 1:
+                raise ValueError(f"Can't fit many of length {len(many)} to {count}")
+            many = many * count
+        return many
 
     # TODO: There is an embarrassing amount of code duplication here
     # between the async and non-async methods, batch and many, etc.
@@ -810,7 +923,11 @@ class PendingChat:
                 except StopIteration as stop:
                     state.done = True
                     state.chat = Chat(
-                        self.chat.all, t.cast(list[Message], stop.value), pending=self, metadata=self.metadata
+                        self.chat.all,
+                        t.cast(list[Message], stop.value),
+                        generator=self.generator,
+                        metadata=self.metadata,
+                        params=state.params,
                     )
                 except ExhaustedMaxRoundsError:
                     if not skip_failed:
@@ -819,7 +936,7 @@ class PendingChat:
 
             pending_states = [s for s in pending_states if not s.done]
 
-        return [self._then(s.chat) for s in states if s.chat is not None]
+        return self._post_run([s.chat for s in states if s.chat is not None])
 
     async def arun_many(
         self,
@@ -844,7 +961,11 @@ class PendingChat:
                 except StopIteration as stop:
                     state.done = True
                     state.chat = Chat(
-                        self.chat.all, t.cast(list[Message], stop.value), pending=self, metadata=self.metadata
+                        self.chat.all,
+                        t.cast(list[Message], stop.value),
+                        generator=self.generator,
+                        metadata=self.metadata,
+                        params=state.params,
                     )
                 except ExhaustedMaxRoundsError:
                     if not skip_failed:
@@ -853,7 +974,7 @@ class PendingChat:
 
             pending_states = [s for s in pending_states if not s.done]
 
-        return [self._then(s.chat) for s in states if s.chat is not None]
+        return await self._apost_run([s.chat for s in states if s.chat is not None])
 
     # Batch messages
 
@@ -879,8 +1000,13 @@ class PendingChat:
         Returns:
             A list of generatated Chats.
         """
-        many = [Message.fit_as_list(m) for m in many]
-        params = self._fit_params(len(many), params)
+        if isinstance(many, str | dict):
+            raise ValueError("many must be a sequence, even if it only contains one item")
+
+        count = max(len(many), len(params) if params is not None else 0)
+        many = self._fit_many(count, many)
+        params = self._fit_params(count, params)
+
         states: list[BatchRunState] = [
             BatchRunState(m, [], p, self._process()) for m, p in zip(many, params, strict=True)
         ]
@@ -900,7 +1026,11 @@ class PendingChat:
                 except StopIteration as stop:
                     state.done = True
                     state.chat = Chat(
-                        self.chat.all, t.cast(list[Message], stop.value), pending=self, metadata=self.metadata
+                        self.chat.all,
+                        t.cast(list[Message], stop.value),
+                        generator=self.generator,
+                        metadata=self.metadata,
+                        params=state.params,
                     )
                 except ExhaustedMaxRoundsError:
                     if not skip_failed:
@@ -909,7 +1039,7 @@ class PendingChat:
 
             pending_states = [s for s in pending_states if not s.done]
 
-        return [self._then(s.chat) for s in states if s.chat is not None]
+        return self._post_run([s.chat for s in states if s.chat is not None])
 
     async def arun_batch(
         self,
@@ -919,8 +1049,13 @@ class PendingChat:
         skip_failed: bool = False,
     ) -> list[Chat]:
         """async variant of the [rigging.chat.PendingChat.run_batch][] method."""
-        many = [Message.fit_as_list(m) for m in many]
-        params = self._fit_params(len(many), params)
+        if isinstance(many, str | dict):
+            raise ValueError("many must be a sequence, even if it only contains one item")
+
+        count = max(len(many), len(params) if params is not None else 0)
+        many = self._fit_many(count, many)
+        params = self._fit_params(count, params)
+
         states: list[BatchRunState] = [
             BatchRunState(m, [], p, self._process()) for m, p in zip(many, params, strict=True)
         ]
@@ -940,7 +1075,11 @@ class PendingChat:
                 except StopIteration as stop:
                     state.done = True
                     state.chat = Chat(
-                        self.chat.all, t.cast(list[Message], stop.value), pending=self, metadata=self.metadata
+                        self.chat.all,
+                        t.cast(list[Message], stop.value),
+                        generator=self.generator,
+                        metadata=self.metadata,
+                        params=state.params,
                     )
                 except ExhaustedMaxRoundsError:
                     if not skip_failed:
@@ -949,4 +1088,4 @@ class PendingChat:
 
             pending_states = [s for s in pending_states if not s.done]
 
-        return [self._then(s.chat) for s in states if s.chat is not None]
+        return await self._apost_run([s.chat for s in states if s.chat is not None])
