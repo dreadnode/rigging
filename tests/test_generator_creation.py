@@ -1,7 +1,8 @@
 import pytest
 
 from rigging.error import InvalidModelSpecifiedError
-from rigging.generator import GenerateParams, LiteLLMGenerator, get_generator
+from rigging.generator import GenerateParams, LiteLLMGenerator, get_generator, get_identifier, register_generator
+from tests.test_generation import EchoGenerator
 
 
 @pytest.mark.parametrize("identifier", ["test_model", "litellm!test_model"])
@@ -22,7 +23,7 @@ def test_get_generator_invalid_provider(identifier: str) -> None:
     [
         ("litellm!test_model,max_tokens=123,top_p=10", GenerateParams(max_tokens=123, top_p=10)),
         ("litellm!test_model,temperature=0.5", GenerateParams(temperature=0.5)),
-        ("test_model,max_tokens=100,temperature=1.0", GenerateParams(max_tokens=100, temperature=1.0)),
+        ("test_model,temperature=1.0,max_tokens=100", GenerateParams(max_tokens=100, temperature=1.0)),
     ],
 )
 def test_get_generator_with_params(identifier: str, valid_params: GenerateParams) -> None:
@@ -30,6 +31,26 @@ def test_get_generator_with_params(identifier: str, valid_params: GenerateParams
     assert isinstance(generator, LiteLLMGenerator)
     assert generator.model == "test_model"
     assert generator.params == valid_params
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        ("litellm!test_model,max_tokens=1024,top_p=0.1"),
+        ("litellm!custom,temperature=1.0,max_tokens=100,api_base=https://localhost:8000"),
+        ("litellm!many/model/slashes,stop=a;b;c;"),
+    ],
+)
+def test_identifier_roundtrip(identifier: str) -> None:
+    generator = get_generator(identifier)
+    assert generator.to_identifier() == identifier
+
+
+def test_get_identifier_no_extra() -> None:
+    generator = get_generator("testing_model,temperature=0.5")
+    generator.params.extra = {"abc": 123}
+    identifier = get_identifier(generator)
+    assert "extra" not in identifier
 
 
 @pytest.mark.parametrize("identifier", ["litellm:invalid,stuff:test,t1/123", "litellm:invalid,stuff:test,t1/123"])
@@ -44,3 +65,12 @@ def test_get_generator_invalid_structure_format(identifier: str) -> None:
 def test_get_generator_invalid_params(identifier: str) -> None:
     with pytest.raises(InvalidModelSpecifiedError):
         get_generator(identifier)
+
+
+def test_register_generator() -> None:
+    with pytest.raises(InvalidModelSpecifiedError):
+        get_generator("echo!test")
+
+    register_generator("echo", EchoGenerator)
+    generator = get_generator("echo!test")
+    assert isinstance(generator, EchoGenerator)

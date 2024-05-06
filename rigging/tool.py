@@ -1,4 +1,7 @@
-import abc
+"""
+This module defines handles tool interaction with rigging generation.
+"""
+
 import inspect
 import typing as t
 
@@ -57,6 +60,7 @@ class ToolCalls(Model, tag="tool_calls"):
     # TODO: We should consider building a base model
     # interface for both simple tags (<thing></thing>)
     # and full examples will filled in template vars
+
     @classmethod
     def xml_example(cls) -> str:
         return cls(
@@ -124,19 +128,56 @@ class ToolResults(Model, tag="tool_results"):
 #
 
 
-class Tool(abc.ABC):
-    # TODO: I don't love having these defined as property getters,
-    # I would prefer to have them as class attributes, but I'm not
-    # sure how we can hint/enforce that to derived classes
-    @property
-    @abc.abstractmethod
-    def name(self) -> str:
-        ...
+class Tool:
+    """
+    Base class for implementing tools in the Rigging system.
 
-    @property
-    @abc.abstractmethod
-    def description(self) -> str:
-        ...
+    You should subclass this to define your own tools:
+
+    ```python
+    def Hammer(Tool):
+        name = "Hammer"
+        description = "A tool for hitting things."
+
+        def hit(self, target: Annotated[str, "Target of the hit") -> str:
+            return f"Hit {target} with a hammer."
+
+    chat = generator.chat(...).using(Hammer()).run()
+    ```
+
+    Note:
+        The `name` and `description` attributes are required and can be defined
+        as class attributes or properties. If you define them as properties,
+        you must also define a getter for them.
+
+    Note:
+        All functions on the tool must have type hints for their parameters and
+        use the `Annotated` type hint to provide a description for each parameter.
+    """
+
+    name: str
+    """Name of the tool"""
+    description: str
+    """Description of the tool"""
+
+    def __init_subclass__(cls, *, name: str | None = None, description: str | None = None, **kwargs: t.Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if name is not None:
+            cls.name = name
+        if description is not None:
+            cls.description = description
+
+        # Ensure name and description are defined
+        if not (hasattr(cls, "name") or hasattr(cls, "name_property")):
+            raise TypeError(f"{cls.__name__} must define 'name' attribute or 'name' property.")
+        if not (hasattr(cls, "description") or hasattr(cls, "description_property")):
+            raise TypeError(f"{cls.__name__} must define 'description' attribute or 'description' property.")
+
+        # Check that they aren't empty or unset
+        if not getattr(cls, "name", None):
+            raise ValueError(f"{cls.__name__}.name must not be empty.")
+        if not getattr(cls, "description", None):
+            raise ValueError(f"{cls.__name__}.description must not be empty.")
 
     # TODO: We could alternatively use the get_description()
     # object and check against that (or even cast into it first)
@@ -170,6 +211,7 @@ class Tool(abc.ABC):
         return str(result)
 
     def execute(self, call: ToolCall) -> ToolResult:
+        """Executes a function call on the tool."""
         try:
             content = self._execute(call)
             return ToolResult(tool=call.tool, function=call.function, error=False, content=content)
@@ -183,6 +225,7 @@ class Tool(abc.ABC):
     # build a ToolDescription object that can be serialized
     # and passed to a model
     def get_description(self) -> ToolDescription:
+        """Creates a full description of the tool for use in prompting"""
         functions: list[ToolFunction] = []
         for method_name, method in inspect.getmembers(self.__class__, predicate=inspect.isfunction):
             if not method.__qualname__.startswith(self.__class__.__name__):

@@ -1,5 +1,6 @@
 from rigging.chat import Chat, PendingChat
-from rigging.generator import GenerateParams, Generator, get_generator
+from rigging.completion import Completion, PendingCompletion
+from rigging.generator import GenerateParams, Generator, chat, complete, get_generator
 from rigging.message import Message, MessageDict, Messages
 from rigging.model import Model, attr, element, wrapped
 from rigging.tool import Tool
@@ -18,6 +19,10 @@ __all__ = [
     "PendingChat",
     "Generator",
     "GenerateParams",
+    "chat",
+    "complete",
+    "Completion",
+    "PendingCompletion",
 ]
 
 from loguru import logger

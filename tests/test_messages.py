@@ -105,7 +105,7 @@ def test_message_from_model() -> None:
 
 def test_messages_fit_list() -> None:
     messages: t.Any = [{"role": "system", "content": "You are an AI assistant."}, Message("user", "Hello!")]
-    fitted = Message.fit_list(messages)
+    fitted = Message.fit_as_list(messages)
     assert len(fitted) == 2
     assert isinstance(fitted[0], Message)
     assert isinstance(fitted[1], Message)
@@ -150,7 +150,7 @@ def test_chat_continue() -> None:
             Message("user", "Hello"),
             Message("assistant", "Hi there!"),
         ],
-        pending=PendingChat(get_generator("gpt-3.5"), [], GenerateParams()),
+        generator=get_generator("gpt-3.5"),
     )
 
     continued = chat.continue_([Message("user", "How are you?")]).chat
@@ -163,7 +163,7 @@ def test_chat_continue() -> None:
 
 def test_pending_chat_continue() -> None:
     pending = PendingChat(get_generator("gpt-3.5"), [], GenerateParams())
-    continued = pending.continue_([Message("user", "Hello")])
+    continued = pending.fork([Message("user", "Hello")])
 
     assert continued != pending
     assert len(continued.chat) == 1
@@ -171,12 +171,17 @@ def test_pending_chat_continue() -> None:
 
 
 def test_pending_chat_add() -> None:
-    pending = PendingChat(get_generator("gpt-3.5"), [Message("user", "Hello")], GenerateParams())
-    added = pending.add(Message("user", "Hello"))
+    pending = PendingChat(get_generator("gpt-3.5"), [Message("user", "Hello")])
+    added = pending.add(Message("user", "There"))
 
     assert added == pending
-    assert len(added.chat) == 2
-    assert added.chat.all[0].content == "Hello"
+    assert len(added.chat) == 1
+    assert added.chat.all[0].content == "Hello\nThere"
+
+    diff_added = pending.add(Message("assistant", "Hi there!"))
+    assert diff_added == added == pending
+    assert len(diff_added.chat) == 2
+    assert diff_added.chat.all[1].content == "Hi there!"
 
 
 def test_chat_continue_maintains_parsed_models() -> None:
@@ -185,7 +190,7 @@ def test_chat_continue_maintains_parsed_models() -> None:
             Message("user", "<person name='John'>30</person>"),
             Message("assistant", "<address><street>123 Main St</street><city>Anytown</city></address>"),
         ],
-        pending=PendingChat(get_generator("gpt-3.5"), [], GenerateParams()),
+        generator=get_generator("gpt-3.5"),
     )
 
     chat.all[0].parse(Person)
