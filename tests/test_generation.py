@@ -8,22 +8,36 @@ from rigging.model import YesNoAnswer
 
 
 class EchoGenerator(Generator):
-    def complete(self, messages: t.Sequence[Message], overloads: GenerateParams | None = None) -> Message:
-        return Message(role="assistant", content=messages[-1].content)
+    def generate_messages(
+        self,
+        messages: t.Sequence[t.Sequence[Message]],
+        params: t.Sequence[GenerateParams],
+        *,
+        prefix: t.Sequence[Message] | None = None,
+    ) -> t.Sequence[Message]:
+        if prefix is not None:
+            messages = [list(m) + list(prefix) for m in messages]
 
-    async def acomplete(self, messages: t.Sequence[Message], overloads: GenerateParams | None = None) -> Message:
-        return self.complete(messages, overloads)
+        assert len(messages) == 1
+        return [Message(role="assistant", content=messages[-1][-1].content) for m in messages]
 
 
 class CallbackGenerator(Generator):
     callback: t.Callable[["CallbackGenerator", t.Sequence[Message]], str] | None = None
 
-    def complete(self, messages: t.Sequence[Message], overloads: GenerateParams | None = None) -> Message:
-        assert self.callback is not None, "Callback must be defined for CallbackGenerator"
-        return Message(role="assistant", content=self.callback(self, messages))
+    def generate_messages(
+        self,
+        messages: t.Sequence[t.Sequence[Message]],
+        params: t.Sequence[GenerateParams],
+        *,
+        prefix: t.Sequence[Message] | None = None,
+    ) -> t.Sequence[Message]:
+        if prefix is not None:
+            messages = [list(prefix) + list(m) for m in messages]
 
-    async def acomplete(self, messages: t.Sequence[Message], overloads: GenerateParams | None = None) -> Message:
-        return self.complete(messages, overloads)
+        assert len(messages) == 1
+        assert self.callback is not None
+        return [Message(role="assistant", content=self.callback(self, m)) for m in messages]
 
 
 def test_until_parsed_as_with_reset() -> None:

@@ -150,7 +150,7 @@ def test_chat_continue() -> None:
             Message("user", "Hello"),
             Message("assistant", "Hi there!"),
         ],
-        pending=PendingChat(get_generator("gpt-3.5"), [], GenerateParams()),
+        generator=get_generator("gpt-3.5"),
     )
 
     continued = chat.continue_([Message("user", "How are you?")]).chat
@@ -163,7 +163,7 @@ def test_chat_continue() -> None:
 
 def test_pending_chat_continue() -> None:
     pending = PendingChat(get_generator("gpt-3.5"), [], GenerateParams())
-    continued = pending.continue_([Message("user", "Hello")])
+    continued = pending.fork([Message("user", "Hello")])
 
     assert continued != pending
     assert len(continued.chat) == 1
@@ -190,7 +190,7 @@ def test_chat_continue_maintains_parsed_models() -> None:
             Message("user", "<person name='John'>30</person>"),
             Message("assistant", "<address><street>123 Main St</street><city>Anytown</city></address>"),
         ],
-        pending=PendingChat(get_generator("gpt-3.5"), [], GenerateParams()),
+        generator=get_generator("gpt-3.5"),
     )
 
     chat.all[0].parse(Person)
