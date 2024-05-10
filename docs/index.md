@@ -1,4 +1,43 @@
-# Getting Started
+Rigging is a lightweight LLM interaction framework built on Pydantic XML. The goal is to make leveraging LLMs in production pipelines as simple and effictive as possible. Here are the highlights:
+
+- **Structured Pydantic models** can be used interchangably with unstructured text output.
+- LiteLLM as the default generator giving you **instant access to a huge array of models**.
+- Add easy **tool calling** abilities to models which don't natively support it.
+- Store different models and configs as **simple connection strings** just like databases.
+- Chat templating, forking, continuations, generation parameter overloads, stripping segments, etc.
+- Modern python with type hints, async support, pydantic validation, serialization, etc.
+
+```py
+import rigging as rg
+from rigging.model import CommaDelimitedAnswer as Answer
+
+answer = rg.get_generator('gpt-4') \
+    .chat(f"Give me 3 famous authors between {Answer.xml_tags()} tags.") \
+    .until_parsed_as(Answer) \
+    .run()
+
+answer = chat.last.parse(Answer)
+print(answer.items)
+
+# ['J. R. R. Tolkien', 'Stephen King', 'George Orwell']
+```
+
+Rigging is built and maintained by [dreadnode](https://dreadnode.io) where we use it daily for our work.
+
+## Installation
+
+We publish every version to Pypi:
+```bash
+pip install rigging
+```
+
+If you want to build from source:
+```bash
+cd rigging/
+poetry install
+```
+
+## Getting Started
 
 Rigging is a flexible library built on top of other very flexible libraries. As such it might take a bit to warm
 up to it's interfaces provided the many ways you can accomplish your goals. However, the code is well documented
@@ -12,7 +51,7 @@ and topic pages and source are a great places to step in/out of as you explore.
     You're use of Rigging will almost "fall" into place and you won't be guessing about
     objects as you work.
 
-## Basic Chats
+### Basic Chats
 
 Let's start with a very basic generation example that doesn't include any parsing features, continuations, etc.
 You want to chat with a model and collect it's response.
@@ -52,7 +91,7 @@ print(chat.all)
    totally optional but makes things look nice.
 2. This is actually shorthand for `litellm!anthropic/claude-3-sonnet-20240229`, where `litellm`
    is the provider. We just default to that generator and you don't have to be explicit. You
-   can find more information about this in the [generators](../topics/generators.md) docs.
+   can find more information about this in the [generators](topics/generators.md) docs.
 
 
 Generators have an easy [`chat()`][rigging.generator.Generator.chat] method which you'll
@@ -120,7 +159,7 @@ print(chat.all)
 View more about Chat objects and their properties [over here.][rigging.chat.Chat]. In general, chats
 give you access to exactly what messages were passed into a model, and what came out the other side.
 
-## Conversation
+### Conversation
 
 Both `PendingChat` and `Chat` objects provide freedom for forking off the current state of messages, or
 continuing a stream of messages after generation has occured. In general:
@@ -155,12 +194,12 @@ update = next_chat.run()
 1. In this case the temperature change will only be applied to the poetic path because `fork` has
    created a clone of our pending chat. 
 
-## Basic Parsing
+### Basic Parsing
 
 Now let's assume we want to ask the model for a piece of information, and we want to make sure
 this item conforms to a pre-defined structure. Underneath rigging uses [Pydantic XML](https://pydantic-xml.readthedocs.io/)
 which itself is built on [Pydantic](https://docs.pydantic.dev/). We'll cover more about
-constructing models in a [later section](../topics/models.md), but don't stress the details for now.
+constructing models in a [later section](topics/models.md), but don't stress the details for now.
 
 ??? note "XML vs JSON"
 
@@ -244,7 +283,7 @@ print(fun_fact.fact) # (1)!
 Notice that we don't have to worry about the model being verbose in it's response, as we've communicated
 that the text between the `#!xml <fun-fact></fun-fact>` tags is the relevent place to put it's answer.
 
-## Strict Parsing
+### Strict Parsing
 
 In the example above, we don't handle the case where the model fails to properly conform to our
 desired output structure. If the last message content is invalid in some way, our call to `parse`
@@ -291,7 +330,7 @@ and we have a few options:
     This process is configurable with the arguments to all [`until`][rigging.chat.PendingChat.until_parsed_as]
     or [`using`][rigging.chat.PendingChat.using] functions.
 
-## Parsing Many Models
+### Parsing Many Models
 
 Assuming we wanted to extend our example to produce a set of interesting facts, we have a couple of options:
 

@@ -5,12 +5,9 @@ site_url: https://rigging.dreadnode.io
 repo_url: https://github.com/dreadnode/rigging
 
 nav:
-  - Home:
-    - Introduction: home/introduction.md
-    - Getting Started: home/getting-started.md
-    - Workflow: home/workflow.md
-    - Principles: home/principles.md
+  - Home: index.md
   - Topics:
+    - Workflow: topics/workflow.md
     - Models: topics/models.md
     - Generators: topics/generators.md
     - Chats and Messages: topics/chats-and-messages.md
@@ -22,6 +19,7 @@ nav:
     - Serialization: topics/serialization.md
     - Logging: topics/logging.md
     - Cheat Sheet: topics/cheatsheet.md
+    - Principles: topics/principles.md
   - API:
     - rigging.chat: api/chat.md
     - rigging.completion: api/completion.md
