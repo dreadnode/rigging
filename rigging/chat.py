@@ -125,6 +125,16 @@ class Chat(BaseModel):
         """Returns a string representation of the chat."""
         return "\n\n".join([str(m) for m in self.all])
 
+    @property
+    def message_dicts(self) -> list[dict[str, MessageDict]]:
+        """
+        Returns the chat as a minimal dictionary
+
+        Returns:
+            The chat as a list of messages with roles and content.
+        """
+        return [m.model_dump(include={"role", "content"}) for m in self.all]
+
     def meta(self, **kwargs: t.Any) -> "Chat":
         """
         Updates the metadata of the chat with the provided key-value pairs.
@@ -585,14 +595,14 @@ class PendingChat:
         self,
         callback: UntilMessageCallback,
         *,
-        attempt_recovery: bool = False,
+        attempt_recovery: bool = True,
         drop_dialog: bool = True,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
     ) -> "PendingChat":
         """
         Registers a callback to participate in validating the generation process.
 
-        ```python
+        ```py
         # Takes the next message being generated, and returns whether or not to continue
         # generating new messages in addition to a list of messages to append before continuing
 
@@ -627,8 +637,7 @@ class PendingChat:
 
     def using(
         self,
-        tool: Tool | t.Sequence[Tool],
-        *,
+        *tools: Tool,
         force: bool = False,
         attempt_recovery: bool = True,
         drop_dialog: bool = False,
@@ -639,7 +648,7 @@ class PendingChat:
         Adds a tool or a sequence of tools to participate in the generation process.
 
         Args:
-            tool: The tool or sequence of tools to be added.
+            tools: The tool or sequence of tools to be added.
             force: Whether to force the use of the tool(s) at least once.
             attempt_recovery: Whether to attempt recovery if the tool(s) fail by providing
                 validation feedback to the model before the next round.
@@ -653,7 +662,7 @@ class PendingChat:
             The updated PendingChat object.
 
         """
-        self.until_tools += tool if isinstance(tool, t.Sequence) else [tool]
+        self.until_tools += tools
         self.inject_tool_prompt = inject_prompt or self.inject_tool_prompt
         self.force_tool = force
         if next((c for c in self.until_callbacks if c[0] == self._until_tools_callback), None) is None:
@@ -800,6 +809,7 @@ class PendingChat:
     # for now with the knowledge that behavior might be a bit
     # unpredictable.
     def _process(self) -> t.Generator[list[Message], Message, list[Message]]:
+        self._pre_run()
         first_response = yield []
         new_messages = [first_response]
         for callback, reset_between, drop_internal, max_rounds in self.until_callbacks:
@@ -809,11 +819,10 @@ class PendingChat:
 
     def _post_run(self, chats: list[Chat]) -> list[Chat]:
         for callback in self.post_run_callbacks:
-            if isinstance(callback, ThenChatCallback):
-                chats = [callback(chat) or chat for chat in chats]
-            elif isinstance(callback, MapChatCallback):
+            if isinstance(callback, MapChatCallback):
                 chats = callback(chats)
-
+            elif isinstance(callback, ThenChatCallback):
+                chats = [callback(chat) or chat for chat in chats]
         return chats
 
     async def _apost_run(self, chats: list[Chat]) -> list[Chat]:
@@ -823,11 +832,11 @@ class PendingChat:
             raise ValueError("Cannot use async then()/map() callbacks inside a non-async run call")
 
         for callback in self.post_run_callbacks:
-            if isinstance(callback, AsyncThenChatCallback):
+            if isinstance(callback, AsyncMapChatCallback):
+                chats = await callback(chats)
+            elif isinstance(callback, AsyncThenChatCallback):
                 updated = await asyncio.gather(*[callback(chat) for chat in chats])
                 chats = [updated[i] or chat for i, chat in enumerate(chats)]
-            elif isinstance(callback, AsyncMapChatCallback):
-                chats = await callback(chats)
 
         return chats
 

@@ -309,7 +309,7 @@ class PendingCompletion:
         """
         Registers a callback to participate in validating the generation process.
 
-        ```python
+        ```py
         # Takes the generated text, and returns whether or not to retry generation.
 
         def callback(text: str) -> bool:

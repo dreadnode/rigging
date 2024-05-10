@@ -1,7 +1,7 @@
 """
-We use loguru for logging. This module provides a function to configure the logging settings.
+We use loguru for logging. This module provides a function to configure logging handlers.
 
-To enable rigging logging, call `logger.enable("rigging")` after importing the module.
+To just enable rigging logs to flow, call `logger.enable("rigging")` after importing the module.
 """
 
 import pathlib
@@ -14,26 +14,22 @@ g_configured: bool = False
 
 LogLevelList = ["trace", "debug", "info", "success", "warning", "error", "critical"]
 LogLevelLiteral = t.Literal["trace", "debug", "info", "success", "warning", "error", "critical"]
+"""Valid logging levels."""
 
 
 def configure_logging(
-    log_level: str,
+    log_level: LogLevelLiteral,
     log_file: pathlib.Path | None = None,
     log_file_level: LogLevelLiteral = "debug",
 ) -> None:
     """
-    Configures the loguru settings for the rigging module.
-
-    This is optional, and calling `logger.enable("rigging")` will enable the logging
-    and you can control the formatting and log levels using the loguru API.
+    Configures common loguru handlers.
 
     Args:
-        log_level: The desired log level. Valid values are 'TRACE', 'DEBUG', 'INFO',
-            'SUCCESS', 'WARNING', 'ERROR', and 'CRITICAL'.
+        log_level: The desired log level.
         log_file: The path to the log file. If None, logging
             will only be done to the console.
-        log_file_level: The log level for the log file. Valid values
-            are 'TRACE', 'DEBUG', 'INFO', 'SUCCESS', 'WARNING', 'ERROR', and 'CRITICAL'.
+        log_file_level: The log level for the log file.
     """
     global g_configured
 
@@ -49,11 +45,6 @@ def configure_logging(
     logger.level("WARNING", color="<yellow>", icon="[-]")
     logger.level("ERROR", color="<red>", icon="[!]")
     logger.level("CRITICAL", color="<RED>", icon="[x]")
-
-    # Default format:
-    # "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-    # "<level>{level: <8}</level> | "
-    # "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
 
     custom_format = "<green>{time:HH:mm:ss.SSS}</green> | <level>{level.icon}</level> {message}"
 

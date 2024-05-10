@@ -11,6 +11,11 @@ from pydantic_xml import attr, element, wrapped
 from rigging.model import Model
 
 SUPPORTED_TOOL_ARGUMENT_TYPES = int | float | str | bool
+"""Supported types for tool arguments."""
+
+SUPPORTED_TOOL_ARGUMENT_TYPES_LIST = [int, float, str, bool]
+"""Supported types for tool arguments as a list."""
+
 ToolArgumentTypesCast = {
     "int": int,
     "float": float,
@@ -134,7 +139,7 @@ class Tool:
 
     You should subclass this to define your own tools:
 
-    ```python
+    ```py
     def Hammer(Tool):
         name = "Hammer"
         description = "A tool for hitting things."
@@ -270,8 +275,10 @@ class Tool:
                         f'Parameters must be annotated like Annotated[<type>, "<description>"] ({formatted_name})'
                     )
 
-                if annotation_args[0] not in SUPPORTED_TOOL_ARGUMENT_TYPES.__args__:  # type: ignore
-                    raise TypeError(f"Parameters must be annotated with supported types ({formatted_name})")
+                if annotation_args[0] not in SUPPORTED_TOOL_ARGUMENT_TYPES_LIST:
+                    raise TypeError(
+                        f"Parameters must be annotated with one of these types: {SUPPORTED_TOOL_ARGUMENT_TYPES_LIST} ({formatted_name})"
+                    )
 
                 type_name = annotation_args[0].__name__
                 description = annotation_args[1]
