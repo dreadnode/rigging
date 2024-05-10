@@ -40,4 +40,4 @@ poetry install
 
 ## Getting Started
 
-Head over to **[our documentation](https://rigging.dreadnode.io) for more information.
+Head over to **[our documentation](https://rigging.dreadnode.io)** for more information.
