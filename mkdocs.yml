@@ -27,6 +27,7 @@ nav:
     - rigging.model: api/model.md
     - rigging.message: api/message.md
     - rigging.tool: api/tool.md
+    - rigging.data: api/data.md
     - rigging.parsing: api/parsing.md
     - rigging.logging: api/logging.md
     - rigging.error: api/error.md

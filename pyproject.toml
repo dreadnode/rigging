@@ -16,12 +16,15 @@ pydantic = "2.5.3"
 pydantic-xml = "2.7.0"
 loguru = "^0.7.2"
 litellm = "1.35.21"
+pandas = "^2.2.2"
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.27.1"
 mypy = "^1.8.0"
 ruff = "^0.1.14"
 pytest = "^8.0.0"
+pandas = "^2.2.2"
+pandas-stubs = "^2.2.1.240316"
 
 [tool.poetry.group.docs.dependencies]
 mkdocs = "^1.6.0"

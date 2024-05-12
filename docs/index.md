@@ -181,7 +181,7 @@ chat = generator.chat([
 
 # We can fork before generation has occured
 specific = chat.fork("Be specific please.").run()
-poetic = chat.fork("Be as poetic as possible").overload(temperature=1.5).run() # (1)!
+poetic = chat.fork("Be as poetic as possible").with_(temperature=1.5).run() # (1)!
 
 # We can also continue after generation
 next_chat = poetic.continue_(

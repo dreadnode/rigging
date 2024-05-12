@@ -53,8 +53,10 @@ def test_message_content_update_strips_parts() -> None:
 
 def test_message_apply_template() -> None:
     msg = Message("user", "Hello, $name!")
-    msg.apply(name="Alice")
-    assert msg.content == "Hello, Alice!"
+    new = msg.apply(name="Alice")
+    assert msg != new
+    assert msg.content == "Hello, $name!"
+    assert new.content == "Hello, Alice!"
 
 
 def test_message_strip_model() -> None:

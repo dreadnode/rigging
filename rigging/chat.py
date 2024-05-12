@@ -228,6 +228,7 @@ class Chat(BaseModel):
         Returns:
             The modified chat object.
         """
+        Message.apply_to_list(self.all, **kwargs)
         for message in self.all:
             message.apply(**kwargs)
         return self
@@ -282,9 +283,10 @@ class Chat(BaseModel):
         self.inject_system_content(tool_system_prompt)
 
 
-# Callbacks for pending chat
+# Callbacks
 
 
+@runtime_checkable
 class UntilMessageCallback(t.Protocol):
     def __call__(self, message: Message) -> tuple[bool, list[Message]]:
         """
@@ -332,6 +334,8 @@ class AsyncMapChatCallback(t.Protocol):
 
 
 PostRunCallbacks = ThenChatCallback | AsyncThenChatCallback | MapChatCallback | AsyncMapChatCallback
+
+# Generators
 
 MessageProducer = t.Generator[t.Sequence[Message], None, None]
 MessagesProducer = t.Generator[t.Sequence[t.Sequence[Message]], None, None]
@@ -818,6 +822,9 @@ class PendingChat:
         return new_messages
 
     def _post_run(self, chats: list[Chat]) -> list[Chat]:
+        if any(asyncio.iscoroutinefunction(callback) for callback in self.post_run_callbacks):
+            raise ValueError("Cannot use async then()/map() callbacks inside a non-async run call")
+
         for callback in self.post_run_callbacks:
             if isinstance(callback, MapChatCallback):
                 chats = callback(chats)
@@ -826,10 +833,8 @@ class PendingChat:
         return chats
 
     async def _apost_run(self, chats: list[Chat]) -> list[Chat]:
-        if not all(
-            isinstance(callback, AsyncThenChatCallback | AsyncMapChatCallback) for callback in self.post_run_callbacks
-        ):
-            raise ValueError("Cannot use async then()/map() callbacks inside a non-async run call")
+        if not all(asyncio.iscoroutinefunction(callback) for callback in self.post_run_callbacks):
+            raise ValueError("Cannot use non-async then()/map() callbacks inside a async run call")
 
         for callback in self.post_run_callbacks:
             if isinstance(callback, AsyncMapChatCallback):
@@ -1010,7 +1015,7 @@ class PendingChat:
             A list of generatated Chats.
         """
         if isinstance(many, str | dict):
-            raise ValueError("many must be a sequence, even if it only contains one item")
+            many = [many]
 
         count = max(len(many), len(params) if params is not None else 0)
         many = self._fit_many(count, many)
@@ -1035,7 +1040,7 @@ class PendingChat:
                 except StopIteration as stop:
                     state.done = True
                     state.chat = Chat(
-                        self.chat.all,
+                        self.chat.all + state.inputs,
                         t.cast(list[Message], stop.value),
                         generator=self.generator,
                         metadata=self.metadata,
@@ -1059,7 +1064,7 @@ class PendingChat:
     ) -> list[Chat]:
         """async variant of the [rigging.chat.PendingChat.run_batch][] method."""
         if isinstance(many, str | dict):
-            raise ValueError("many must be a sequence, even if it only contains one item")
+            many = [many]
 
         count = max(len(many), len(params) if params is not None else 0)
         many = self._fit_many(count, many)
@@ -1084,7 +1089,7 @@ class PendingChat:
                 except StopIteration as stop:
                     state.done = True
                     state.chat = Chat(
-                        self.chat.all,
+                        self.chat.all + state.inputs,
                         t.cast(list[Message], stop.value),
                         generator=self.generator,
                         metadata=self.metadata,

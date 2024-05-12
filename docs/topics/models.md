@@ -173,6 +173,18 @@ Our general guide is that LLMs tend to work better with elements over attributes
     </person>
     ```
 
+## XML Examples
+
+For primitive models, using the default [`.xml_tags()`][rigging.model.Model.xml_tags] or [`.xml_example()`][rigging.model.Model.xml_example]
+works well for communicating to the model how it should respond, however for more complex models it's **highly recommended** to overload
+the [`.xml_example()`][rigging.model.Model.xml_example] method to provide a more detailed example of the XML structure you expect.
+
+The easiest way to approach this overload is to instantiate your model class with some standard values
+and use [`.to_prety_xml()`][rigging.model.Model.to_pretty_xml]
+
+
+```py
+
 
 ## Complex Models
 

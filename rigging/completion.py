@@ -2,11 +2,13 @@
 Completions work with isolated strings of text pre and post generation.
 """
 
+import asyncio
 import string
 import typing as t
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
+from typing import runtime_checkable
 from uuid import UUID, uuid4
 
 from loguru import logger
@@ -138,11 +140,58 @@ class Completion(BaseModel):
         return Completion(self.text, self.generated, self.pending)
 
 
-# Passed the next message, returns whether or not to continue
-# and an optional list of messages to append before continuing
-UntilCompletionCallback = t.Callable[[str], bool]
+# Callbacks
 
-ThenCompletionCallback = t.Callable[[Completion], Completion | None]
+
+@runtime_checkable
+class UntilCompletionCallback(t.Protocol):
+    def __call__(self, text: str) -> bool:
+        """
+        A callback function that takes the generated text and returns whether or not to retry generation.
+        """
+        ...
+
+
+@runtime_checkable
+class ThenCompletionCallback(t.Protocol):
+    def __call__(self, completion: Completion) -> Completion | None:
+        """
+        Passed a finalized completion to process and can return a new completion to replace it.
+        """
+        ...
+
+
+@runtime_checkable
+class AsyncThenCompletionCallback(t.Protocol):
+    async def __call__(self, completion: Completion) -> Completion | None:
+        """
+        async variant of the [rigging.completion.ThenCompletionCallback][] protocol.
+        """
+        ...
+
+
+@runtime_checkable
+class MapCompletionCallback(t.Protocol):
+    def __call__(self, completions: list[Completion]) -> list[Completion]:
+        """
+        Passed a finalized completion to process. Can replace completions in the pipeline by returning
+        a new chat object.
+        """
+        ...
+
+
+@runtime_checkable
+class AsyncMapCompletionCallback(t.Protocol):
+    async def __call__(self, completions: list[Completion]) -> list[Completion]:
+        """
+        async variant of the [rigging.completion.MapCompletionCallback][] protocol.
+        """
+        ...
+
+
+PostRunCallbacks = (
+    ThenCompletionCallback | AsyncThenCompletionCallback | MapCompletionCallback | AsyncMapCompletionCallback
+)
 
 
 @dataclass
@@ -172,7 +221,7 @@ class PendingCompletion:
         # (callback, all_text, max_rounds)
         self.until_callbacks: list[tuple[UntilCompletionCallback, bool, int]] = []
         self.until_types: list[type[Model]] = []
-        self.then_callbacks: list[ThenCompletionCallback] = []
+        self.post_run_callbacks: list[PostRunCallbacks] = []
 
     def with_(self, params: t.Optional["GenerateParams"] = None, **kwargs: t.Any) -> "PendingCompletion":
         """
@@ -222,7 +271,35 @@ class PendingCompletion:
         Returns:
             The current instance of the pending completion.
         """
-        self.then_callbacks.append(callback)
+        self.post_run_callbacks.append(callback)
+        return self
+
+    def map(self, callback: MapCompletionCallback | AsyncMapCompletionCallback) -> "PendingCompletion":
+        """
+        Registers a callback to be executed after the generation process completes.
+
+        Note:
+            You must return a list of completion objects from the callback which will
+            represent the state of completions for the remainder of the callbacks and return.
+
+        Warning:
+            If you implement an async callback, you must use the async variant of the
+            run methods when executing the generation process.
+
+        ```
+        def process(chats: list[str]) -> list[str]:
+            ...
+
+        pending.map(process).run()
+        ```
+
+        Args:
+            callback: The callback function to be executed.
+
+        Returns:
+            The current instance of the completion.
+        """
+        self.post_run_callbacks.append(callback)
         return self
 
     def add(self, text: str) -> "PendingCompletion":
@@ -287,6 +364,9 @@ class PendingCompletion:
     def apply(self, **kwargs: str) -> "PendingCompletion":
         """
         Applies keyword arguments to the text using string template substitution.
+
+        Note:
+            This produces a clone of the PendingCompletion, leaving the original unchanged.
 
         Args:
             **kwargs: Keyword arguments to be applied to the text.
@@ -367,11 +447,29 @@ class PendingCompletion:
             return True
         return False
 
-    def _then(self, chat: Completion) -> Completion:
-        # TODO: Adding async support here would be nice
-        for callback in self.then_callbacks:
-            chat = callback(chat) or chat
-        return chat
+    def _post_run(self, completions: list[Completion]) -> list[Completion]:
+        if any(asyncio.iscoroutinefunction(callback) for callback in self.post_run_callbacks):
+            raise ValueError("Cannot use async then()/map() callbacks inside a non-async run call")
+
+        for callback in self.post_run_callbacks:
+            if isinstance(callback, MapCompletionCallback):
+                chats = callback(completions)
+            elif isinstance(callback, ThenCompletionCallback):
+                chats = [callback(completion) or completion for completion in completions]
+        return chats
+
+    async def _apost_run(self, completions: list[Completion]) -> list[Completion]:
+        if not all(asyncio.iscoroutinefunction(callback) for callback in self.post_run_callbacks):
+            raise ValueError("Cannot use non-async then()/map() callbacks inside a async run call")
+
+        for callback in self.post_run_callbacks:
+            if isinstance(callback, AsyncMapCompletionCallback):
+                chats = await callback(completions)
+            elif isinstance(callback, AsyncThenCompletionCallback):
+                updated = await asyncio.gather(*[callback(completion) for completion in completions])
+                chats = [updated[i] or completion for i, completion in enumerate(completions)]
+
+        return completions
 
     def _fit_params(
         self, count: int, params: t.Sequence[t.Optional["GenerateParams"] | None] | None = None
@@ -476,7 +574,7 @@ class PendingCompletion:
 
             pending_states = [s for s in pending_states if not s.done]
 
-        return [self._then(s.completion) for s in states if s.completion is not None]
+        return self._post_run([s.completion for s in states if s.completion is not None])
 
     async def arun_many(
         self,
@@ -510,7 +608,7 @@ class PendingCompletion:
 
             pending_states = [s for s in pending_states if not s.done]
 
-        return [self._then(s.completion) for s in states if s.completion is not None]
+        return self._post_run([s.completion for s in states if s.completion is not None])
 
     # Batch completions
 
@@ -563,7 +661,7 @@ class PendingCompletion:
 
             pending_states = [s for s in pending_states if not s.done]
 
-        return [self._then(s.completion) for s in states if s.completion is not None]
+        return self._post_run([s.completion for s in states if s.completion is not None])
 
     async def arun_batch(
         self,
@@ -600,4 +698,4 @@ class PendingCompletion:
 
             pending_states = [s for s in pending_states if not s.done]
 
-        return [self._then(s.completion) for s in states if s.completion is not None]
+        return self._post_run([s.completion for s in states if s.completion is not None])
