@@ -1,6 +1,7 @@
 /* Main color overrides */
 [data-md-color-scheme="slate"] {
     --md-primary-fg-color: #EAEAEA;
+    --md-primary-fg-color--dark: var(--md-primary-fg-color);
     --md-accent-fg-color: rgb(149, 133, 227);
 
     --md-primary-color: #EAEAEA;
