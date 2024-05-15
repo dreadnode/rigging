@@ -36,6 +36,12 @@ def test_message_from_dict() -> None:
     assert msg.content == "You are an AI assistant."
 
 
+def test_message_from_str() -> None:
+    msg = Message.fit("Please say hello.")
+    assert msg.role == "user"
+    assert msg.content == "Please say hello."
+
+
 def test_message_str_representation() -> None:
     msg = Message("assistant", "I am an AI assistant.")
     assert str(msg) == "[assistant]: I am an AI assistant."
@@ -146,6 +152,42 @@ def test_message_reparse_modified_content() -> None:
     assert person.age == 25
 
 
+def test_chat_generator_id() -> None:
+    generator = get_generator("gpt-3.5")
+    chat = Chat([], generator=generator)
+    assert chat.generator_id == "litellm!gpt-3.5"
+
+    other = Chat([])
+    assert other.generator_id is None
+
+
+def test_chat_metadata() -> None:
+    chat = Chat([]).meta(key="value")
+    assert chat.metadata == {"key": "value"}
+
+
+def test_chat_restart() -> None:
+    chat = Chat(
+        [
+            Message("user", "Hello"),
+            Message("assistant", "Hi there!"),
+        ],
+        [
+            Message("user", "Other Stuff"),
+        ],
+        generator=get_generator("gpt-3.5"),
+    )
+
+    assert len(chat.restart()) == 2
+    assert len(chat.restart(include_all=True)) == 3
+    assert len(chat.continue_(Message("user", "User continue (should append)"))) == 3
+    assert len(chat.continue_(Message("assistant", "Assistant continue"))) == 4
+
+    chat.generator = None
+    with pytest.raises(ValueError):
+        chat.restart()
+
+
 def test_chat_continue() -> None:
     chat = Chat(
         [
@@ -161,6 +203,52 @@ def test_chat_continue() -> None:
     assert continued.all[0].content == "Hello"
     assert continued.all[1].content == "Hi there!"
     assert continued.all[2].content == "How are you?"
+
+
+def test_chat_to_message_dicts() -> None:
+    chat = Chat(
+        [
+            Message("user", "Hello"),
+            Message("assistant", "Hi there!"),
+        ],
+        generator=get_generator("gpt-3.5"),
+    )
+
+    assert len(chat.message_dicts) == 2
+    assert chat.message_dicts[0] == {"role": "user", "content": "Hello"}
+    assert chat.message_dicts[1] == {"role": "assistant", "content": "Hi there!"}
+
+
+def test_chat_to_conversation() -> None:
+    chat = Chat(
+        [
+            Message("user", "Hello"),
+            Message("assistant", "Hi there!"),
+        ],
+        generator=get_generator("gpt-3.5"),
+    )
+
+    assert "[user]: Hello" in chat.conversation
+    assert "[assistant]: Hi there!" in chat.conversation
+
+
+def test_chat_properties() -> None:
+    user_1 = Message("user", "Hello")
+    assistant_1 = Message("assistant", "Hi there!")
+    user_2 = Message("user", "How are you?")
+    assistant_2 = Message("assistant", "I'm doing well, thank you!")
+
+    chat = Chat(
+        [
+            user_1,
+        ],
+        [assistant_1, user_2, assistant_2],
+    )
+
+    assert chat.prev == [user_1]
+    assert chat.next == [assistant_1, user_2, assistant_2]
+    assert chat.all == [user_1, assistant_1, user_2, assistant_2]
+    assert chat.last == assistant_2
 
 
 def test_pending_chat_continue() -> None:
@@ -203,6 +291,27 @@ def test_chat_continue_maintains_parsed_models() -> None:
     assert len(continued.all[0].parts) == 1
     assert len(continued.all[1].parts) == 1
     assert len(continued.all[2].parts) == 0
+
+
+def test_pending_chat_meta() -> None:
+    pending = PendingChat(get_generator("gpt-3.5"), [Message("user", "Hello")])
+    with_meta = pending.meta(key="value")
+    assert with_meta == pending
+    assert with_meta.metadata == {"key": "value"}
+
+
+def test_pending_chat_with() -> None:
+    pending = PendingChat(get_generator("gpt-3.5"), [Message("user", "Hello")])
+    with_pending = pending.with_(GenerateParams(max_tokens=123))
+    assert with_pending == pending
+    assert with_pending.params is not None
+    assert with_pending.params.max_tokens == 123
+
+    with_pending_2 = with_pending.with_(GenerateParams(top_p=0.5))
+    assert with_pending_2 != with_pending
+    assert with_pending_2.params is not None
+    assert with_pending_2.params.max_tokens == 123
+    assert with_pending_2.params.top_p == 0.5
 
 
 def test_chat_strip() -> None:

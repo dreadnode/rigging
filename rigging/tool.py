@@ -34,7 +34,8 @@ class ToolCallParameter(Model):
     attr_value: SUPPORTED_TOOL_ARGUMENT_TYPES | None = attr("value", default=None, exclude=True)
     text_value: SUPPORTED_TOOL_ARGUMENT_TYPES | None = Field(default=None, exclude=True)
 
-    @computed_field
+    @computed_field  # type: ignore[misc]
+    @property
     def value(self) -> SUPPORTED_TOOL_ARGUMENT_TYPES:
         return self.attr_value or self.text_value or ""
 

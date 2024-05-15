@@ -9,13 +9,15 @@ import litellm  # type: ignore
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from rigging.chat import Chat, PendingChat
-from rigging.completion import Completion, PendingCompletion
 from rigging.error import InvalidModelSpecifiedError
 from rigging.message import (
     Message,
     MessageDict,
 )
+
+if t.TYPE_CHECKING:
+    from rigging.chat import PendingChat
+    from rigging.completion import PendingCompletion
 
 # We should probably let people configure
 # this independently, but for now we'll
@@ -239,7 +241,7 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[MessageDict],
         params: GenerateParams | None = None,
-    ) -> PendingChat:
+    ) -> "PendingChat":
         ...
 
     @t.overload
@@ -247,14 +249,14 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[Message] | MessageDict | Message | str | None = None,
         params: GenerateParams | None = None,
-    ) -> PendingChat:
+    ) -> "PendingChat":
         ...
 
     def chat(
         self,
         messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str | None = None,
         params: GenerateParams | None = None,
-    ) -> PendingChat:
+    ) -> "PendingChat":
         """
         Build a pending chat with the given messages and optional params overloads.
 
@@ -265,11 +267,13 @@ class Generator(BaseModel):
         Returns:
             Pending chat to run.
         """
+        from rigging.chat import PendingChat
+
         return PendingChat(self, Message.fit_as_list(messages) if messages else [], params)
 
     # Helper alternative to complete(generator) -> generator.complete(...)
 
-    def complete(self, text: str, params: GenerateParams | None = None) -> PendingCompletion:
+    def complete(self, text: str, params: GenerateParams | None = None) -> "PendingCompletion":
         """
         Build a pending string completion of the given text with optional param overloads.
 
@@ -280,6 +284,8 @@ class Generator(BaseModel):
         Returns:
             The completed text.
         """
+        from rigging.completion import PendingCompletion
+
         return PendingCompletion(self, text, params)
 
 
@@ -288,7 +294,7 @@ def chat(
     generator: "Generator",
     messages: t.Sequence[MessageDict],
     params: GenerateParams | None = None,
-) -> PendingChat:
+) -> "PendingChat":
     ...
 
 
@@ -297,7 +303,7 @@ def chat(
     generator: "Generator",
     messages: t.Sequence[Message] | MessageDict | Message | str | None = None,
     params: GenerateParams | None = None,
-) -> PendingChat:
+) -> "PendingChat":
     ...
 
 
@@ -305,7 +311,7 @@ def chat(
     generator: "Generator",
     messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str | None = None,
     params: GenerateParams | None = None,
-) -> PendingChat:
+) -> "PendingChat":
     """
     Creates a pending chat using the given generator, messages, and params.
 
@@ -325,7 +331,7 @@ def complete(
     generator: Generator,
     text: str,
     params: GenerateParams | None = None,
-) -> PendingCompletion:
+) -> "PendingCompletion":
     return generator.complete(text, params)
 
 
@@ -588,9 +594,3 @@ class LiteLLMGenerator(Generator):
 
 
 g_providers["litellm"] = LiteLLMGenerator
-
-# TODO: This fixes some almost-circular import issues and
-# typed forwardrefs we use in the other module
-
-Chat.model_rebuild()
-Completion.model_rebuild()

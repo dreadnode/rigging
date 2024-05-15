@@ -20,14 +20,12 @@ from pydantic import (
 )
 
 from rigging.error import ExhaustedMaxRoundsError
+from rigging.generator import GenerateParams, Generator, get_generator
 from rigging.model import (
     Model,
     ModelT,
 )
 from rigging.parsing import parse_many
-
-if t.TYPE_CHECKING:
-    from rigging.generator import GenerateParams, Generator
 
 DEFAULT_MAX_ROUNDS = 5
 
@@ -51,44 +49,45 @@ class Completion(BaseModel):
     generated: str
     """The generated text."""
     metadata: dict[str, t.Any] = Field(default_factory=dict)
-    """Additional metadata for the chat."""
+    """Additional metadata for the completion."""
 
-    pending: t.Optional["PendingCompletion"] = Field(None, exclude=True, repr=False)
-    """The pending completion associated with this completion."""
+    generator: t.Optional["Generator"] = Field(None, exclude=True, repr=False)
+    """The generator associated with the completion."""
+    params: t.Optional["GenerateParams"] = Field(None, exclude=True, repr=False)
+    """Any additional generation params used for this completion."""
 
-    @computed_field(repr=False)
+    @computed_field(repr=False)  # type: ignore[misc]
+    @property
     def generator_id(self) -> str | None:
         """The identifier of the generator used to create the completion"""
-        if self.pending is not None:
-            return self.pending.generator.to_identifier(self.pending.params)
+        if self.generator is not None:
+            return self.generator.to_identifier(self.params)
         return None
 
     def __init__(
         self,
         text: str,
         generated: str,
-        pending: t.Optional["PendingCompletion"] = None,
+        generator: t.Optional["Generator"] = None,
         **kwargs: t.Any,
     ):
         """
-        Initialize a Chat object.
+        Initialize a Completion object.
 
         Args:
             text: The original text.
             generated: The generated text.
-            pending: The pending completion associated with this completion.
+            generator: The generator associated with this completion.
             **kwargs: Additional keyword arguments (typically used for serialization).
         """
-        from rigging.generator import get_generator
-
-        if "generator_id" in kwargs and pending is None:
+        if "generator_id" in kwargs and generator is None:
+            # TODO: Should we move params to self.params?
             generator = get_generator(kwargs.pop("generator_id"))
-            pending = generator.complete(text)
 
         super().__init__(
             text=text,
             generated=generated,
-            pending=pending,
+            generator=generator,
             **kwargs,
         )
 
@@ -105,7 +104,7 @@ class Completion(BaseModel):
         Attempt to convert back to a PendingCompletion for further generation.
 
         Args:
-            generator: The generator to use for the restarted chat. Otherwise
+            generator: The generator to use for the restarted completion. Otherwise
                 the generator from the original PendingCompletion will be used.
             include_all: Whether to include the generation before the next round.
 
@@ -116,14 +115,14 @@ class Completion(BaseModel):
             ValueError: If the completion was not created with a PendingCompletion and no generator is provided.
         """
 
-        text = self.all if include_all else self.text
-        if generator is not None:
-            return generator.complete(text)
-        elif self.pending is None:
-            raise ValueError("Cannot restart Completion that was not created with a PendingCompletion")
-        return PendingCompletion(self.pending.generator, text, self.pending.params)
+        text = self.all if include_all else self.generated
+        if generator is None:
+            generator = self.generator
+        if generator is None:
+            raise ValueError("Cannot restart a completion without an associated generator")
+        return generator.complete(text, self.params)
 
-    def fork(self, text: str) -> "PendingCompletion":
+    def fork(self, text: str, *, include_all: bool = False) -> "PendingCompletion":
         """
         Forks the completion by creating calling [rigging.completion.Completion.restart][] and appends the specified text.
 
@@ -133,11 +132,32 @@ class Completion(BaseModel):
         Returns:
             A new instance of a pending competion with the specified messages added.
         """
-        return self.restart().add(text)
+        return self.restart(include_all=include_all).add(text)
 
-    def clone(self) -> "Completion":
-        """Creates a deep copy of the chat."""
-        return Completion(self.text, self.generated, self.pending)
+    def continue_(self, text: str) -> "PendingCompletion":
+        """Alias for the [rigging.completion.Completion.fork][] with `include_all=True`."""
+        return self.fork(text, include_all=True)
+
+    def clone(self, *, only_messages: bool = False) -> "Completion":
+        """Creates a deep copy of the completion."""
+        new = Completion(self.text, self.generated, self.generator)
+        if not only_messages:
+            new.metadata = deepcopy(self.metadata)
+        return new
+
+    def meta(self, **kwargs: t.Any) -> "Completion":
+        """
+        Updates the metadata of the completion with the provided key-value pairs.
+
+        Args:
+            **kwargs: Key-value pairs representing the metadata to be updated.
+
+        Returns:
+            The updated completion object.
+        """
+        new = self.clone()
+        new.metadata.update(kwargs)
+        return new
 
 
 # Callbacks
@@ -175,7 +195,7 @@ class MapCompletionCallback(t.Protocol):
     def __call__(self, completions: list[Completion]) -> list[Completion]:
         """
         Passed a finalized completion to process. Can replace completions in the pipeline by returning
-        a new chat object.
+        a new completion object.
         """
         ...
 
@@ -189,9 +209,8 @@ class AsyncMapCompletionCallback(t.Protocol):
         ...
 
 
-PostRunCallbacks = (
-    ThenCompletionCallback | AsyncThenCompletionCallback | MapCompletionCallback | AsyncMapCompletionCallback
-)
+ThenCompletionCallbacks = ThenCompletionCallback | AsyncThenCompletionCallback
+MapCompletionCallbacks = MapCompletionCallback | AsyncMapCompletionCallback
 
 
 @dataclass
@@ -221,7 +240,11 @@ class PendingCompletion:
         # (callback, all_text, max_rounds)
         self.until_callbacks: list[tuple[UntilCompletionCallback, bool, int]] = []
         self.until_types: list[type[Model]] = []
-        self.post_run_callbacks: list[PostRunCallbacks] = []
+        self.then_callbacks: list[ThenCompletionCallbacks] = []
+        self.map_callbacks: list[MapCompletionCallbacks] = []
+
+    def __len__(self) -> int:
+        return len(self.text)
 
     def with_(self, params: t.Optional["GenerateParams"] = None, **kwargs: t.Any) -> "PendingCompletion":
         """
@@ -237,14 +260,12 @@ class PendingCompletion:
         Returns:
             The current (or cloned) instance of the completion.
         """
-        from rigging.generator import GenerateParams
-
         if params is None:
             params = GenerateParams(**kwargs)
 
         if self.params is not None:
             new = self.clone()
-            new.params = params
+            new.params = self.params.merge_with(params)
             return new
 
         self.params = params
@@ -259,7 +280,7 @@ class PendingCompletion:
             for the remainder of the callbacks + return value of `run()`.
 
         ```
-        def process(chat: Completion) -> Completion | None:
+        def process(completion: Completion) -> Completion | None:
             ...
 
         pending.then(process).run()
@@ -271,7 +292,7 @@ class PendingCompletion:
         Returns:
             The current instance of the pending completion.
         """
-        self.post_run_callbacks.append(callback)
+        self.then_callbacks.append(callback)
         return self
 
     def map(self, callback: MapCompletionCallback | AsyncMapCompletionCallback) -> "PendingCompletion":
@@ -287,7 +308,7 @@ class PendingCompletion:
             run methods when executing the generation process.
 
         ```
-        def process(chats: list[str]) -> list[str]:
+        def process(completions: list[Completion]) -> list[Completion]:
             ...
 
         pending.map(process).run()
@@ -299,7 +320,7 @@ class PendingCompletion:
         Returns:
             The current instance of the completion.
         """
-        self.post_run_callbacks.append(callback)
+        self.map_callbacks.append(callback)
         return self
 
     def add(self, text: str) -> "PendingCompletion":
@@ -448,34 +469,44 @@ class PendingCompletion:
         return False
 
     def _post_run(self, completions: list[Completion]) -> list[Completion]:
-        if any(asyncio.iscoroutinefunction(callback) for callback in self.post_run_callbacks):
-            raise ValueError("Cannot use async then()/map() callbacks inside a non-async run call")
+        for map_callback in self.map_callbacks:
+            if asyncio.iscoroutinefunction(map_callback):
+                raise ValueError(
+                    f"Cannot use async map() callbacks inside a non-async run call: {map_callback.__name__}"
+                )
+            completions = map_callback(completions)  # type: ignore
 
-        for callback in self.post_run_callbacks:
-            if isinstance(callback, MapCompletionCallback):
-                chats = callback(completions)
-            elif isinstance(callback, ThenCompletionCallback):
-                chats = [callback(completion) or completion for completion in completions]
-        return chats
+        for then_callback in self.then_callbacks:
+            if asyncio.iscoroutinefunction(then_callback):
+                raise ValueError(
+                    f"Cannot use async then() callbacks inside a non-async run call: {then_callback.__name__}"
+                )
+            updated = [then_callback(completion) for completion in completions]
+            completions = [updated[i] or completion for i, completion in enumerate(completions)]  # type: ignore
+
+        return completions
 
     async def _apost_run(self, completions: list[Completion]) -> list[Completion]:
-        if not all(asyncio.iscoroutinefunction(callback) for callback in self.post_run_callbacks):
-            raise ValueError("Cannot use non-async then()/map() callbacks inside a async run call")
+        for map_callback in self.map_callbacks:
+            if not asyncio.iscoroutinefunction(map_callback):
+                raise ValueError(
+                    f"Cannot use non-async map() callbacks inside an async run call: {map_callback.__call__.__name__}"
+                )
+            completions = await map_callback(completions)
 
-        for callback in self.post_run_callbacks:
-            if isinstance(callback, AsyncMapCompletionCallback):
-                chats = await callback(completions)
-            elif isinstance(callback, AsyncThenCompletionCallback):
-                updated = await asyncio.gather(*[callback(completion) for completion in completions])
-                chats = [updated[i] or completion for i, completion in enumerate(completions)]
+        for then_callback in self.then_callbacks:
+            if not asyncio.iscoroutinefunction(then_callback):
+                raise ValueError(
+                    f"Cannot use non-async then() callbacks inside an async run call: {then_callback.__call__.__name__}"
+                )
+            updated = [await then_callback(completion) for completion in completions]
+            completions = [updated[i] or completion for i, completion in enumerate(completions)]
 
         return completions
 
     def _fit_params(
         self, count: int, params: t.Sequence[t.Optional["GenerateParams"] | None] | None = None
     ) -> list["GenerateParams"]:
-        from rigging.generator import GenerateParams
-
         params = [None] * count if params is None else list(params)
         if len(params) != count:
             raise ValueError(f"The number of params must be {count}")
@@ -525,7 +556,7 @@ class PendingCompletion:
         return self.run_many(1)[0]
 
     async def arun(self) -> Completion:
-        """async variant of the [rigging.chat.PendingChat.run][] method."""
+        """async variant of the [rigging.completion.PendingCompletion.run][] method."""
         return (await self.arun_many(1))[0]
 
     __call__ = run
@@ -565,7 +596,11 @@ class PendingCompletion:
                 except StopIteration as stop:
                     state.done = True
                     state.completion = Completion(
-                        self.text, t.cast(str, stop.value), pending=self, metadata=self.metadata
+                        self.text,
+                        t.cast(str, stop.value),
+                        generator=self.generator,
+                        params=state.params,
+                        metadata=self.metadata,
                     )
                 except ExhaustedMaxRoundsError:
                     if not skip_failed:
@@ -599,7 +634,11 @@ class PendingCompletion:
                 except StopIteration as stop:
                     state.done = True
                     state.completion = Completion(
-                        self.text, t.cast(str, stop.value), pending=self, metadata=self.metadata
+                        self.text,
+                        t.cast(str, stop.value),
+                        generator=self.generator,
+                        params=state.params,
+                        metadata=self.metadata,
                     )
                 except ExhaustedMaxRoundsError:
                     if not skip_failed:
@@ -652,7 +691,11 @@ class PendingCompletion:
                 except StopIteration as stop:
                     state.done = True
                     state.completion = Completion(
-                        self.text, t.cast(str, stop.value), pending=self, metadata=self.metadata
+                        self.text,
+                        t.cast(str, stop.value),
+                        generator=self.generator,
+                        params=state.params,
+                        metadata=self.metadata,
                     )
                 except ExhaustedMaxRoundsError:
                     if not skip_failed:
@@ -670,7 +713,7 @@ class PendingCompletion:
         *,
         skip_failed: bool = False,
     ) -> list[Completion]:
-        """async variant of the [rigging.chat.PendingChat.run_batch][] method."""
+        """async variant of the [rigging.completion.PendingCompletion.run_batch][] method."""
         params = self._fit_params(len(many), params)
         states: list[RunState] = [RunState(m, p, self._process()) for m, p in zip(many, params, strict=True)]
         _ = [next(state.processor) for state in states]
@@ -689,7 +732,11 @@ class PendingCompletion:
                 except StopIteration as stop:
                     state.done = True
                     state.completion = Completion(
-                        self.text, t.cast(str, stop.value), pending=self, metadata=self.metadata
+                        self.text,
+                        t.cast(str, stop.value),
+                        generator=self.generator,
+                        params=state.params,
+                        metadata=self.metadata,
                     )
                 except ExhaustedMaxRoundsError:
                     if not skip_failed:
