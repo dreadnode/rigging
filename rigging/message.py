@@ -2,8 +2,10 @@
 This module covers core message objects and handling.
 """
 
+import copy
 import string
 import typing as t
+from uuid import UUID, uuid4
 
 from pydantic import (
     BaseModel,
@@ -70,6 +72,8 @@ class Message(BaseModel):
     Represents a message with role, content, and parsed message parts.
     """
 
+    uuid: UUID = Field(default_factory=uuid4, repr=False)
+    """The unique identifier for the message."""
     role: Role
     """The role of the message."""
     parts: list[ParsedMessagePart] = Field(default_factory=list)
@@ -77,12 +81,32 @@ class Message(BaseModel):
 
     _content: str = ""
 
-    def __init__(self, role: Role, content: str, parts: t.Sequence[ParsedMessagePart] | None = None):
-        super().__init__(role=role, parts=parts if parts is not None else [])
+    def __init__(self, role: Role, content: str, parts: t.Sequence[ParsedMessagePart] | None = None, **kwargs: t.Any):
+        super().__init__(role=role, parts=parts or [], **kwargs)
         self._content = content
 
     def __str__(self) -> str:
         return f"[{self.role}]: {self.content}"
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def content(self) -> str:
+        """The content of the message."""
+        # We used to sync the models and content each time it was accessed,
+        # hence the getter. Now we just return the stored content.
+        # I'll leave it as is for now in case we want to add any
+        # logic here in the future.
+        return self._content
+
+    @content.setter
+    def content(self, value: str) -> None:
+        # TODO: Maintain any parsed parts which are
+        # still in the content - our move to slices for
+        # tracking parsed parts makes this more complicated
+        # so fow now I've opted to strip all parts
+        # when content is changed.
+        self.parts = []
+        self._content = value
 
     # TODO: In general the add/remove/sync_part methods are
     # overly complicated. We should probably just update content,
@@ -117,8 +141,6 @@ class Message(BaseModel):
     # to watch for the total size of our message shifting and update the slices
     # of the following parts accordingly. In other words, as A expands, B which
     # follows will have a new start slice and end slice.
-    #
-    # TODO: We should probably just re-trigger parsing for everything
     def _sync_parts(self) -> None:
         self.parts = sorted(self.parts, key=lambda p: p.slice_.start)
 
@@ -145,37 +167,26 @@ class Message(BaseModel):
 
         self.parts = sorted(self.parts, key=lambda p: p.slice_.start)
 
-    @computed_field  # type: ignore[misc]
-    @property
-    def content(self) -> str:
-        """The content of the message."""
-        # We used to sync the models and content each time it was accessed,
-        # hence the getter. Now we just return the stored content.
-        # I'll leave it as is for now in case we want to add any
-        # logic here in the future.
-        return self._content
+    def clone(self) -> "Message":
+        """Creates a copy of the message."""
+        return Message(self.role, self.content, parts=copy.deepcopy(self.parts))
 
-    @content.setter
-    def content(self, value: str) -> None:
-        # TODO: Maintain any parsed parts which are
-        # still in the content - our move to slices for
-        # tracking parsed parts makes this more complicated
-        # so fow now I've opted to strip all parts
-        # when content is changed.
-        self.parts = []
-        self._content = value
-
-    def apply(self, **kwargs: str) -> None:
+    def apply(self, **kwargs: str) -> "Message":
         """
         Applies the given keyword arguments with string templating to the content of the message.
 
         Uses [string.Template.safe_substitute](https://docs.python.org/3/library/string.html#string.Template.safe_substitute) underneath.
 
+        Note:
+            This call produces a clone of the message, leaving the original message unchanged.
+
         Args:
             **kwargs: Keyword arguments to substitute in the message content.
         """
-        template = string.Template(self.content)
-        self.content = template.safe_substitute(**kwargs)
+        new = self.clone()
+        template = string.Template(new.content)
+        new.content = template.safe_substitute(**kwargs)
+        return new
 
     def strip(self, model_type: type[Model], *, fail_on_missing: bool = False) -> list[ParsedMessagePart]:
         """
@@ -355,6 +366,11 @@ class Message(BaseModel):
         if isinstance(message, str):
             return cls(role="user", content=message)
         return cls(**message) if isinstance(message, dict) else message
+
+    @classmethod
+    def apply_to_list(cls, messages: t.Sequence["Message"], **kwargs: str) -> list["Message"]:
+        """Helper function to apply keyword arguments to a list of Message objects."""
+        return [message.apply(**kwargs) for message in messages]
 
 
 Messages = t.Sequence[MessageDict] | t.Sequence[Message]

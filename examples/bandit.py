@@ -1,11 +1,11 @@
 import abc
 import asyncio
 import pathlib
+import random
 import re
 import typing as t
 from dataclasses import dataclass, field
 
-import _shared
 import asyncssh
 import click
 import requests  # type: ignore
@@ -13,6 +13,9 @@ from loguru import logger
 from pydantic import StringConstraints
 
 import rigging as rg
+from rigging import logging
+
+# Constants
 
 SSH_HOST = "bandit.labs.overthewire.org"
 SSH_PORT = 2220
@@ -27,12 +30,10 @@ locating a password on a server by executing commands via SSH.
 
 # Helpers
 
-BASE_DOCS_URL = "https://overthewire.org/wargames/bandit"
-
 
 def get_bandit_level_description(level: int) -> str:
     search = r"Level Goal</h2>(.+)<h2"
-    response = requests.get(f"{BASE_DOCS_URL}/bandit{level}.html")
+    response = requests.get(f"https://overthewire.org/wargames/bandit/bandit{level}.html")
     response.raise_for_status()
     goal: str = re.findall(search, response.text, re.DOTALL)[0]
     goal = goal.replace("<p>", "").replace("</p>", "").strip()
@@ -57,7 +58,7 @@ async def execute_ssh(
 ) -> str:
     logger.debug(f"Executing:\n{command}")
 
-    async with conn.create_process("/bin/bash") as process:
+    async with conn.create_process("/bin/bash") as process:  # type: ignore
         process.stdin.write(command + "\n" + "exit" + "\n")
         try:
             stdout_output, stderr_output = await asyncio.wait_for(process.communicate(), timeout=timeout)
@@ -65,9 +66,6 @@ async def execute_ssh(
             process.terminate()
             stdout_output = ""
             stderr_output = "[command timed out]"
-        except asyncssh.misc.ConnectionLost:
-            stdout_output = ""
-            stderr_output = "[connection lost]"
 
     output = f"{stdout_output}\n{stderr_output}".strip()
 
@@ -85,20 +83,20 @@ async def execute_ssh(
 # Models
 
 str_strip = t.Annotated[str, StringConstraints(strip_whitespace=True)]
-str_upper = t.Annotated[str, StringConstraints(to_upper=True)]
 
 
 class Action(rg.Model, abc.ABC):
+    @abc.abstractmethod
     async def run(self, state: "State") -> str:
-        raise NotImplementedError
+        ...
 
 
-class UpdateMyGoal(Action):
+class UpdateGoal(Action):
     goal: str_strip
 
     @classmethod
     def xml_example(cls) -> str:
-        return UpdateMyGoal(goal="My new goal").to_pretty_xml()
+        return UpdateGoal(goal="My new goal").to_pretty_xml()
 
     async def run(self, state: "State") -> str:
         logger.success(f"[{state.id}] Updating goal to '{self.goal}'")
@@ -168,6 +166,7 @@ class TryCommand(Action):
         return TryCommand(content="whoami | grep abc").to_pretty_xml()
 
     async def run(self, state: "State") -> str:
+        logger.info(f"[{state.id}] Trying command:\n{self.content}")
         assert state.client is not None, "No SSH connection available"
         return await execute_ssh(state.client, self.content)
 
@@ -194,9 +193,9 @@ class SubmitPassword(Action):
         return f"Success! You are now on level {next_level}."
 
 
-Actions = UpdateMyGoal | SaveMemory | RecallMemory | DeleteMemory | PinToTop | TryCommand | SubmitPassword
+Actions = UpdateGoal | SaveMemory | RecallMemory | DeleteMemory | PinToTop | TryCommand | SubmitPassword
 ActionsList: list[type[Actions]] = [
-    UpdateMyGoal,
+    UpdateGoal,
     SaveMemory,
     RecallMemory,
     DeleteMemory,
@@ -211,6 +210,7 @@ class State:
     # Required
     id: int
     max_actions: int
+    base_chat: rg.PendingChat
 
     # Progress
     result: str | None = ""
@@ -239,7 +239,7 @@ class State:
         self.goals.append(f"Find and submit the password to the next level ({self.level + 1})")
 
     async def step(self) -> None:
-        logger.info(f"Processing {len(self.next_actions)} action(s)")
+        logger.debug(f"Processing {len(self.next_actions)} action(s)")
         for action in self.next_actions:
             self.history.append((action, await action.run(self)))
         self.next_actions.clear()
@@ -310,7 +310,7 @@ To pin important information:
 ## Goal
 
 When you believe you've accomplished your current goal:
-{UpdateMyGoal.xml_example()}
+{UpdateGoal.xml_example()}
 
 ## Commands
 
@@ -321,8 +321,6 @@ To execute a command on the remote host via SSH:
 
 When you have the password to the next level, provide it so the system can authenticate you to the next level:
 {SubmitPassword.xml_example()}
-
-## Examples
 
 ---
 
@@ -342,14 +340,14 @@ When you have the password to the next level, provide it so the system can authe
 - You are executing the commands on the remote host, not locally
 - Passwords look like long base64 strings, watch for them
 
-Output exactly 1 new action from the list above in your response. Prior action results are displayed above.
+Output a new action from the list above in your response. Prior action results are displayed above.
 """
 
 
 # CLI  + Core
 
 
-async def agent_loop(base_chat: rg.PendingChat, state: State) -> State:
+async def agent_loop(state: State) -> State:
     async def parse_actions(chat: rg.Chat) -> rg.Chat | None:
         parsed: list[Actions] = []
         for action_cls in ActionsList:
@@ -369,15 +367,17 @@ async def agent_loop(base_chat: rg.PendingChat, state: State) -> State:
         return None
 
     while not state.result:
-        await base_chat.fork(state.get_prompt()).then(parse_actions).arun()
+        await state.base_chat.fork(state.get_prompt()).then(parse_actions).arun()
         await state.step()
 
     return state
 
 
-async def core_loop(
+async def main(
     level: int, password: str, generator_id: str, max_iterations: int, parallel_agents: int, max_actions: int
 ) -> None:
+    logger.success(f"Starting Bandit with {parallel_agents} agents")
+
     # Prepare our objects
 
     generator = rg.get_generator(generator_id)
@@ -388,11 +388,14 @@ async def core_loop(
     for i in range(max_iterations):
         logger.success(f"Starting level {level}")
 
-        states: list[State] = [State(id=i, max_actions=max_actions) for i in range(parallel_agents)]
+        states: list[State] = [
+            State(id=i, max_actions=max_actions, base_chat=base_chat.with_(temperature=random.uniform(0.25, 1)))
+            for i in range(parallel_agents)
+        ]
         for state in states:
             await state.prep(level, password)
 
-        loops = [asyncio.create_task(agent_loop(base_chat, state)) for state in states]
+        loops = [asyncio.create_task(agent_loop(state)) for state in states]
         _, pending = await asyncio.wait(loops, return_when=asyncio.FIRST_COMPLETED)
 
         for task in pending:
@@ -401,6 +404,8 @@ async def core_loop(
         finished_state = next(s for s in states if s.result)
         level = finished_state.level + 1
         password = finished_state.result or ""
+
+    logger.success("Finished Bandit.")
 
 
 @click.command()
@@ -425,7 +430,7 @@ async def core_loop(
     "-p",
     "--parallel-agents",
     type=int,
-    default=5,
+    default=3,
     help="Number of parallel agents",
 )
 @click.option(
@@ -433,17 +438,17 @@ async def core_loop(
     "--max-actions",
     type=int,
     default=3,
-    help="Maximum number of actions allowed per generation",
+    help="Maximum number of actions allowed per generation round",
 )
 @click.option(
     "--log-level",
-    type=click.Choice(_shared.LogLevelList),
+    type=click.Choice(logging.LogLevelList),
     default="info",
 )
 @click.option("--log-file", type=click.Path(path_type=pathlib.Path), default="bandit.log")
 @click.option(
     "--log-file-level",
-    type=click.Choice(_shared.LogLevelList),
+    type=click.Choice(logging.LogLevelList),
     default="trace",
 )
 def cli(
@@ -453,12 +458,16 @@ def cli(
     max_iterations: int,
     parallel_agents: int,
     max_actions: int,
-    log_level: str,
+    log_level: logging.LogLevelLiteral,
     log_file: pathlib.Path,
-    log_file_level: _shared.LogLevelLiteral,
+    log_file_level: logging.LogLevelLiteral,
 ) -> None:
-    _shared.configure_logging(log_level, log_file, log_file_level)
-    asyncio.run(core_loop(level, password, generator_id, max_iterations, parallel_agents, max_actions))
+    """
+    Rigging example for agentic exploitation of OverTheWire's Bandit wargame.
+    """
+
+    logging.configure_logging(log_level, log_file, log_file_level)
+    asyncio.run(main(level, password, generator_id, max_iterations, parallel_agents, max_actions))
 
 
 if __name__ == "__main__":

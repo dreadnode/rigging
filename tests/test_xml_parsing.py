@@ -188,6 +188,6 @@ def test_xml_parsing_with_validation(content: str, model: Model, expectation: t.
         ),
     ],
 )
-def text_xml_parsing_sets(content: str, count: int, model: Model) -> None:
+def test_xml_parsing_sets(content: str, count: int, model: Model) -> None:
     models = model.from_text(content)  # type: ignore [var-annotated]
     assert len(models) == count, "Failed to parse model set"

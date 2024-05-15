@@ -1,17 +1,19 @@
+# Logging
+
 Rigging uses [loguru](https://loguru.readthedocs.io/) for it's logging. By default it disables it's logger allowing users to choose when/how to gather messages.
 
 If you want to let rigging messages flow into loguru, you should enable it:
 
-```python
+```py
 from loguru import logger
 
 logger.enable('rigging')
 ```
 
 If you want to have some sane default handlers with dual console & file logging,
-you can use the [rigging.logging.configure_logging][] function. 
+you can use the [rigging.logging.configure_logging][] function to configure loguru. 
 
-```python
+```py
 from rigging.logging import configure_logging
 
 configure_logging(
