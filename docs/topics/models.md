@@ -84,6 +84,9 @@ that the content between tags conforms to any constraints we need. Take this exa
 Rigging model for instance:
 
 ```py
+from pydantic import field_validator
+import typing as t
+
 class YesNoAnswer(Model):
     "Yes/No answer answer with coercion"
 
@@ -102,7 +105,8 @@ class YesNoAnswer(Model):
 
 You can see the interior field of the model is now a `bool` type, which means pydantic will accept standard
 values which could be reasonably interpreted as a boolean. We also add a custom field validator to
-check for instances of `yes/no` as text strings. All of these XML values will parse correctly:
+check for instances of `yes/no` as text strings. All of these XML values will parse correctly
+into the `YesNoAnswer` model, so you can handle cases where the LLM outputs a variety of different
 
 ```xml
 <yes-no-answer>true</yes-no-answer>
@@ -110,6 +114,13 @@ check for instances of `yes/no` as text strings. All of these XML values will pa
 <yes-no-answer>yes, it is.</yes-no-answer>
 <yes-no-answer> NO </yes-no-answer>
 <yes-no-answer>1</yes-no-answer>
+```
+
+```py
+YesNoAnswer(boolean="true")
+YesNoAnswer(boolean=" NO ")
+YesNoAnswer(boolean="1")
+# ...
 ```
 
 The choice to build on Pydantic offers an incredible amount of flexibility for controlling exactly
@@ -184,7 +195,35 @@ and use [`.to_prety_xml()`][rigging.model.Model.to_pretty_xml]
 
 
 ```py
+import rigging as rg
+from typing import Annotated
+from pydantic import PlainSerializer
 
+newline_str = Annotated[str, PlainSerializer(lambda x: f'\n{x}\n', return_type=str)] # (1)!
+
+class SaveMemory(rg.Model):
+    key: str = rg.attr()
+    content: newline_str
+
+    @classmethod
+    def xml_example(cls) -> str:
+        return SaveMemory(
+            key="my-note",
+            content="Lots of custom data\nKeep this for later."
+        ).to_pretty_xml()
+
+print(f"Use the following format:\n{SaveMemory.xml_example()}")
+
+# Use the following format:
+# <save-memory key="my-note">
+# Lots of custom data
+# Keep this for later.
+# </save-memory>
+```
+
+1. Using pydantic serializer annotations is an easy way to introduce subtle content changes
+   before they are formed into their XML form. Here we're injecting newlines to make the
+   XML more readable.
 
 ## Complex Models
 

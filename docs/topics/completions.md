@@ -19,10 +19,10 @@ While we try to maintain parity between the "Chat" and "Completions" interfaces 
 find some deviations here and there. Completions should be a simple transition if you are familiar
 with the other code in rigging. Here are the highlights:
 
-- [`chat`][rigging.generator.Generator.chat] ~= [`complete`][rigging.generator.Generator.complete]
-- [`Chat`][rigging.chat.Chat] ~= [`Completion`][rigging.completion.Completion]
-- [`PendingChat`][rigging.chat.PendingChat] ~= [`PendingCompletion`][rigging.completion.PendingCompletion]
-- [`generate_messages`][rigging.generator.Generator.generate_messages] ~= [`generate_texts`][rigging.generator.Generator.generate_texts]
+- [`chat`][rigging.generator.Generator.chat] -> [`complete`][rigging.generator.Generator.complete]
+- [`Chat`][rigging.chat.Chat] -> [`Completion`][rigging.completion.Completion]
+- [`PendingChat`][rigging.chat.PendingChat] -> [`PendingCompletion`][rigging.completion.PendingCompletion]
+- [`generate_messages`][rigging.generator.Generator.generate_messages] -> [`generate_texts`][rigging.generator.Generator.generate_texts]
 
 On all of these interfaces, you'll note that sequences of [`Message`][rigging.message.Message] objects have been
 replaced with basic `str` objects for both inputs and ouputs.
@@ -45,9 +45,11 @@ Output: [translated text]
 Input: $input
 Output: """
 
-translator = rg.get_generator('gpt-3.5-turbo') \
-    .complete(PROMPT) \
-    .with_(stop=["---", "Input:", "\n\n"])
+translator = (
+    rg.get_generator('gpt-3.5-turbo') # (1)!
+    .complete(PROMPT)
+    .with_(stop=["---", "Input:", "\n\n"]) # (2)!
+)
 
 text = "Could you please tell me where the nearest train station is?"
 
@@ -62,6 +64,14 @@ for language in ["spanish", "french", "german"]:
 # [french]:  Pouvez-vous me dire où se trouve la gare la plus proche, s'il vous plaît ?
 # [german]:  Könnten Sie mir bitte sagen, wo sich der nächste Bahnhof befindet?
 ```
+
+1. OpenAPI supports the same model IDs for both completions and chats, but other
+   providers might require you to specify a specific model ID used for text completions.
+2. We use [`.with_()`][rigging.completion.PendingCompletion.with_] to set stop tokens
+   and prevent the generation from simply continuing until our max tokens are reached. This
+   is a very common and often required pattern when doing completions over chats. Here, we 
+   aren't totally sure what the model might generate after our translation, so
+   we use a few different token sequences to be safe.
 
 !!! tip "Using .apply()"
 

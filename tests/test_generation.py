@@ -94,7 +94,7 @@ def test_chat_until_parsed_as_with_recovery(drop_dialog: bool) -> None:
         assert len(messages) == 3, messages
         assert messages[0].content == "original"
         assert messages[1].content == "invalid1"
-        assert "<system-error-model>" in messages[2].content
+        assert "<system-error>" in messages[2].content
         self.message_callback = valid_cb
         return "invalid2"
 
