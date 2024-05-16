@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 import asyncssh
 import click
-import requests  # type: ignore
+import requests
 from loguru import logger
 from pydantic import StringConstraints
 

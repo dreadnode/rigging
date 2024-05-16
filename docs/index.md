@@ -11,7 +11,7 @@ Rigging is a lightweight LLM interaction framework built on Pydantic XML. The go
 import rigging as rg
 from rigging.model import CommaDelimitedAnswer as Answer
 
-answer = rg.get_generator('gpt-4') \
+chat = rg.get_generator('gpt-4') \
     .chat(f"Give me 3 famous authors between {Answer.xml_tags()} tags.") \
     .until_parsed_as(Answer) \
     .run()
@@ -310,10 +310,13 @@ and we have a few options:
 
 === "Option 2 - Until"
 
-    ```py hl_lines="3"
-    chat = rg.get_generator('gpt-3.5-turbo').chat(
-        f"Provide a fun fact between {FunFact.xml_example()} tags."
-    ).until_parsed_as(FunFact).run()
+    ```py hl_lines="4"
+    chat = (
+        rg.get_generator('gpt-3.5-turbo')
+        .chat(f"Provide a fun fact between {FunFact.xml_example()} tags.")
+        .until_parsed_as(FunFact)
+        .run()
+    )
 
     fun_fact = chat.last.parse(FunFact) # This call should never fail
 
@@ -358,3 +361,7 @@ Assuming we wanted to extend our example to produce a set of interesting facts, 
     for fun_fact in chat.last.parse_set(FunFact):
         print(fun_fact.fact)
     ```
+
+### Keep Going
+
+Check out the **[topics section](topics/workflow.md)** for more in-depth explanations and examples.

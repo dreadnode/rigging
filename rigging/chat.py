@@ -213,7 +213,10 @@ class Chat(BaseModel):
         Returns:
             The modified Chat object.
         """
-        self.last.apply(**kwargs)
+        if self.generated:
+            self.generated[-1] = self.generated[-1].apply(**kwargs)
+        else:
+            self.messages[-1] = self.messages[-1].apply(**kwargs)
         return self
 
     def apply_to_all(self, **kwargs: str) -> "Chat":
@@ -226,9 +229,8 @@ class Chat(BaseModel):
         Returns:
             The modified chat object.
         """
-        Message.apply_to_list(self.all, **kwargs)
-        for message in self.all:
-            message.apply(**kwargs)
+        self.messages = Message.apply_to_list(self.messages, **kwargs)
+        self.generated = Message.apply_to_list(self.generated, **kwargs)
         return self
 
     def strip(self, model_type: type[Model], fail_on_missing: bool = False) -> "Chat":

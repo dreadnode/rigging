@@ -13,7 +13,7 @@ Rigging is a lightweight LLM interaction framework built on Pydantic XML. The go
 import rigging as rg
 from rigging.model import CommaDelimitedAnswer as Answer
 
-answer = rg.get_generator('gpt-4') \
+chat = rg.get_generator('gpt-4') \
     .chat(f"Give me 3 famous authors between {Answer.xml_tags()} tags.") \
     .until_parsed_as(Answer) \
     .run()

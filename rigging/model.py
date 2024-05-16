@@ -74,7 +74,7 @@ class Model(BaseXmlModel):
         # instead of a underscore, and users are free to override
         # as needed.
         super().__init_subclass__(tag, ns, nsmap, ns_attrs, skip_empty, search_mode, **kwargs)
-        cls.__xml_tag__ = XmlTagDescriptor()  # type: ignore [assignment]
+        cls.__xml_tag__ = tag or XmlTagDescriptor()  # type: ignore [assignment]
 
     # to_xml() doesn't prettify normally, and extended
     # requirements like lxml seemed like poor form for
@@ -87,7 +87,7 @@ class Model(BaseXmlModel):
             The pretty XML representation of the model.
         """
         tree = self.to_xml_tree()
-        ET.indent(tree, "   ")
+        ET.indent(tree, "  ")
         pretty_encoded_xml = ET.tostring(tree).decode()
 
         if self.__class__.is_simple():

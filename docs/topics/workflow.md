@@ -17,11 +17,21 @@ of the many [`.run()`][rigging.chat.PendingChat.run] functions, the generator is
 message (or many messages) based on the prior context and any constraints you have in place. Once you have a 
 [`Chat`][rigging.chat.Chat] object, the interation is "done" and you can inspect and operate on the messages.
 
+??? tip "Chats vs Completions"
+
+    Rigging supports both Chat objects (messages with roles in a "conversation" format), as well
+    as raw text completions. While we use Chat objects in most of our examples, you can check
+    out the [Completions](completions.md) section to learn more about their feature parity.
+
 You'll often see us use functional styling chaining as most of our
 utility functions return the object back to you.
 
-```py
-chat = generator.chat(...) \
-    .using(...).until(...).with_(...) \
+```go
+chat = (
+    generator.chat(...)
+    .using(...)
+    .until(...)
+    .with_(...)
     .run()
+)
 ```

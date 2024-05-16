@@ -120,7 +120,16 @@ Generators operate in a batch context by default, taking in groups of message li
 your implementation takes advantage of this batching is up to you, but where possible you
 should be optimizing as much as possible.
 
+!!! tip "Generators are Flexible"
+
+    Generators don't make any assumptions about the underlying mechanism that completes text.
+    You might use a local model, API endpoint, or static code, etc. The base class is designed
+    to be flexible and support a wide variety of use cases. You'll obviously find that the inclusion
+    of `api_key`, `model`, and generation params are common enough that they are included in the base class.
+
 ```py
+from rigging import Generator, GenerateParams, Message
+
 class Custom(Generator):
     # model: str
     # api_key: str

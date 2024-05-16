@@ -43,23 +43,21 @@ def chats_to_df(chats: list[Chat]) -> pd.DataFrame:
                 )
             generated = True
 
-    df = (
-        pd.DataFrame(data)
-        .astype(
-            {
-                "chat_id": "string",
-                "chat_metadata": "string",
-                "chat_generator_id": "string",
-                "chat_timestamp": "datetime64[ms]",
-                "generated": "bool",
-                "message_id": "string",
-                "role": "category",
-                "content": "string",
-                "parts": "string",
-            }
-        )
-        .set_index("chat_id")
+    df = pd.DataFrame(data).astype(
+        {
+            "chat_id": "string",
+            "chat_metadata": "string",
+            "chat_generator_id": "string",
+            "chat_timestamp": "datetime64[ms]",
+            "generated": "bool",
+            "message_id": "string",
+            "role": "category",
+            "content": "string",
+            "parts": "string",
+        }
     )
+
+    # TODO: Come back to indexing
 
     return df
 
@@ -80,7 +78,7 @@ def df_to_chats(df: pd.DataFrame) -> list[Chat]:
 
     """
     chats = []
-    for chat_id, chat_group in df.reset_index().groupby("chat_id"):
+    for chat_id, chat_group in df.groupby("chat_id"):
         chat_data = chat_group.iloc[0]
         messages = []
         generated = []

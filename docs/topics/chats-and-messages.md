@@ -133,7 +133,7 @@ meaning = rg.get_generator("claude-2.1").chat([
     },
 ]).run()
 
-# Gracefully handle mising models
+# Gracefully handle missing models
 reasoning = meaning.last.try_parse(Reasoning)
 if reasoning:
     print("Reasoning:", reasoning.content)
@@ -143,7 +143,7 @@ if reasoning:
 without_reasons = meaning.strip(Reasoning)
 print("Meaning of life:", without_reasons.last.content)
 
-# follow_up = without_thoughts.continue_(...)
+follow_up = without_reasons.continue_(...).run()
 ```
 
 ## Metadata
@@ -156,3 +156,16 @@ store things like tags, metrics, and supporting data for storage, sorting, and f
 
 Metadata will carry forward from a PendingChat to a Chat object when generation completes. This
 metadata is also maintained in the [serialization process](serialization.md).
+
+```py
+import rigging as rg
+
+pending = rg.get_generator("claude-2.1").chat("Hello!").meta(prompt_version=1)
+chat = pending.run().meta(user="Will")
+
+print(chat.metadata)
+# {
+#   'prompt_version': 1, 
+#   'user': 'Will'
+# }
+```

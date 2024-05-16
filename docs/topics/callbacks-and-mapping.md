@@ -35,6 +35,9 @@ print(chat.conversation)
 # [assistant]: <joke>Why did the duck go to the doctor? Because he was feeling a little down!</joke>
 # [user]: Please include a cat in your joke
 # [assistant]: <joke>Why was the cat sitting on the computer? Because it wanted to keep an eye on the mouse!</joke>
+
+print(chat.last.parse(Joke))
+# Joke(content='Why was the cat sitting on the computer? Because it wanted to keep an eye on the mouse!')
 ```
 
 1. Returning `True` from this callback tells Rigging to go back to the generator with the supplied
