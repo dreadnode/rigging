@@ -274,11 +274,11 @@ class ErrorModel(Model, tag="error"):
         return value
 
 
-class SystemErrorModel(ErrorModel, tag="system_error"):
+class SystemErrorModel(ErrorModel, tag="system-error"):
     content: str
 
 
-class ValidationErrorModel(ErrorModel, tag="validation_error"):
+class ValidationErrorModel(ErrorModel, tag="validation-error"):
     content: str
 
 
