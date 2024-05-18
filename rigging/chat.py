@@ -946,7 +946,7 @@ class PendingChat:
         pending_states = states
         while pending_states:
             inbounds = self.generator.generate_messages(
-                [s.messages for s in pending_states], [s.params for s in pending_states], prefix=self.chat.all
+                [self.chat.all + s.messages for s in pending_states], [s.params for s in pending_states]
             )
 
             for inbound, state in zip(inbounds, pending_states, strict=True):
@@ -984,7 +984,7 @@ class PendingChat:
         pending_states = states
         while pending_states:
             inbounds = await self.generator.agenerate_messages(
-                [s.messages for s in pending_states], [s.params for s in pending_states], prefix=self.chat.all
+                [self.chat.all + s.messages for s in pending_states], [s.params for s in pending_states]
             )
 
             for inbound, state in zip(inbounds, pending_states, strict=True):
@@ -1047,7 +1047,7 @@ class PendingChat:
         params = self._fit_params(count, params)
 
         states: list[BatchRunState] = [
-            BatchRunState(m, [], p, self._process()) for m, p in zip(many, params, strict=True)
+            BatchRunState(self.chat.all + m, [], p, self._process()) for m, p in zip(many, params, strict=True)
         ]
         _ = [next(state.processor) for state in states]
 
@@ -1059,7 +1059,6 @@ class PendingChat:
                 inbounds = self.generator.generate_messages(
                     [s.inputs + s.messages for s in chunk],
                     [s.params for s in chunk],
-                    prefix=self.chat.all,
                 )
 
                 for inbound, state in zip(inbounds, chunk, strict=True):
@@ -1068,7 +1067,7 @@ class PendingChat:
                     except StopIteration as stop:
                         state.done = True
                         state.chat = Chat(
-                            self.chat.all + state.inputs,
+                            state.inputs,
                             t.cast(list[Message], stop.value),
                             generator=self.generator,
                             metadata=self.metadata,
@@ -1105,7 +1104,7 @@ class PendingChat:
         params = self._fit_params(count, params)
 
         states: list[BatchRunState] = [
-            BatchRunState(m, [], p, self._process()) for m, p in zip(many, params, strict=True)
+            BatchRunState(self.chat.all + m, [], p, self._process()) for m, p in zip(many, params, strict=True)
         ]
         _ = [next(state.processor) for state in states]
 
@@ -1117,7 +1116,6 @@ class PendingChat:
                 inbounds = await self.generator.agenerate_messages(
                     [s.inputs + s.messages for s in chunk],
                     [s.params for s in chunk],
-                    prefix=self.chat.all,
                 )
 
                 for inbound, state in zip(inbounds, chunk, strict=True):
@@ -1126,7 +1124,7 @@ class PendingChat:
                     except StopIteration as stop:
                         state.done = True
                         state.chat = Chat(
-                            self.chat.all + state.inputs,
+                            state.inputs,
                             t.cast(list[Message], stop.value),
                             generator=self.generator,
                             metadata=self.metadata,

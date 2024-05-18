@@ -680,9 +680,8 @@ class PendingCompletion:
         pending_states = states
         while pending_states:
             inbounds = self.generator.generate_texts(
-                [s.text for s in pending_states],
+                [self.text + s.text for s in pending_states],
                 [s.params for s in pending_states],
-                prefix=self.text,
             )
 
             for inbound, state in zip(inbounds, pending_states, strict=True):
@@ -721,9 +720,8 @@ class PendingCompletion:
         pending_states = states
         while pending_states:
             inbounds = await self.generator.agenerate_texts(
-                [s.text for s in pending_states],
+                [self.text + s.text for s in pending_states],
                 [s.params for s in pending_states],
-                prefix=self.text,
             )
 
             for inbound, state in zip(inbounds, pending_states, strict=True):

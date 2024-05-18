@@ -1,11 +1,6 @@
-"""
-Generators produce completions for a given set of messages or text.
-"""
-
-import asyncio
+import inspect
 import typing as t
 
-import litellm  # type: ignore
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -18,11 +13,6 @@ from rigging.message import (
 if t.TYPE_CHECKING:
     from rigging.chat import PendingChat
     from rigging.completion import PendingCompletion
-
-# We should probably let people configure
-# this independently, but for now we'll
-# fix it to prevent confusion
-litellm.drop_params = True
 
 # Global provider map
 g_providers: dict[str, type["Generator"]] = {}
@@ -161,8 +151,6 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-        *,
-        prefix: t.Sequence[Message] | None = None,
     ) -> t.Sequence[Message]:
         """
         Generate a batch of messages using the specified parameters.
@@ -173,7 +161,6 @@ class Generator(BaseModel):
         Args:
             messages: A sequence of sequences of messages.
             params: A sequence of GenerateParams objects.
-            prefix: A sequence of fixed messages to be prefixed before every item of `many`.
 
         Returns:
             A sequence of generated messages.
@@ -187,8 +174,6 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-        *,
-        prefix: t.Sequence[Message] | None = None,
     ) -> t.Sequence[Message]:
         """async version of [rigging.generator.Generator.generate_messages][]"""
         raise NotImplementedError("`agenerate_messages` is not supported by this generator.")
@@ -197,8 +182,6 @@ class Generator(BaseModel):
         self,
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
-        *,
-        prefix: str | None = None,
     ) -> t.Sequence[str]:
         """
         Generate a batch of text completions using the generator.
@@ -212,7 +195,6 @@ class Generator(BaseModel):
         Args:
             texts: The input texts for generating the batch.
             params: Additional parameters for generating each text in the batch.
-            prefix: A fixed input text to be used as a prefix for all of `many`.
 
         Returns:
             The generated texts.
@@ -226,8 +208,6 @@ class Generator(BaseModel):
         self,
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
-        *,
-        prefix: str | None = None,
     ) -> t.Sequence[str]:
         """async version of [rigging.generator.Generator.generate_texts][]"""
         raise NotImplementedError("`agenerate_texts` is not supported by this generator.")
@@ -406,23 +386,36 @@ def get_generator(identifier: str) -> Generator:
 
     # Split provider, model, and kwargs
 
-    try:
-        if "!" in identifier:
+    if "!" in identifier:
+        try:
             provider, model = identifier.split("!")
-
-        if "," in model:
-            model, kwargs_str = model.split(",", 1)
-            kwargs = dict(arg.split("=") for arg in kwargs_str.split(","))
-            api_key = kwargs.pop("api_key", None)
-            params = GenerateParams(**kwargs)
-    except Exception as e:
-        raise InvalidModelSpecifiedError(identifier) from e
+        except Exception as e:
+            raise InvalidModelSpecifiedError(identifier) from e
 
     if provider not in g_providers:
         raise InvalidModelSpecifiedError(identifier)
 
     generator_cls = g_providers[provider]
-    return generator_cls(model=model, api_key=api_key, params=params)
+
+    kwargs = {}
+    if "," in model:
+        try:
+            model, kwargs_str = model.split(",", 1)
+            kwargs = dict(arg.split("=") for arg in kwargs_str.split(","))
+            api_key = kwargs.pop("api_key", None)
+        except Exception as e:
+            raise InvalidModelSpecifiedError(identifier) from e
+
+    # See if any of the kwargs would apply to the cls constructor directly
+    init_signature = inspect.signature(generator_cls)
+    init_kwargs = {k: kwargs.pop(k) for k in kwargs.keys() if k in init_signature.parameters}
+
+    try:
+        params = GenerateParams(**kwargs)
+    except Exception as e:
+        raise InvalidModelSpecifiedError(identifier) from e
+
+    return generator_cls(model=model, api_key=api_key, params=params, **init_kwargs)
 
 
 def register_generator(provider: str, generator_cls: type[Generator]) -> None:
@@ -469,128 +462,3 @@ def trace_str(content: str, title: str) -> None:
     logger.trace(f"--- {title} ---")
     logger.trace(content)
     logger.trace("---")
-
-
-class LiteLLMGenerator(Generator):
-    """
-    Generator backed by the LiteLLM library.
-
-    Note:
-        Find more information about supported models and formats [in their docs.](https://docs.litellm.ai/docs/providers).
-
-    Note:
-        Batching support is not performant and simply a loop over inputs.
-    """
-
-    def _generate_message(self, messages: t.Sequence[Message], params: GenerateParams) -> Message:
-        result = litellm.completion(
-            self.model,
-            [message.model_dump(include={"role", "content"}) for message in messages],
-            api_key=self.api_key,
-            **self.params.merge_with(params).to_dict(),
-        )
-        response = result.choices[-1].message.content.strip()
-        return Message(role="assistant", content=response)
-
-    async def _agenerate_message(self, messages: t.Sequence[Message], params: GenerateParams) -> Message:
-        result = await litellm.acompletion(
-            self.model,
-            [message.model_dump(include={"role", "content"}) for message in messages],
-            api_key=self.api_key,
-            **self.params.merge_with(params).to_dict(),
-        )
-        response = result.choices[-1].message.content.strip()
-        return Message(role="assistant", content=response)
-
-    def _generate_text(self, text: str, params: GenerateParams) -> str:
-        result = litellm.text_completion(
-            text, self.model, api_key=self.api_key, **self.params.merge_with(params).to_dict()
-        )
-        return t.cast(str, result.choices[-1]["text"])
-
-    async def _agenerate_text(self, text: str, params: GenerateParams) -> str:
-        result = await litellm.atext_completion(
-            text, self.model, api_key=self.api_key, **self.params.merge_with(params).to_dict()
-        )
-        return t.cast(str, result.choices[-1]["text"])
-
-    def generate_messages(
-        self,
-        messages: t.Sequence[t.Sequence[Message]],
-        params: t.Sequence[GenerateParams],
-        *,
-        prefix: t.Sequence[Message] | None = None,
-    ) -> t.Sequence[Message]:
-        if prefix is not None:
-            messages = [list(prefix) + list(messages) for messages in messages]
-
-        generated: list[Message] = []
-        for i, (_messages, _params) in enumerate(zip(messages, params, strict=True)):
-            trace_messages(_messages, f"Messages {i+1}/{len(messages)}")
-            next_message = self._generate_message(_messages, _params)
-            generated.append(next_message)
-            trace_messages([next_message], f"Response {i+1}/{len(messages)}")
-
-        return generated
-
-    async def agenerate_messages(
-        self,
-        messages: t.Sequence[t.Sequence[Message]],
-        params: t.Sequence[GenerateParams],
-        *,
-        prefix: t.Sequence[Message] | None = None,
-    ) -> t.Sequence[Message]:
-        if prefix is not None:
-            messages = [list(prefix) + list(messages) for messages in messages]
-
-        generated: list[Message] = await asyncio.gather(
-            *[self._agenerate_message(_messages, _params) for _messages, _params in zip(messages, params, strict=True)]
-        )
-
-        for i, (_messages, _generated) in enumerate(zip(messages, generated, strict=True)):
-            trace_messages(_messages, f"Messages {i+1}/{len(messages)}")
-            trace_messages([_generated], f"Response {i+1}/{len(messages)}")
-
-        return generated
-
-    def generate_texts(
-        self,
-        texts: t.Sequence[str],
-        params: t.Sequence[GenerateParams],
-        *,
-        prefix: str | None = None,
-    ) -> t.Sequence[str]:
-        if prefix is not None:
-            texts = [prefix + text for text in texts]
-
-        generated: list[str] = []
-        for i, (text, _params) in enumerate(zip(texts, params, strict=True)):
-            trace_str(text, f"Text {i+1}/{len(texts)}")
-            response = self._generate_text(text, _params)
-            generated.append(response)
-            trace_str(response, f"Generated {i+1}/{len(texts)}")
-
-        return generated
-
-    async def agenerate_texts(
-        self,
-        texts: t.Sequence[str],
-        params: t.Sequence[GenerateParams],
-        *,
-        prefix: str | None = None,
-    ) -> t.Sequence[str]:
-        if prefix is not None:
-            texts = [prefix + text for text in texts]
-
-        generated: list[str] = await asyncio.gather(
-            *[self._agenerate_text(text, _params) for text, _params in zip(texts, params, strict=True)]
-        )
-
-        for i, (text, response) in enumerate(zip(texts, generated, strict=True)):
-            trace_str(text, f"Text {i+1}/{len(texts)}")
-            trace_str(response, f"Generated {i+1}/{len(texts)}")
-
-        return generated
-
-
-g_providers["litellm"] = LiteLLMGenerator
