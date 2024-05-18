@@ -26,6 +26,7 @@ pytest = "^8.0.0"
 pandas = "^2.2.2"
 pandas-stubs = "^2.2.1.240316"
 coverage = "^7.5.1"
+elasticsearch = "^8.13.1"
 
 [tool.poetry.group.docs.dependencies]
 mkdocs = "^1.6.0"
