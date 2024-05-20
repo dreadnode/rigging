@@ -382,7 +382,6 @@ def get_generator(identifier: str) -> Generator:
 
     provider: str = list(g_providers.keys())[0]
     model: str = identifier
-    api_key: str | None = None
     params: GenerateParams = GenerateParams()
 
     # Split provider, model, and kwargs
