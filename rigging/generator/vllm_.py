@@ -60,14 +60,9 @@ class VLLMGenerator(Generator):
 
     def _generate(
         self,
-        *,
-        texts: list[str] | None = None,
-        tokens: list[list[int]] | None = None,
-        params: t.Sequence[GenerateParams] | None = None,
+        texts: list[str],
+        params: t.Sequence[GenerateParams],
     ) -> list[str]:
-        if texts is None and tokens is None:
-            raise ValueError("Either texts or tokens must be provided")
-
         sampling_params_args = list(inspect.signature(vllm.SamplingParams.__init__).parameters.keys())
         sampling_params = (
             [
@@ -81,16 +76,14 @@ class VLLMGenerator(Generator):
         )
 
         # Do a cache warmup step if we have a lot of texts
-        if len(texts or tokens or []) > CACHE_TRIGGER:
+        if len(texts) > CACHE_TRIGGER:
             self.llm.generate(
-                prompts=min(texts, key=len) if texts else None,
-                prompt_token_ids=[min(tokens, key=len)] if tokens else None,
+                prompts=min(texts, key=len),
                 use_tqdm=False,
             )
 
         outputs = self.llm.generate(
             prompts=texts,
-            prompt_token_ids=tokens,
             sampling_params=sampling_params,
             use_tqdm=False,
         )
@@ -102,8 +95,8 @@ class VLLMGenerator(Generator):
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[Message]:
         message_dicts = [[m.model_dump(include={"role", "content"}) for m in _messages] for _messages in messages]
-        tokens = self.llm.get_tokenizer().apply_chat_template(message_dicts, add_generation_prompt=True)
-        outputs = self._generate(tokens=tokens, params=params)
+        texts = self.llm.get_tokenizer().apply_chat_template(message_dicts, add_generation_prompt=True, tokenize=False)
+        outputs = self._generate(texts, params=params)
         generated = [Message(role="assistant", content=output) for output in outputs]
 
         for i, (in_messages, out_message) in enumerate(zip(messages, generated, strict=True)):
@@ -124,7 +117,7 @@ class VLLMGenerator(Generator):
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[str]:
-        generated = self._generate(texts=list(texts), params=params)
+        generated = self._generate(list(texts), params=params)
 
         for i, (text, response) in enumerate(zip(texts, generated, strict=True)):
             trace_str(text, f"Text {i+1}/{len(texts)}")

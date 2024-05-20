@@ -1,9 +1,12 @@
 import typing as t
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, TextGenerationPipeline, pipeline
+from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenizer, TextGenerationPipeline, pipeline
 
 from rigging.generator.base import GenerateParams, Generator, register_generator, trace_messages, trace_str
 from rigging.message import Message
+
+DEFAULT_MAX_TOKENS = 1024
+"""Lifting the default max tokens from transformers"""
 
 
 class TransformersGenerator(Generator):
@@ -48,7 +51,7 @@ class TransformersGenerator(Generator):
         return self._llm
 
     @property
-    def tokenizer(self) -> AutoTokenizer:
+    def tokenizer(self) -> PreTrainedTokenizer:
         if self._tokenizer is None:
             self._tokenizer = AutoTokenizer.from_pretrained(self.model)
         return self._tokenizer
@@ -74,6 +77,8 @@ class TransformersGenerator(Generator):
             raise ValueError("All GenerateParams must be identical for this generator")
 
         # Generation Args + Fixups
+        if self.params.max_tokens is None:
+            self.params.max_tokens = DEFAULT_MAX_TOKENS
 
         kwargs = self.params.merge_with(params[0]).to_dict()
         if "max_tokens" in kwargs:
@@ -90,7 +95,8 @@ class TransformersGenerator(Generator):
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[Message]:
         message_dicts = [[m.model_dump(include={"role", "content"}) for m in _messages] for _messages in messages]
-        outputs = self._generate(message_dicts, params)
+        texts = self.tokenizer.apply_chat_template(message_dicts, add_generation_prompt=True, tokenize=False)
+        outputs = self._generate(texts, params)
         generated = [Message(role="assistant", content=output) for output in outputs]
 
         for i, (in_messages, out_message) in enumerate(zip(messages, generated, strict=True)):
