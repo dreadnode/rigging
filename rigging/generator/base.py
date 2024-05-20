@@ -41,6 +41,9 @@ class GenerateParams(BaseModel):
     max_tokens: int | None = None
     """The maximum number of tokens to generate."""
 
+    top_k: int | None = None
+    """The top-k sampling parameter."""
+
     top_p: float | None = None
     """The nucleus sampling probability."""
 

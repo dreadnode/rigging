@@ -18,6 +18,11 @@ try:
 except ImportError:
     pass
 
+try:
+    from rigging.generator.transformers_ import TransformersGenerator  # noqa: F401
+except ImportError:
+    pass
+
 __all__ = [
     "get_generator",
     "Generator",
@@ -29,4 +34,5 @@ __all__ = [
     "get_identifier",
     "LiteLLMGenerator",
     "VLLMGenerator",
+    "TransformersGenerator",
 ]
