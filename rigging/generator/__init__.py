@@ -13,6 +13,11 @@ from rigging.generator.base import (
 )
 from rigging.generator.litellm_ import LiteLLMGenerator
 
+try:
+    from rigging.generator.vllm_ import VLLMGenerator  # noqa: F401
+except ImportError:
+    pass
+
 __all__ = [
     "get_generator",
     "Generator",
@@ -25,11 +30,3 @@ __all__ = [
     "LiteLLMGenerator",
     "VLLMGenerator",
 ]
-
-
-try:
-    import vllm  # noqa: F401
-
-    from rigging.generator.vllm_ import VLLMGenerator  # noqa: F401
-except ImportError:
-    pass
