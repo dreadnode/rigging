@@ -13,27 +13,17 @@ from typing import runtime_checkable
 from uuid import UUID, uuid4
 
 from loguru import logger
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    ValidationError,
-    computed_field,
-)
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, computed_field
 
 from rigging.error import ExhaustedMaxRoundsError
 from rigging.generator import GenerateParams, Generator, get_generator
 from rigging.message import Message, MessageDict, Messages
-from rigging.model import (
-    Model,
-    ModelT,
-    SystemErrorModel,
-    ValidationErrorModel,
-)
+from rigging.model import Model, ModelT, SystemErrorModel, ValidationErrorModel
 from rigging.prompt import system_tool_extension
 from rigging.tool import Tool, ToolCalls, ToolDescriptionList, ToolResult, ToolResults
 
 DEFAULT_MAX_ROUNDS = 5
+"""Maximum number of internal callback rounds to attempt during generation before giving up."""
 
 
 class Chat(BaseModel):

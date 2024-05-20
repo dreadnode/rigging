@@ -3,7 +3,7 @@ from rigging.completion import Completion, PendingCompletion
 from rigging.data import chats_to_df, df_to_chats
 from rigging.generator import GenerateParams, Generator, chat, complete, get_generator, register_generator
 from rigging.message import Message, MessageDict, Messages
-from rigging.model import Model, attr, element, wrapped
+from rigging.model import Model, attr, element, make_primitive, wrapped
 from rigging.tool import Tool
 
 __all__ = [
@@ -27,6 +27,7 @@ __all__ = [
     "register_generator",
     "chats_to_df",
     "df_to_chats",
+    "make_primitive",
 ]
 
 from loguru import logger

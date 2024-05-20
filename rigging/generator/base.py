@@ -5,10 +5,7 @@ from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from rigging.error import InvalidModelSpecifiedError
-from rigging.message import (
-    Message,
-    MessageDict,
-)
+from rigging.message import Message, MessageDict
 
 if t.TYPE_CHECKING:
     from rigging.chat import PendingChat
@@ -333,6 +330,10 @@ def get_identifier(generator: Generator, params: GenerateParams | None = None) -
     provider = next(name for name, klass in g_providers.items() if isinstance(generator, klass))
     identifier = f"{provider}!{generator.model}"
 
+    extra_cls_args = generator.model_dump(exclude_unset=True, exclude={"model", "api_key", "params"})
+    if extra_cls_args:
+        identifier += f",{','.join([f'{k}={v}' for k, v in extra_cls_args.items()])}"
+
     merged_params = generator.params.merge_with(params)
     if merged_params.extra:
         logger.warning("Extra parameters are not supported in identifiers.")
@@ -402,20 +403,36 @@ def get_generator(identifier: str) -> Generator:
         try:
             model, kwargs_str = model.split(",", 1)
             kwargs = dict(arg.split("=") for arg in kwargs_str.split(","))
-            api_key = kwargs.pop("api_key", None)
         except Exception as e:
             raise InvalidModelSpecifiedError(identifier) from e
 
     # See if any of the kwargs would apply to the cls constructor directly
     init_signature = inspect.signature(generator_cls)
-    init_kwargs = {k: kwargs.pop(k) for k in kwargs.keys() if k in init_signature.parameters}
+    init_kwargs: dict[str, t.Any] = {k: kwargs.pop(k) for k in list(kwargs.keys())[:] if k in init_signature.parameters}
+
+    # Do some subtle type conversion
+    for k, v in init_kwargs.items():
+        try:
+            init_kwargs[k] = float(v)
+            continue
+        except ValueError:
+            pass
+
+        try:
+            init_kwargs[k] = int(v)
+            continue
+        except ValueError:
+            pass
+
+        if isinstance(v, str) and v.lower() in ["true", "false"]:
+            init_kwargs[k] = v.lower() == "true"
 
     try:
         params = GenerateParams(**kwargs)
     except Exception as e:
         raise InvalidModelSpecifiedError(identifier) from e
 
-    return generator_cls(model=model, api_key=api_key, params=params, **init_kwargs)
+    return generator_cls(model=model, params=params, **init_kwargs)
 
 
 def register_generator(provider: str, generator_cls: type[Generator]) -> None:

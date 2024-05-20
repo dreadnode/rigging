@@ -6,7 +6,7 @@ import re
 import typing as t
 from xml.etree import ElementTree as ET
 
-from pydantic import ValidationError, field_validator
+from pydantic import ValidationError, create_model, field_validator
 from pydantic.alias_generators import to_snake
 from pydantic_xml import BaseXmlModel
 from pydantic_xml import attr as attr
@@ -88,7 +88,7 @@ class Model(BaseXmlModel):
         """
         tree = self.to_xml_tree()
         ET.indent(tree, "  ")
-        pretty_encoded_xml = ET.tostring(tree).decode()
+        pretty_encoded_xml = ET.tostring(tree, short_empty_elements=False).decode()
 
         if self.__class__.is_simple():
             return unescape_xml(pretty_encoded_xml)
@@ -257,6 +257,35 @@ class Model(BaseXmlModel):
         if fail_on_many and len(matches) > 1:
             raise ValidationError("Multiple matches found with 'fail_on_many=True'")
         return max(matches, key=lambda x: x[1].stop - x[1].start)
+
+
+#
+# Functional Constructor
+#
+
+
+class PrimitiveModel(Model, tag="primitive"):
+    content: str
+
+
+def make_primitive(
+    name: str, *, tag: str | None = None, doc: str | None = None, validator: t.Callable[[str], str | None] | None = None
+) -> type[PrimitiveModel]:
+    """ """
+
+    def _validate(value: str) -> str:
+        if validator is not None:
+            return validator(value) or value
+        return value
+
+    return create_model(
+        name,
+        __base__=PrimitiveModel,
+        __doc__=doc,
+        __cls_kwargs__={"tag": tag},
+        content=(str, ...),
+        __validators__={"content_validator": field_validator("content")(_validate)} if validator else {},  # type: ignore
+    )
 
 
 #

@@ -18,7 +18,7 @@ loguru = "^0.7.2"
 litellm = "1.35.21"
 pandas = "^2.2.2"
 
-vllm = { version = "^0.4.2", optional = true }
+vllm = { version = "0.4.2", optional = true }
 
 [tool.poetry.extras]
 all = ["vllm"]

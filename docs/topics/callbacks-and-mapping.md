@@ -1,7 +1,7 @@
 # Callbacks and Mapping
 
-Rigging is designed to give control over how the generation process works, and what occurs after. In fact, functions
-[`.using()`][rigging.chat.PendingChat.using] to [`.until_parsed_as()`][rigging.chat.PendingChat] actually
+Rigging is designed to give control over how the generation process works, and what occurs after. In fact, 
+higher level functions like [`.using()`][rigging.chat.PendingChat.using] and [`.until_parsed_as()`][rigging.chat.PendingChat]
 leverage a generic callback system underneath to guide generation. Let's walk through them.
 
 ## Until Callbacks
@@ -9,7 +9,10 @@ leverage a generic callback system underneath to guide generation. Let's walk th
 If you want to gain control over the generation process before it completes, you can use the
 [`PendingChat.until()`][rigging.chat.PendingChat.until] or [`PendingCompletion.until()`][rigging.completion.PendingCompletion.until]
 methods. These allow you to register a callback function which participates in generation and
-can decide whether generation should proceed, and exactly how it does so.
+can decide whether generation should proceed, and exactly how it does so. For chat interfaces, these
+functions also get fine control over the contents of the chat while callbacks are resolving. This
+is how we can provide feedback to an LLM model during generation like validation errors when
+parsing fails ([`attempt_recovery`][rigging.chat.PendingChat.until]).
 
 ```py
 import rigging as rg
