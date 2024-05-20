@@ -38,6 +38,8 @@ class VLLMGenerator(Generator):
     """Memory utilization passed to [`vllm.LLM`](https://docs.vllm.ai/en/latest/offline_inference/llm.html)"""
     enforce_eager: bool = False
     """Eager enforcement passed to [`vllm.LLM`](https://docs.vllm.ai/en/latest/offline_inference/llm.html)"""
+    trust_remote_code: bool = False
+    """Trust remote code passed to [`vllm.LLM`](https://docs.vllm.ai/en/latest/offline_inference/llm.html)"""
 
     _llm: vllm.LLM | None = None
 
@@ -52,6 +54,7 @@ class VLLMGenerator(Generator):
                 quantization=self.quantization,
                 gpu_memory_utilization=self.gpu_memory_utilization,
                 enforce_eager=self.enforce_eager,
+                trust_remote_code=self.trust_remote_code,
             )
         return self._llm
 
