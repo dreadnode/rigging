@@ -59,7 +59,7 @@ class VLLMGenerator(Generator):
         return self._llm
 
     @classmethod
-    def from_obj(cls, llm: vllm.LLM) -> "VLLMGenerator":
+    def from_obj(cls, model: str, llm: vllm.LLM, *, params: GenerateParams | None = None) -> "VLLMGenerator":
         """Create a generator from an existing vLLM instance.
 
         Args:
@@ -68,7 +68,7 @@ class VLLMGenerator(Generator):
         Returns:
             The VLLMGenerator instance.
         """
-        generator = cls()
+        generator = cls(model=model, params=params or GenerateParams())
         generator._llm = llm
         return generator
 

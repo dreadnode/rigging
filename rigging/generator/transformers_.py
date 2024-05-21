@@ -1,6 +1,12 @@
 import typing as t
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenizer, TextGenerationPipeline, pipeline
+from transformers import (  # type: ignore
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    PreTrainedTokenizer,
+    TextGenerationPipeline,
+    pipeline,
+)
 
 from rigging.generator.base import GenerateParams, Generator, register_generator, trace_messages, trace_str
 from rigging.message import Message
@@ -78,10 +84,12 @@ class TransformersGenerator(Generator):
     @classmethod
     def from_obj(
         cls,
-        model: AutoModelForCausalLM,
+        model: str,
+        llm: AutoModelForCausalLM,
         tokenizer: PreTrainedTokenizer,
         *,
         pipeline: TextGenerationPipeline | None = None,
+        params: GenerateParams | None = None,
     ) -> "TransformersGenerator":
         """
         Create a new instance of TransformersGenerator from an already loaded model and tokenizer.
@@ -94,7 +102,7 @@ class TransformersGenerator(Generator):
         Returns:
             The TransformersGenerator instance.
         """
-        instance = cls()
+        instance = cls(model=model, params=params or GenerateParams())
         instance._llm = model
         instance._tokenizer = tokenizer
         instance._pipeline = pipeline
@@ -155,7 +163,7 @@ class TransformersGenerator(Generator):
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[str]:
-        generated = self._generate(texts=list(texts), params=params)
+        generated = self._generate(list(texts), params=params)
 
         for i, (text, response) in enumerate(zip(texts, generated, strict=True)):
             trace_str(text, f"Text {i+1}/{len(texts)}")
