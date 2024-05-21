@@ -16,10 +16,14 @@ API key, generation params, etc. should be used. They are formatted as follows:
 
 - `provider` maps to a particular subclass of [`Generator`][rigging.generator.Generator].
 - `model` is a any `str` value, typically used by the provider to indicate a specific LLM to target.
-- `kwargs` are used to carry serialized [`GenerateParams`][rigging.generator.GenerateParams] to items like temp, stop tokens, etc.
+- `kwargs` are used to carry:
+    1. Serialized [`GenerateParams`][rigging.generator.GenerateParams] fields like like temp, stop tokens, etc.
+    2. Additional provider-specific attributes to set on the constructed generator class. For instance, you
+       can set the [`LiteLLMGenerator.max_requests`][rigging.generator.litellm_.LiteLLMGenerator] property
+       by passing `,max_requests=` in the identifier string.
 
-The provider is optional and Rigging will fallback to `litellm`/[`LiteLLMGenerator`][rigging.generator.LiteLLMGenerator] by default.
-You can view the [LiteLLM docs](https://docs.litellm.ai/docs/) for more information about supported model providers and parameters.
+The provider is optional and Rigging will fallback to [`litellm`](https://github.com/BerriAI/litellm)/[`LiteLLMGenerator`][rigging.generator.LiteLLMGenerator]
+by default. You can view the [LiteLLM docs](https://docs.litellm.ai/docs/) for more information about supported model providers and parameters.
 
 Here are some examples of valid identifiers:
 
@@ -29,6 +33,7 @@ openai/gpt-4,api_key=sk-1234
 litellm!claude-3-sonnet-2024022
 anthropic/claude-2.1,stop=output:;---,seed=1337
 together_ai/meta-llama/Llama-3-70b-chat-hf
+openai/google/gemma-7b,api_base=https://integrate.api.nvidia.com/v1
 ```
 
 Building generators from string identifiers is optional, but a convenient way to represent complex LLM configurations.
@@ -59,6 +64,42 @@ export TOGETHERAI_API_KEY=...
 export MISTRAL_API_KEY=...
 export ANTHROPIC_API_KEY=...
 ```
+
+## Local Models
+
+We have experimental support for both [`vLLM`](https://docs.vllm.ai/en/latest/) 
+and [`transformers`](https://huggingface.co/docs/transformers/index) generators for
+loading and running local models. In general vLLM is more consistent with Rigging's
+preferred API, but the dependency requirements are heavier.
+
+Where needed, you can wrap an existing model into a rigging generator by using the
+[`VLLMGenerator.from_obj()`][rigging.generator.vllm_.VLLMGenerator.from_obj] or
+[`TransformersGenerator.from_obj()`][rigging.generator.transformers_.TransformersGenerator.from_obj] methods.
+These are helpful for any picky model construction that might not play well with our rigging constructors. 
+
+!!! note "Required Packages"
+
+    The use of these generators requires the `vllm` and `transformers` packages to be installed.
+    You can use `rigging[all]` to install them all at once, or pick your preferred package individually.
+
+```py
+import rigging as rg
+
+tiny_llama = rg.get_generator(
+    "vllm!TinyLlama/TinyLlama-1.1B-Chat-v1.0," \
+    "gpu_memory_utilization=0.3," \
+    "trust_remote_code=True"
+)
+
+llama_3 = rg.get_generator(
+    "transformers!meta-llama/Meta-Llama-3-8B-Instruct"
+)
+```
+
+See more about them below:
+
+- [`vLLMGenerator`][rigging.generator.vllm_.VLLMGenerator]
+- [`TransformersGenerator`][rigging.generator.transformers_.TransformersGenerator]
 
 ## Generator interface
 
@@ -102,7 +143,6 @@ can overload and update any generation params by using the associated [`.with_()
         print(pending.with_(rg.GenerateParams(temperature=temp)).run().last.content)
     ```
 
-
 ## Writing a Generator
 
 All generators should inherit from the [`Generator`][rigging.generator.Generator] base class, and
@@ -113,8 +153,13 @@ can elect to implement a series of messages, text, and async methods:
 - [`def generate_texts(...)`][rigging.generator.Generator.generate_texts] - Used for [`PendingCompletion.run`][rigging.completion.PendingCompletion.run] variants.
 - [`async def agenerate_texts(...)`][rigging.generator.Generator.agenerate_texts] - Used for [`PendingCompletion.arun`][rigging.completion.PendingCompletion.arun] variants.
 
-*If your generator doesn't implement a particular method like async or text completions, Rigging
-will simply raise a `NotImplementedError` for you*
+!!! note "Optional Implementation"
+
+    If your generator doesn't implement a particular method like async or text completions, Rigging
+    will simply raise a `NotImplementedError` for you. It's currently undecided whether generators
+    should prefer to provide weak overloads for compatibility, or whether they should ignore methods
+    which can't be used optimally to help provide clarity to the user about capability. You'll find
+    we've opted for the former strategy in our generators.
 
 Generators operate in a batch context by default, taking in groups of message lists or texts. Whether
 your implementation takes advantage of this batching is up to you, but where possible you
@@ -141,14 +186,7 @@ class Custom(Generator):
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-        *,
-        prefix: t.Sequence[Message] | None = None, # (1)!
     ) -> t.Sequence[Message]:
-        # If you aren't using prefix for any caching,
-        # you'll frequently just concatenate it
-        if prefix is not None:
-            messages = [list(prefix) + list(messages) for messages in messages]
-        
         # merge_with is an easy way to combine overloads
         params = [
             self.params.merge_with(p).to_dict() for p in params 
@@ -157,6 +195,7 @@ class Custom(Generator):
         # Access self vars where needed
         api_key = self.api_key
         model_id = self.model
+        custom = self.custom_field
 
         # output_messages = ...
 

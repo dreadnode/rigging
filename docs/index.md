@@ -31,6 +31,11 @@ We publish every version to Pypi:
 pip install rigging
 ```
 
+If you want all the extras (vLLM), just specify the `all` extra:
+```bash
+pip install rigging[all]
+```
+
 If you want to build from source:
 ```bash
 cd rigging/
@@ -161,8 +166,10 @@ give you access to exactly what messages were passed into a model, and what came
 
 ### Conversation
 
-Both `PendingChat` and `Chat` objects provide freedom for forking off the current state of messages, or
-continuing a stream of messages after generation has occured. In general:
+Both [`PendingChat`][rigging.chat.PendingChat] and [`Chat`][rigging.chat.Chat] objects provide freedom
+for forking off the current state of messages, or continuing a stream of messages after generation has occured.
+
+In general:
 
 - [`PendingChat.fork`][rigging.chat.PendingChat.fork] will clone the current pending chat and let you maintain
   both the new and original object for continued processing.
@@ -170,7 +177,10 @@ continuing a stream of messages after generation has occured. In general:
   previous generation (useful for "going back" in time).
 - [`Chat.continue_`][rigging.chat.Chat.continue_] is similar to `fork` (actually a wrapper) which tells `fork` to
   include the generated messages as you move on (useful for "going forward" in time).
- 
+
+In other words, the abstraction of going back and forth in a "conversation" would be continuously calling
+[`Chat.continue_`][rigging.chat.Chat.continue_] after each round of generation.
+
 ```py
 import rigging as rg
 
@@ -290,25 +300,13 @@ desired output structure. If the last message content is invalid in some way, ou
 will result in an exception from rigging. Rigging is designed at it's core to manage this process, 
 and we have a few options:
 
-1. We can make the parsing optional by switching to [`.try_parse()`][rigging.message.Message.try_parse]. The type
+1. We can extend our pending chat with [`.until_parsed_as()`][rigging.chat.PendingChat] which will cause the
+   `run()` function to internally check if parsing is succeeding before returning the chat back to you.
+2. We can make the parsing optional by switching to [`.try_parse()`][rigging.message.Message.try_parse]. The type
    of the return value with automatically switch to `#!python FunFact | None` and you can handle cases
    where parsing failed.
-2. We can extend our pending chat with [`.until_parsed_as()`][rigging.chat.PendingChat] which will cause the
-   `run()` function to internally check if parsing is succeeding before returning the chat back to you.
 
-=== "Option 1 - Trying"
-
-    ```py hl_lines="5"
-    chat = rg.get_generator('gpt-3.5-turbo').chat(
-        f"Provide a fun fact between {FunFact.xml_example()} tags."
-    ).run()
-
-    fun_fact = chat.last.try_parse(FunFact) # fun_fact might now be None
-
-    print(fun_fact or "Failed to get fact")
-    ```
-
-=== "Option 2 - Until"
+=== "Option 1 - Until Parsed As"
 
     ```py hl_lines="4"
     chat = (
@@ -323,15 +321,41 @@ and we have a few options:
     print(fun_fact or "Failed to get fact")
     ```
 
-    A couple of comments regarding this structure:
+    !!! note "Double Parsing"
+    
+        We still have to call [`.parse()`][rigging.message.Message.parse] on the message despite
+        using [`.until_parsed_as()`][rigging.chat.PendingChat.until_parsed_as]. This is
+        a limitation of type hinting as we'd have to turn every `PendingChat` and `Chat` into a generic
+        which could carry types forward. It's a small price for big code complexity savings. However,
+        the use of [`.until_parsed_as()`][rigging.chat.PendingChat.until_parsed_as] **will** cause
+        the generated messages to have parsed models in their [`.parts`][rigging.message.Message.parts].
+        So if you don't need to access the typed object immediately, you can be confident serializing
+        the chat object and the model will be there when you need it.
 
-    1. We still have to call `parse` on the message despite use using `until_parsed_as`. This is
-    a limitation of type hinting as we'd have to turn every `PendingChat` and `Chat` into a generic
-    which could carry types forward. It's a small price for big code complexity savings.
-    2. Internally, the generation code inside `PendingChat` will attempt to re-generate until
-    the LLM correctly produces a parsable input, up until a maximum number of "rounds" is reached.
-    This process is configurable with the arguments to all [`until`][rigging.chat.PendingChat.until_parsed_as]
-    or [`using`][rigging.chat.PendingChat.using] functions.
+    !!! note "Max Rounds Concept"
+
+        When control is passed into a pending chat with [`.until_parsed_as()`][rigging.chat.PendingChat.until_parsed_as],
+        a callback is registered internally to operate during generation. When model output is received, the
+        callback will attempt to parse, and if it fails, it will re-trigger generation with or without context depending
+        on the [`attempt_recovery`][rigging.chat.PendingChat.until_parsed_as] parameter. This process will repeat
+        until the model produces a valid output or the maximum number of "rounds" is reached.
+
+        Often you might find yourself constantly getting [`ExhaustedMaxRoundsError`][rigging.error.ExhaustedMaxRoundsError]
+        exceptions. This is usually a sign that the LLM doesn't have enough information about the desired output, or
+        complexity in your model is too high. You can adjust the `max_rounds` as needed, or use an external callback
+        like [`.then()`][rigging.chat.PendingChat.then] to get more external control over the process.
+
+=== "Option 2 - Try Parse"
+
+    ```py hl_lines="5"
+    chat = rg.get_generator('gpt-3.5-turbo').chat(
+        f"Provide a fun fact between {FunFact.xml_example()} tags."
+    ).run()
+
+    fun_fact = chat.last.try_parse(FunFact) # fun_fact might now be None
+
+    print(fun_fact or "Failed to get fact")
+    ```
 
 ### Parsing Many Models
 

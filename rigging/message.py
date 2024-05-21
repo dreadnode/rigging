@@ -5,6 +5,7 @@ This module covers core message objects and handling.
 import copy
 import string
 import typing as t
+from textwrap import dedent
 from uuid import UUID, uuid4
 
 from pydantic import (
@@ -94,9 +95,7 @@ class Message(BaseModel):
         """The content of the message."""
         # We used to sync the models and content each time it was accessed,
         # hence the getter. Now we just return the stored content.
-        # I'll leave it as is for now in case we want to add any
-        # logic here in the future.
-        return self._content
+        return dedent(self._content)
 
     @content.setter
     def content(self, value: str) -> None:
