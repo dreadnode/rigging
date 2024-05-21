@@ -7,21 +7,23 @@ from rigging.chat import Chat
 from rigging.message import Message
 
 
-def chats_to_df(chats: list[Chat]) -> pd.DataFrame:
+def chats_to_df(chats: Chat | t.Sequence[Chat]) -> pd.DataFrame:
     """
-    Convert a list of Chat objects into a pandas DataFrame.
+    Convert a Chat or list of Chat objects into a pandas DataFrame.
 
     Note:
         The messages will be flatted and can be joined by the
         chat_id column.
 
     Args:
-        chats: A list of Chat objects.
+        chats: A Chat or list of Chat objects.
 
     Returns:
         A pandas DataFrame containing the chat data.
 
     """
+    chats = [chats] if isinstance(chats, Chat) else chats
+
     data: list[dict[t.Any, t.Any]] = []
     for chat in chats:
         generator_id = chat.generator_id

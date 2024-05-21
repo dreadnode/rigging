@@ -53,6 +53,7 @@ theme:
     - navigation.path
     - navigation.top
     - navigation.tabs
+    - navigation.tabs.sticky
 
 plugins:
   - search

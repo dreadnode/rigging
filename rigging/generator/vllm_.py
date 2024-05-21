@@ -26,8 +26,8 @@ class VLLMGenerator(Generator):
 
     Note:
         The model load into memory will occur lazily when the first generation is requested.
-        If you'd want to force this to happen earlier, you can access the
-        [`.llm`][rigging.generator.vllm_.VLLMGenerator.llm] property on this class before first use.
+        If you'd want to force this to happen earlier, you can use the
+        [`.load()`][rigging.generator.vllm_.VLLMGenerator.load] method.
     """
 
     dtype: str = "auto"
@@ -57,6 +57,25 @@ class VLLMGenerator(Generator):
                 trust_remote_code=self.trust_remote_code,
             )
         return self._llm
+
+    @classmethod
+    def from_obj(cls, llm: vllm.LLM) -> "VLLMGenerator":
+        """Create a generator from an existing vLLM instance.
+
+        Args:
+            llm: The vLLM instance to create the generator from.
+
+        Returns:
+            The VLLMGenerator instance.
+        """
+        generator = cls()
+        generator._llm = llm
+        return generator
+
+    def load(self) -> "VLLMGenerator":
+        """Force the model to load into memory."""
+        _ = self.llm
+        return self
 
     def _generate(
         self,

@@ -17,21 +17,27 @@ class TransformersGenerator(Generator):
         The use of Transformers requires the `transformers` package to be installed directly or by
         installing rigging as `rigging[all]`.
 
+    Warning:
+        The `transformers` library is expansive with many different models, tokenizers,
+        options, constructors, etc. We do our best to implement a consistent interface,
+        but there may be limitations. Where needed, use
+        [`.from_obj()`][rigging.generator.transformers_.TransformersGenerator.from_obj].
+
     Note:
         The async methods currently just call synchronous variants for compatibility.
 
     Note:
         The model load into memory will occur lazily when the first generation is requested.
-        If you'd want to force this to happen earlier, you can access the
-        [`.llm`][rigging.generator.vllm_.TransformersGenerator.llm] property on this class before first use.
+        If you'd want to force this to happen earlier, you can use the
+        [`.load()`][rigging.generator.transformers_.TransformersGenerator.load] method.
     """
 
     torch_dtype: str = "auto"
-    """Torch dtype passed to [`AutoModelForCausalLM.from_pretrained`]()"""
+    """Torch dtype passed to [`AutoModelForCausalLM.from_pretrained`](https://huggingface.co/docs/transformers/v4.41.0/en/model_doc/auto)"""
     device_map: str = "auto"
-    """Device map passed to [`AutoModelForCausalLM.from_pretrained`]()"""
+    """Device map passed to [`AutoModelForCausalLM.from_pretrained`](https://huggingface.co/docs/transformers/v4.41.0/en/model_doc/auto)"""
     trust_remote_code: bool = False
-    """Trust remote code passed to [`AutoModelForCausalLM.from_pretrained`]()"""
+    """Trust remote code passed to [`AutoModelForCausalLM.from_pretrained`](https://huggingface.co/docs/transformers/v4.41.0/en/model_doc/auto)"""
 
     _llm: AutoModelForCausalLM | None = None
     _tokenizer: AutoTokenizer | None = None
@@ -39,7 +45,7 @@ class TransformersGenerator(Generator):
 
     @property
     def llm(self) -> AutoModelForCausalLM:
-        """The underlying [`AutoModelForCausalLM`]() instance."""
+        """The underlying `AutoModelForCausalLM` instance."""
         # Lazy initialization
         if self._llm is None:
             self._llm = AutoModelForCausalLM.from_pretrained(
@@ -52,12 +58,14 @@ class TransformersGenerator(Generator):
 
     @property
     def tokenizer(self) -> PreTrainedTokenizer:
+        """The underlying `AutoTokenizer` instance."""
         if self._tokenizer is None:
             self._tokenizer = AutoTokenizer.from_pretrained(self.model)
         return self._tokenizer
 
     @property
     def pipeline(self) -> TextGenerationPipeline:
+        """The underlying `TextGenerationPipeline` instance."""
         if self._pipeline is None:
             self._pipeline = pipeline(
                 "text-generation",
@@ -66,6 +74,36 @@ class TransformersGenerator(Generator):
                 tokenizer=self.tokenizer,
             )
         return self._pipeline
+
+    @classmethod
+    def from_obj(
+        cls,
+        model: AutoModelForCausalLM,
+        tokenizer: PreTrainedTokenizer,
+        *,
+        pipeline: TextGenerationPipeline | None = None,
+    ) -> "TransformersGenerator":
+        """
+        Create a new instance of TransformersGenerator from an already loaded model and tokenizer.
+
+        Args:
+            model: The loaded model for text generation.
+            tokenizer : The tokenizer associated with the model.
+            pipeline: The text generation pipeline. Defaults to None.
+
+        Returns:
+            The TransformersGenerator instance.
+        """
+        instance = cls()
+        instance._llm = model
+        instance._tokenizer = tokenizer
+        instance._pipeline = pipeline
+        return instance
+
+    def load(self) -> "TransformersGenerator":
+        """Load the model into memory."""
+        _ = self.pipeline
+        return self
 
     def _generate(
         self,
