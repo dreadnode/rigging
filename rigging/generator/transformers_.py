@@ -1,12 +1,9 @@
+import gc
 import typing as t
 
-from transformers import (  # type: ignore
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    PreTrainedTokenizer,
-    TextGenerationPipeline,
-    pipeline,
-)
+import torch
+import transformers  # type: ignore
+from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenizer, TextGenerationPipeline
 
 from rigging.generator.base import GenerateParams, Generator, register_generator, trace_messages, trace_str
 from rigging.message import Message
@@ -35,7 +32,9 @@ class TransformersGenerator(Generator):
     Note:
         The model load into memory will occur lazily when the first generation is requested.
         If you'd want to force this to happen earlier, you can use the
-        [`.load()`][rigging.generator.transformers_.TransformersGenerator.load] method.
+        [`.load()`][rigging.generator.Generator.load] method.
+
+        To unload, call [`.unload()`][rigging.generator.Generator.unload].
     """
 
     torch_dtype: str = "auto"
@@ -76,7 +75,7 @@ class TransformersGenerator(Generator):
     def pipeline(self) -> TextGenerationPipeline:
         """The underlying `TextGenerationPipeline` instance."""
         if self._pipeline is None:
-            self._pipeline = pipeline(
+            self._pipeline = transformers.pipeline(
                 "text-generation",
                 return_full_text=False,
                 model=self.llm,
@@ -112,13 +111,20 @@ class TransformersGenerator(Generator):
         return instance
 
     def load(self) -> "TransformersGenerator":
-        """Load the model into memory."""
         _ = self.pipeline
+        return self
+
+    def unload(self) -> "TransformersGenerator":
+        del self._pipeline
+        del self._llm
+        del self._tokenizer
+        gc.collect()
+        torch.cuda.empty_cache()
         return self
 
     def _generate(
         self,
-        inputs: t.Sequence[str] | t.Sequence[Message],
+        inputs: t.Sequence[str] | t.Sequence[t.Sequence[dict[str, str]]],
         params: t.Sequence[GenerateParams],
     ) -> list[str]:
         param_set = {p.model_dump_json() for p in params}
@@ -144,8 +150,7 @@ class TransformersGenerator(Generator):
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[Message]:
         message_dicts = [[m.model_dump(include={"role", "content"}) for m in _messages] for _messages in messages]
-        texts = self.tokenizer.apply_chat_template(message_dicts, add_generation_prompt=True, tokenize=False)
-        outputs = self._generate(texts, params)
+        outputs = self._generate(message_dicts, params)
         generated = [Message(role="assistant", content=output) for output in outputs]
 
         for i, (in_messages, out_message) in enumerate(zip(messages, generated, strict=True)):
@@ -166,7 +171,7 @@ class TransformersGenerator(Generator):
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[str]:
-        generated = self._generate(list(texts), params=params)
+        generated = self._generate(texts, params)
 
         for i, (text, response) in enumerate(zip(texts, generated, strict=True)):
             trace_str(text, f"Text {i+1}/{len(texts)}")

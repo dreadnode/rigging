@@ -101,6 +101,13 @@ See more about them below:
 - [`vLLMGenerator`][rigging.generator.vllm_.VLLMGenerator]
 - [`TransformersGenerator`][rigging.generator.transformers_.TransformersGenerator]
 
+!!! tip "Loading and Unloading"
+
+    You can use the [`Generator.load`][rigging.generator.Generator.load] and
+    [`Generator.unload`][rigging.generator.Generator.unload] methods to better
+    control memory usage. Local providers typically are lazy and load the model
+    into memory only when first needed.
+
 ## Generator interface
 
 ::: rigging.generator.Generator

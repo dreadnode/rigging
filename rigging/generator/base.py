@@ -3,6 +3,7 @@ import typing as t
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing_extensions import Self
 
 from rigging.error import InvalidModelSpecifiedError
 from rigging.message import Message, MessageDict
@@ -146,6 +147,24 @@ class Generator(BaseModel):
             The identifier string.
         """
         return get_identifier(self, params)
+
+    def load(self) -> Self:
+        """
+        If supported, trigger underlying loading and preparation of the model.
+
+        Returns:
+            The generator.
+        """
+        return self
+
+    def unload(self) -> Self:
+        """
+        If supported, clean up resources used by the underlying model.
+
+        Returns:
+            The generator.
+        """
+        return self
 
     def generate_messages(
         self,

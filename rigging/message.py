@@ -84,7 +84,7 @@ class Message(BaseModel):
 
     def __init__(self, role: Role, content: str, parts: t.Sequence[ParsedMessagePart] | None = None, **kwargs: t.Any):
         super().__init__(role=role, parts=parts or [], **kwargs)
-        self._content = content
+        self._content = dedent(content)
 
     def __str__(self) -> str:
         return f"[{self.role}]: {self.content}"
@@ -95,7 +95,7 @@ class Message(BaseModel):
         """The content of the message."""
         # We used to sync the models and content each time it was accessed,
         # hence the getter. Now we just return the stored content.
-        return dedent(self._content)
+        return self._content
 
     @content.setter
     def content(self, value: str) -> None:
@@ -105,7 +105,7 @@ class Message(BaseModel):
         # so fow now I've opted to strip all parts
         # when content is changed.
         self.parts = []
-        self._content = value
+        self._content = dedent(value)
 
     # TODO: In general the add/remove/sync_part methods are
     # overly complicated. We should probably just update content,
