@@ -38,7 +38,7 @@ jobs:
         key: venv-${{ hashFiles('poetry.lock') }}
 
     - name: Install dependencies
-      run: poetry install
+      run: poetry install --all-extras
 
     - name: Linting
       run: poetry run ruff -v rigging/
