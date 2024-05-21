@@ -4,6 +4,11 @@ We try to avoid creating custom exceptions unless they are necessary.
 We use the built-in and pydantic exceptions as much as possible.
 """
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rigging.message import Message
+
 
 class ExhaustedMaxRoundsError(Exception):
     """
@@ -13,6 +18,29 @@ class ExhaustedMaxRoundsError(Exception):
     def __init__(self, max_rounds: int):
         super().__init__(f"Exhausted max rounds ({max_rounds}) while generating")
         self.max_rounds = max_rounds
+        """The number of rounds which was exceeded."""
+
+
+class MessagesExhaustedMaxRoundsError(ExhaustedMaxRoundsError):
+    """
+    Raised when the maximum number of rounds is exceeded while generating messages.
+    """
+
+    def __init__(self, max_rounds: int, messages: list["Message"]):
+        super().__init__(max_rounds)
+        self.messages = messages
+        """The messages which were being generated when the exception occured."""
+
+
+class CompletionExhaustedMaxRoundsError(ExhaustedMaxRoundsError):
+    """
+    Raised when the maximum number of rounds is exceeded while generating completions.
+    """
+
+    def __init__(self, max_rounds: int, completion: str):
+        super().__init__(max_rounds)
+        self.completion = completion
+        """The completion which was being generated when the exception occured."""
 
 
 class InvalidModelSpecifiedError(Exception):

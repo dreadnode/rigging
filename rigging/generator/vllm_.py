@@ -1,6 +1,8 @@
+import gc
 import inspect
 import typing as t
 
+import torch
 import vllm
 
 from rigging.generator.base import GenerateParams, Generator, register_generator, trace_messages, trace_str
@@ -27,7 +29,9 @@ class VLLMGenerator(Generator):
     Note:
         The model load into memory will occur lazily when the first generation is requested.
         If you'd want to force this to happen earlier, you can use the
-        [`.load()`][rigging.generator.vllm_.VLLMGenerator.load] method.
+        [`.load()`][rigging.generator.Generator.load] method.
+
+        To unload, call [`.unload()`][rigging.generator.Generator.unload].
     """
 
     dtype: str = "auto"
@@ -73,8 +77,13 @@ class VLLMGenerator(Generator):
         return generator
 
     def load(self) -> "VLLMGenerator":
-        """Force the model to load into memory."""
         _ = self.llm
+        return self
+
+    def unload(self) -> "VLLMGenerator":
+        del self._llm
+        gc.collect()
+        torch.cuda.empty_cache()
         return self
 
     def _generate(

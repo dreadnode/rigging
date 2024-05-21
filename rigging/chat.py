@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, computed_field
 
-from rigging.error import ExhaustedMaxRoundsError
+from rigging.error import MessagesExhaustedMaxRoundsError
 from rigging.generator import GenerateParams, Generator, get_generator
 from rigging.message import Message, MessageDict, Messages
 from rigging.model import Model, ModelT, SystemErrorModel, ValidationErrorModel
@@ -48,6 +48,12 @@ class Chat(BaseModel):
     """The generator associated with the chat."""
     params: t.Optional["GenerateParams"] = Field(None, exclude=True, repr=False)
     """Any additional generation params used for this chat."""
+
+    failed: bool = Field(False, exclude=True, repr=False)
+    """
+    Indicates whether conditions during generation were not met.
+    This is typically used for graceful error handling when parsing.
+    """
 
     @computed_field(repr=False)  # type: ignore[misc]
     @property
@@ -116,10 +122,10 @@ class Chat(BaseModel):
     @property
     def message_dicts(self) -> list[MessageDict]:
         """
-        Returns the chat as a minimal dictionary
+        Returns the chat as a minimal message dictionaries.
 
         Returns:
-            The chat as a list of messages with roles and content.
+            The MessageDict list
         """
         return [t.cast(MessageDict, m.model_dump(include={"role", "content"})) for m in self.all]
 
@@ -271,6 +277,18 @@ class Chat(BaseModel):
         tool_description_list = ToolDescriptionList(tools=[t.get_description() for t in tools])
         tool_system_prompt = system_tool_extension(call_format, tool_description_list.to_pretty_xml())
         self.inject_system_content(tool_system_prompt)
+
+    def to_df(self) -> t.Any:
+        """
+        Converts the chat to a Pandas DataFrame.
+
+        Returns:
+            The chat as a DataFrame.
+        """
+        # Late import for circular
+        from rigging.data import chats_to_df
+
+        return chats_to_df(self)
 
 
 # Callbacks
@@ -697,8 +715,7 @@ class PendingChat:
                 validation feedback to the model before the next round.
             drop_dialog: Whether to drop the intermediate dialog of recovery efforts
                 before returning the final chat to the caller.
-            max_rounds: The maximum number of rounds to try to parse
-                successfully.
+            max_rounds: The maximum number of rounds to try to parse successfully.
 
         Returns:
             The updated PendingChat object.
@@ -788,6 +805,7 @@ class PendingChat:
             return step_messages
 
         running_messages = step_messages if attempt_recovery else []
+        next_message: Message
 
         for _ in range(max_rounds):
             logger.trace(
@@ -797,14 +815,20 @@ class PendingChat:
             should_continue, step_messages = callback(next_message)
             logger.trace(f" |- returned {should_continue} with {len(step_messages)} new messages)")
 
-            if not should_continue:
-                return step_messages if drop_dialog else running_messages + step_messages
-
             if attempt_recovery:
                 running_messages += step_messages
 
+            if not should_continue:
+                return step_messages if drop_dialog else running_messages
+
+        # !attempt_recovery -> Return just the latest generation
+        # attempt_recovery & drop_dialog -> Return just the latest generation
+        # attempt_recovery & !drop_dialog -> Return intermediate and the latest
+
         logger.warning(f"Exhausted max rounds ({max_rounds})")
-        raise ExhaustedMaxRoundsError(max_rounds)
+        raise MessagesExhaustedMaxRoundsError(
+            max_rounds, [next_message] if not attempt_recovery and next_message else running_messages[:-1]
+        )
 
     # TODO: Much like the PendingCompletion code, it's opaque
     # exactly how multiple callbacks should be blended together
@@ -895,18 +919,22 @@ class PendingChat:
 
     # Single messages
 
-    def run(self) -> Chat:
+    def run(self, *, allow_failed: bool = False) -> Chat:
         """
         Execute the generation process to produce the final chat.
+
+        Parameters:
+            allow_failed: Ignore max rounds errors and a chat
+                potentially in a failed state.
 
         Returns:
             The generated Chat.
         """
-        return self.run_many(1)[0]
+        return self.run_many(1, include_failed=allow_failed)[0]
 
-    async def arun(self) -> Chat:
+    async def arun(self, *, allow_failed: bool = False) -> Chat:
         """async variant of the [rigging.chat.PendingChat.run][] method."""
-        return (await self.arun_many(1))[0]
+        return (await self.arun_many(1, include_failed=allow_failed))[0]
 
     __call__ = run
 
@@ -918,6 +946,7 @@ class PendingChat:
         *,
         params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
         skip_failed: bool = False,
+        include_failed: bool = False,
     ) -> list[Chat]:
         """
         Executes the generation process multiple times with the same inputs.
@@ -925,11 +954,16 @@ class PendingChat:
         Parameters:
             count: The number of times to execute the generation process.
             params: A sequence of parameters to be used for each execution.
-            skip_failed: Enable to ignore any max rounds errors and return only successful chats.
+            skip_failed: Enable to ignore max rounds errors and return only successful chats.
+            include_failed: Enable to ignore max rounds errors and return both
+                successful and failed chats.
 
         Returns:
             A list of generatated Chats.
         """
+        if skip_failed and include_failed:
+            raise ValueError("Cannot use both skip_failed and include_failed")
+
         states: list[RunState] = [RunState([], p, self._process()) for p in self._fit_params(count, params)]
         _ = [next(state.processor) for state in states]
 
@@ -951,9 +985,18 @@ class PendingChat:
                         metadata=self.metadata,
                         params=state.params,
                     )
-                except ExhaustedMaxRoundsError:
-                    if not skip_failed:
+                except MessagesExhaustedMaxRoundsError as exhausted:
+                    if not skip_failed and not include_failed:
                         raise
+                    if include_failed:
+                        state.chat = Chat(
+                            self.chat.all,
+                            exhausted.messages,
+                            generator=self.generator,
+                            metadata=self.metadata,
+                            params=state.params,
+                            failed=True,
+                        )
                     state.done = True
 
             pending_states = [s for s in pending_states if not s.done]
@@ -966,8 +1009,12 @@ class PendingChat:
         *,
         params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
         skip_failed: bool = False,
+        include_failed: bool = False,
     ) -> list[Chat]:
         """async variant of the [rigging.chat.PendingChat.run_many][] method."""
+        if skip_failed and include_failed:
+            raise ValueError("Cannot use both skip_failed and include_failed")
+
         states: list[RunState] = [RunState([], p, self._process()) for p in self._fit_params(count, params)]
         _ = [next(state.processor) for state in states]
 
@@ -989,9 +1036,18 @@ class PendingChat:
                         metadata=self.metadata,
                         params=state.params,
                     )
-                except ExhaustedMaxRoundsError:
-                    if not skip_failed:
+                except MessagesExhaustedMaxRoundsError as exhausted:
+                    if not skip_failed and not include_failed:
                         raise
+                    if include_failed:
+                        state.chat = Chat(
+                            self.chat.all,
+                            exhausted.messages,
+                            generator=self.generator,
+                            metadata=self.metadata,
+                            params=state.params,
+                            failed=True,
+                        )
                     state.done = True
 
             pending_states = [s for s in pending_states if not s.done]
@@ -1012,6 +1068,7 @@ class PendingChat:
         *,
         size: int | None = None,
         skip_failed: bool = False,
+        include_failed: bool = False,
     ) -> list[Chat]:
         """
         Executes the generation process accross multiple input messages.
@@ -1025,10 +1082,15 @@ class PendingChat:
             params: A sequence of parameters to be used for each set of messages.
             size: The max chunk size of messages to execute generation at once.
             skip_failed: Enable to ignore any max rounds errors and return only successful chats.
+            include_failed: Enable to ignore max rounds errors and return both
+                successful and failed chats.
 
         Returns:
             A list of generatated Chats.
         """
+        if skip_failed and include_failed:
+            raise ValueError("Cannot use both skip_failed and include_failed")
+
         if isinstance(many, dict) or isinstance(many, str):  # Some strange typechecking here
             many = t.cast(t.Sequence[str] | t.Sequence[MessageDict], [many])
 
@@ -1063,9 +1125,18 @@ class PendingChat:
                             metadata=self.metadata,
                             params=state.params,
                         )
-                    except ExhaustedMaxRoundsError:
-                        if not skip_failed:
+                    except MessagesExhaustedMaxRoundsError as exhausted:
+                        if not skip_failed and not include_failed:
                             raise
+                        if include_failed:
+                            state.chat = Chat(
+                                state.inputs,
+                                exhausted.messages,
+                                generator=self.generator,
+                                metadata=self.metadata,
+                                params=state.params,
+                                failed=True,
+                            )
                         state.done = True
 
             pending_states = [s for s in pending_states if not s.done]
@@ -1084,8 +1155,13 @@ class PendingChat:
         *,
         size: int | None = None,
         skip_failed: bool = False,
+        include_failed: bool = False,
     ) -> list[Chat]:
         """async variant of the [rigging.chat.PendingChat.run_batch][] method."""
+
+        if skip_failed and include_failed:
+            raise ValueError("Cannot use both skip_failed and include_failed")
+
         if isinstance(many, dict) or isinstance(many, str):  # Some strange typechecking here
             many = t.cast(t.Sequence[str] | t.Sequence[MessageDict], [many])
 
@@ -1120,9 +1196,18 @@ class PendingChat:
                             metadata=self.metadata,
                             params=state.params,
                         )
-                    except ExhaustedMaxRoundsError:
-                        if not skip_failed:
+                    except MessagesExhaustedMaxRoundsError as exhausted:
+                        if not skip_failed and not include_failed:
                             raise
+                        if include_failed:
+                            state.chat = Chat(
+                                state.inputs,
+                                exhausted.messages,
+                                generator=self.generator,
+                                metadata=self.metadata,
+                                params=state.params,
+                                failed=True,
+                            )
                         state.done = True
 
             pending_states = [s for s in pending_states if not s.done]

@@ -352,3 +352,17 @@ def test_double_parse_set() -> None:
 
     assert len(msg.content) != existing_len
     assert len(msg.parts) == 3
+
+
+def test_message_dedent() -> None:
+    content = """\
+        Tabbed content
+        Line 2
+    """
+
+    message = Message("user", content)
+    lines = message.content.split("\n")
+    assert len(lines) == 3
+    assert lines[0] == "Tabbed content"
+    assert lines[1] == "Line 2"
+    assert lines[2] == ""

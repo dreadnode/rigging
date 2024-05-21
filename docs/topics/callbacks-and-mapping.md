@@ -59,7 +59,83 @@ print(chat.last.parse(Joke))
     are only allowed to make a statement about whether generation should retry. You are not
     currently allowed to inject additional text as intermediate context while your callback
     is attempting to resolve.
-    
+
+### Allowing Failures
+
+If you want to allow the generation process to avoid raising an exception when the maximum
+rounds is exhausted, you can pass `allow_failed=True`, `include_failed=True`, or `skip_failed=True`
+to the various [run methods][rigging.chat.PendingChat.run] of a `PendingChat` or `PendingCompletion`.
+
+This breaks any guarantees about the validity of final chat objects, but you can check their status
+with the [`Chat.failed`][rigging.chat.Chat.failed] or [`Completion.failed`][rigging.completion.Completion.failed] properties.
+
+In the case of `skip_failed`, the final outputs of any run method could be anywhere from an empty list
+to a complete list of the requested batch/many.
+
+=== "Allowing Failures"
+
+    ```py hl_lines="10"
+    import rigging as rg
+
+    class ValidName(rg.Model):
+        ...
+
+    chat = (
+        rg.get_generator("gpt-3.5-turbo")
+        .chat(f"Provide a fake name between {ValidName.xml_tags()} tags.")
+        .until_parsed_as(ValidName)
+        .run(allow_failed=True)
+    )
+
+    if chat.failed:
+        print("Failed to generate a valid name.")
+    else:
+        print(chat.last.parse(ValidName))
+    ```
+
+=== "Including Failures"
+
+    ```py hl_lines="10"
+    import rigging as rg
+
+    class ValidName(rg.Model):
+        ...
+
+    chats = (
+        rg.get_generator("gpt-3.5-turbo")
+        .chat(f"Provide a fake name between {ValidName.xml_tags()} tags.")
+        .until_parsed_as(ValidName)
+        .run_many(3, include_failed=True)
+    )
+
+    for chat in chats:
+        if chat.failed:
+            print("Failed to generate a valid name.")
+        else:
+            print(chat.last.parse(ValidName))
+    ```
+
+=== "Skipping Failures"
+
+    ```py hl_lines="12"
+    import rigging as rg
+
+    class ValidName(rg.Model):
+        ...
+
+    count = 5
+
+    chats = (
+        rg.get_generator("gpt-3.5-turbo")
+        .chat(f"Provide a fake name between {ValidName.xml_tags()} tags.")
+        .until_parsed_as(ValidName)
+        .run_many(count, skip_failed=True)
+    )
+
+    successful = len(chats)
+    print(f"Generated {successful} valid names out of {count} attempts.")
+    ```
+
 ## Then Callbacks
 
 You might prefer to have your callbacks execute after generation completes, and operate on
@@ -67,6 +143,12 @@ the Chat/Completion objects from there. This is functionally very similar to [`P
 and might be preferred to expose more of the parsing internals to your code as opposed to
 the opaque nature of other callback types. Use the [`PendingChat.then()`][rigging.chat.PendingChat.then]
 to register any number of callbacks before executing [`PendingChat.run()`][rigging.chat.PendingChat.run].
+
+!!! tip "Branching Chats"
+
+    A common use case for `.then()` is to branch the conversation based on the output of the
+    of previous generations. You can continue to chain `.then()` and `.run()` calls to create
+    a set of generations that collapse back to the final call when they complete.
 
 ??? tip "Async Callbacks"
 

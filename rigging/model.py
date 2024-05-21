@@ -6,7 +6,7 @@ import re
 import typing as t
 from xml.etree import ElementTree as ET
 
-from pydantic import ValidationError, create_model, field_validator
+from pydantic import SerializationInfo, ValidationError, create_model, field_serializer, field_validator
 from pydantic.alias_generators import to_snake
 from pydantic_xml import BaseXmlModel
 from pydantic_xml import attr as attr
@@ -402,3 +402,7 @@ class YesNoAnswer(Model):
             elif v.strip().lower().startswith("no"):
                 return False
         return v
+
+    @field_serializer("boolean")
+    def serialize_bool_to_str(self, v: bool, _info: SerializationInfo) -> str:
+        return "yes" if v else "no"

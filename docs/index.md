@@ -342,8 +342,13 @@ and we have a few options:
 
         Often you might find yourself constantly getting [`ExhaustedMaxRoundsError`][rigging.error.ExhaustedMaxRoundsError]
         exceptions. This is usually a sign that the LLM doesn't have enough information about the desired output, or
-        complexity in your model is too high. You can adjust the `max_rounds` as needed, or use an external callback
-        like [`.then()`][rigging.chat.PendingChat.then] to get more external control over the process.
+        complexity in your model is too high. You have a few options for gracefull handling these situations:
+        
+        1. You can adjust the `max_rounds` as needed and try using `attempt_recovery`.
+        2. Pass `allow_failed`/`include_failed` to your [`run()`][rigging.chat.PendingChat.run] 
+            methods and check the [`.failed`][rigging.chat.Chat.failed] property after generation
+        3. Use an external callback like [`.then()`][rigging.chat.PendingChat.then] to 
+            get more external control over the process.
 
 === "Option 2 - Try Parse"
 

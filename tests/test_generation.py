@@ -8,27 +8,29 @@ from rigging.model import YesNoAnswer
 from rigging.parsing import try_parse
 
 
+class FixedGenerator(Generator):
+    text: str
+
+    def generate_messages(
+        self,
+        messages: t.Sequence[t.Sequence[Message]],
+        params: t.Sequence[GenerateParams],
+    ) -> t.Sequence[Message]:
+        return [Message(role="assistant", content=self.text) for m in messages]
+
+    def generate_texts(self, texts: t.Sequence[str], params: t.Sequence[GenerateParams]) -> t.Sequence[str]:
+        return [self.text for _ in texts]
+
+
 class EchoGenerator(Generator):
     def generate_messages(
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-        *,
-        prefix: t.Sequence[Message] | None = None,
     ) -> t.Sequence[Message]:
-        if prefix is not None:
-            messages = [list(m) + list(prefix) for m in messages]
+        return [Message(role="assistant", content=m[-1].content) for m in messages]
 
-        assert len(messages) == 1
-        return [Message(role="assistant", content=messages[-1][-1].content) for m in messages]
-
-    def generate_texts(
-        self, texts: t.Sequence[str], params: t.Sequence[GenerateParams], *, prefix: str | None = None
-    ) -> t.Sequence[str]:
-        if prefix is not None:
-            texts = [t + prefix for t in texts]
-
-        assert len(texts) == 1
+    def generate_texts(self, texts: t.Sequence[str], params: t.Sequence[GenerateParams]) -> t.Sequence[str]:
         return [texts[-1]]
 
 
@@ -40,22 +42,11 @@ class CallbackGenerator(Generator):
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-        *,
-        prefix: t.Sequence[Message] | None = None,
     ) -> t.Sequence[Message]:
-        if prefix is not None:
-            messages = [list(prefix) + list(m) for m in messages]
-
-        assert len(messages) == 1
         assert self.message_callback is not None
         return [Message(role="assistant", content=self.message_callback(self, m)) for m in messages]
 
-    def generate_texts(
-        self, texts: t.Sequence[str], params: t.Sequence[GenerateParams], *, prefix: str | None = None
-    ) -> t.Sequence[str]:
-        if prefix is not None:
-            texts = [prefix + t for t in texts]
-
+    def generate_texts(self, texts: t.Sequence[str], params: t.Sequence[GenerateParams]) -> t.Sequence[str]:
         assert len(texts) == 1
         assert self.text_callback is not None
         return [self.text_callback(self, text) for text in texts]
@@ -129,3 +120,55 @@ def test_completion_until_parsed_as_with_reset() -> None:
     generator.text_callback = invalid_cb
     completion = generator.complete("original").until_parsed_as(YesNoAnswer).run()
     assert try_parse(completion.generated, YesNoAnswer) is not None
+
+
+@pytest.mark.parametrize("attempt_recovery", [True, False])
+def test_chat_run_include_failed(attempt_recovery: bool) -> None:
+    generator = EchoGenerator(model="callback", params=GenerateParams())
+    max_rounds = 3
+
+    chat = (
+        generator.chat([{"role": "user", "content": "test"}])
+        .until_parsed_as(YesNoAnswer, attempt_recovery=attempt_recovery, max_rounds=max_rounds)
+        .run(allow_failed=True)
+    )
+
+    assert chat.failed is True
+    assert len(chat) == ((max_rounds * 2) + 2 if attempt_recovery else 2)
+    assert chat.last.role == "assistant"
+
+
+@pytest.mark.parametrize("text", ["test", "<yes-no-answer>yes</yes-no-answer>"])
+def test_chat_run_many_include_failed(text: str) -> None:
+    generator = FixedGenerator(model="callback", params=GenerateParams(), text=text)
+
+    chats = (
+        generator.chat([{"role": "user", "content": "test"}])
+        .until_parsed_as(YesNoAnswer)
+        .run_many(3, include_failed=True)
+    )
+
+    assert len(chats) == 3
+    for chat in chats:
+        assert chat.failed is (True if "<yes-no-answer>" not in text else False)
+        assert len(chat) == 2
+        assert chat.last.content == text
+
+
+def test_chat_run_batch_include_failed() -> None:
+    generator = EchoGenerator(model="callback", params=GenerateParams())
+
+    chats = (
+        generator.chat()
+        .until_parsed_as(YesNoAnswer)
+        .run_batch(
+            [[Message(role="user", content=f"test-{i}")] for i in range(3)],
+            include_failed=True,
+        )
+    )
+
+    assert len(chats) == 3
+    for i, chat in enumerate(chats):
+        assert chat.failed is True
+        assert len(chat) == 2
+        assert chat.last.content == f"test-{i}"

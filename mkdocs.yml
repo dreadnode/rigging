@@ -88,6 +88,8 @@ markdown_extensions:
   - pymdownx.details
   - pymdownx.tabbed:
       alternate_style: true
+  - toc:
+      permalink: "#"
 
 extra_css:
   - stylesheets/extra.css

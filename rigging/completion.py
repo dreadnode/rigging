@@ -12,19 +12,11 @@ from typing import runtime_checkable
 from uuid import UUID, uuid4
 
 from loguru import logger
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    computed_field,
-)
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
-from rigging.error import ExhaustedMaxRoundsError
+from rigging.error import CompletionExhaustedMaxRoundsError
 from rigging.generator import GenerateParams, Generator, get_generator
-from rigging.model import (
-    Model,
-    ModelT,
-)
+from rigging.model import Model, ModelT
 from rigging.parsing import parse_many
 
 DEFAULT_MAX_ROUNDS = 5
@@ -55,6 +47,12 @@ class Completion(BaseModel):
     """The generator associated with the completion."""
     params: t.Optional["GenerateParams"] = Field(None, exclude=True, repr=False)
     """Any additional generation params used for this completion."""
+
+    failed: bool = Field(default=False, repr=False)
+    """
+    Indicates whether conditions during generation were not met.
+    This is typically used for graceful error handling when parsing.
+    """
 
     @computed_field(repr=False)  # type: ignore[misc]
     @property
@@ -448,9 +446,7 @@ class PendingCompletion:
         Args:
             *types: The type or types of models to wait for.
             use_all_text: Whether to pass the entire text (including prompt) to the parser.
-
-            max_rounds: The maximum number of rounds to try to parse
-                successfully.
+            max_rounds: The maximum number of rounds to try to parse successfully.
 
         Returns:
             The updated PendingCompletion object.
@@ -542,22 +538,22 @@ class PendingCompletion:
 
         if should_retry:
             logger.warning(f"Exhausted lowest max rounds ({lowest_max_rounds})")
-            raise ExhaustedMaxRoundsError(lowest_max_rounds)
+            raise CompletionExhaustedMaxRoundsError(lowest_max_rounds, generated)
 
         return generated
 
-    def run(self) -> Completion:
+    def run(self, *, allow_failed: bool = False) -> Completion:
         """
         Execute the generation process to produce the final completion.
 
         Returns:
             The generated Completion.
         """
-        return self.run_many(1)[0]
+        return self.run_many(1, include_failed=allow_failed)[0]
 
-    async def arun(self) -> Completion:
+    async def arun(self, *, allow_failed: bool = False) -> Completion:
         """async variant of the [rigging.completion.PendingCompletion.run][] method."""
-        return (await self.arun_many(1))[0]
+        return (await self.arun_many(1, include_failed=allow_failed))[0]
 
     __call__ = run
 
@@ -569,6 +565,7 @@ class PendingCompletion:
         *,
         params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
         skip_failed: bool = False,
+        include_failed: bool = False,
     ) -> list[Completion]:
         """
         Executes the generation process multiple times with the same inputs.
@@ -581,6 +578,9 @@ class PendingCompletion:
         Returns:
             A list of generatated Completions.
         """
+        if skip_failed and include_failed:
+            raise ValueError("Cannot use both skip_failed and include_failed")
+
         states: list[RunState] = [RunState(self.text, p, self._process()) for p in self._fit_params(count, params)]
         _ = [next(state.processor) for state in states]
 
@@ -602,9 +602,18 @@ class PendingCompletion:
                         params=state.params,
                         metadata=self.metadata,
                     )
-                except ExhaustedMaxRoundsError:
-                    if not skip_failed:
+                except CompletionExhaustedMaxRoundsError as exhausted:
+                    if not skip_failed and not include_failed:
                         raise
+                    if include_failed:
+                        state.completion = Completion(
+                            self.text,
+                            exhausted.completion,
+                            generator=self.generator,
+                            params=state.params,
+                            metadata=self.metadata,
+                            failed=True,
+                        )
                     state.done = True
 
             pending_states = [s for s in pending_states if not s.done]
@@ -617,8 +626,12 @@ class PendingCompletion:
         *,
         params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
         skip_failed: bool = False,
+        include_failed: bool = False,
     ) -> list[Completion]:
         """async variant of the [rigging.completion.PendingCompletion.run_many][] method."""
+        if skip_failed and include_failed:
+            raise ValueError("Cannot use both skip_failed and include_failed")
+
         states: list[RunState] = [RunState(self.text, p, self._process()) for p in self._fit_params(count, params)]
         _ = [next(state.processor) for state in states]
 
@@ -640,9 +653,18 @@ class PendingCompletion:
                         params=state.params,
                         metadata=self.metadata,
                     )
-                except ExhaustedMaxRoundsError:
-                    if not skip_failed:
+                except CompletionExhaustedMaxRoundsError as exhausted:
+                    if not skip_failed and not include_failed:
                         raise
+                    if include_failed:
+                        state.completion = Completion(
+                            self.text,
+                            exhausted.completion,
+                            generator=self.generator,
+                            params=state.params,
+                            metadata=self.metadata,
+                            failed=True,
+                        )
                     state.done = True
 
             pending_states = [s for s in pending_states if not s.done]
@@ -657,6 +679,7 @@ class PendingCompletion:
         params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
         *,
         skip_failed: bool = False,
+        include_failed: bool = False,
     ) -> list[Completion]:
         """
         Executes the generation process accross multiple input messages.
@@ -673,6 +696,9 @@ class PendingCompletion:
         Returns:
             A list of generatated Completions.
         """
+        if skip_failed and include_failed:
+            raise ValueError("Cannot use both skip_failed and include_failed")
+
         params = self._fit_params(len(many), params)
         states: list[RunState] = [RunState(m, p, self._process()) for m, p in zip(many, params, strict=True)]
         _ = [next(state.processor) for state in states]
@@ -696,9 +722,18 @@ class PendingCompletion:
                         params=state.params,
                         metadata=self.metadata,
                     )
-                except ExhaustedMaxRoundsError:
-                    if not skip_failed:
+                except CompletionExhaustedMaxRoundsError as exhausted:
+                    if not skip_failed and not include_failed:
                         raise
+                    if include_failed:
+                        state.completion = Completion(
+                            self.text,
+                            exhausted.completion,
+                            generator=self.generator,
+                            params=state.params,
+                            metadata=self.metadata,
+                            failed=True,
+                        )
                     state.done = True
 
             pending_states = [s for s in pending_states if not s.done]
@@ -711,8 +746,12 @@ class PendingCompletion:
         params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
         *,
         skip_failed: bool = False,
+        include_failed: bool = False,
     ) -> list[Completion]:
         """async variant of the [rigging.completion.PendingCompletion.run_batch][] method."""
+        if skip_failed and include_failed:
+            raise ValueError("Cannot use both skip_failed and include_failed")
+
         params = self._fit_params(len(many), params)
         states: list[RunState] = [RunState(m, p, self._process()) for m, p in zip(many, params, strict=True)]
         _ = [next(state.processor) for state in states]
@@ -736,9 +775,18 @@ class PendingCompletion:
                         params=state.params,
                         metadata=self.metadata,
                     )
-                except ExhaustedMaxRoundsError:
-                    if not skip_failed:
+                except CompletionExhaustedMaxRoundsError as exhausted:
+                    if not skip_failed and not include_failed:
                         raise
+                    if include_failed:
+                        state.completion = Completion(
+                            self.text,
+                            exhausted.completion,
+                            generator=self.generator,
+                            params=state.params,
+                            metadata=self.metadata,
+                            failed=True,
+                        )
                     state.done = True
 
             pending_states = [s for s in pending_states if not s.done]
