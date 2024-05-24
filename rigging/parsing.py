@@ -2,8 +2,14 @@
 Parsing helpers for extracting rigging models from text
 """
 
+from __future__ import annotations
+
+import typing as t
+
 from rigging.error import MissingModelError
-from rigging.model import ModelT
+
+if t.TYPE_CHECKING:
+    from rigging.model import ModelT
 
 
 def parse(text: str, model_type: type[ModelT]) -> tuple[ModelT, slice]:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import gc
 import typing as t
 
@@ -92,7 +94,7 @@ class TransformersGenerator(Generator):
         *,
         pipeline: TextGenerationPipeline | None = None,
         params: GenerateParams | None = None,
-    ) -> "TransformersGenerator":
+    ) -> TransformersGenerator:
         """
         Create a new instance of TransformersGenerator from an already loaded model and tokenizer.
 
@@ -110,11 +112,11 @@ class TransformersGenerator(Generator):
         instance._pipeline = pipeline
         return instance
 
-    def load(self) -> "TransformersGenerator":
+    def load(self) -> TransformersGenerator:
         _ = self.pipeline
         return self
 
-    def unload(self) -> "TransformersGenerator":
+    def unload(self) -> TransformersGenerator:
         del self._pipeline
         del self._llm
         del self._tokenizer
@@ -153,7 +155,7 @@ class TransformersGenerator(Generator):
         outputs = self._generate(message_dicts, params)
         generated = [Message(role="assistant", content=output) for output in outputs]
 
-        for i, (in_messages, out_message) in enumerate(zip(messages, generated, strict=True)):
+        for i, (in_messages, out_message) in enumerate(zip(messages, generated)):
             trace_messages(in_messages, f"Messages {i+1}/{len(in_messages)}")
             trace_messages([out_message], f"Response {i+1}/{len(in_messages)}")
 
@@ -173,7 +175,7 @@ class TransformersGenerator(Generator):
     ) -> t.Sequence[str]:
         generated = self._generate(texts, params)
 
-        for i, (text, response) in enumerate(zip(texts, generated, strict=True)):
+        for i, (text, response) in enumerate(zip(texts, generated)):
             trace_str(text, f"Text {i+1}/{len(texts)}")
             trace_str(response, f"Generated {i+1}/{len(texts)}")
 

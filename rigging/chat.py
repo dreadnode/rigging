@@ -4,6 +4,8 @@ Chats are used pre and post generation to hold messages.
 They are the primary way to interact with the generator.
 """
 
+from __future__ import annotations
+
 import asyncio
 import typing as t
 from copy import deepcopy
@@ -44,9 +46,9 @@ class Chat(BaseModel):
     metadata: dict[str, t.Any] = Field(default_factory=dict)
     """Additional metadata for the chat."""
 
-    generator: t.Optional["Generator"] = Field(None, exclude=True, repr=False)
+    generator: t.Optional[Generator] = Field(None, exclude=True, repr=False)
     """The generator associated with the chat."""
-    params: t.Optional["GenerateParams"] = Field(None, exclude=True, repr=False)
+    params: t.Optional[GenerateParams] = Field(None, exclude=True, repr=False)
     """Any additional generation params used for this chat."""
 
     failed: bool = Field(False, exclude=True, repr=False)
@@ -67,7 +69,7 @@ class Chat(BaseModel):
         self,
         messages: Messages,
         generated: Messages | None = None,
-        generator: t.Optional["Generator"] = None,
+        generator: t.Optional[Generator] = None,
         **kwargs: t.Any,
     ):
         """
@@ -129,7 +131,7 @@ class Chat(BaseModel):
         """
         return [t.cast(MessageDict, m.model_dump(include={"role", "content"})) for m in self.all]
 
-    def meta(self, **kwargs: t.Any) -> "Chat":
+    def meta(self, **kwargs: t.Any) -> Chat:
         """
         Updates the metadata of the chat with the provided key-value pairs.
 
@@ -142,7 +144,7 @@ class Chat(BaseModel):
         self.metadata.update(kwargs)
         return self
 
-    def restart(self, *, generator: t.Optional["Generator"] = None, include_all: bool = False) -> "PendingChat":
+    def restart(self, *, generator: t.Optional[Generator] = None, include_all: bool = False) -> PendingChat:
         """
         Attempt to convert back to a PendingChat for further generation.
 
@@ -169,7 +171,7 @@ class Chat(BaseModel):
         messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | MessageDict | str,
         *,
         include_all: bool = False,
-    ) -> "PendingChat":
+    ) -> PendingChat:
         """
         Forks the chat by creating calling [rigging.chat.Chat.restart][] and appending the specified messages.
 
@@ -184,11 +186,11 @@ class Chat(BaseModel):
         """
         return self.restart(include_all=include_all).add(messages)
 
-    def continue_(self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | str) -> "PendingChat":
+    def continue_(self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | str) -> PendingChat:
         """Alias for the [rigging.chat.Chat.fork][] with `include_all=True`."""
         return self.fork(messages, include_all=True)
 
-    def clone(self, *, only_messages: bool = False) -> "Chat":
+    def clone(self, *, only_messages: bool = False) -> Chat:
         """Creates a deep copy of the chat."""
         new = Chat(
             [m.model_copy() for m in self.messages],
@@ -199,7 +201,7 @@ class Chat(BaseModel):
             new.metadata = deepcopy(self.metadata)
         return new
 
-    def apply(self, **kwargs: str) -> "Chat":
+    def apply(self, **kwargs: str) -> Chat:
         """
         Calls [rigging.message.Message.apply][] on the last message in the chat with the given keyword arguments.
 
@@ -215,7 +217,7 @@ class Chat(BaseModel):
             self.messages[-1] = self.messages[-1].apply(**kwargs)
         return self
 
-    def apply_to_all(self, **kwargs: str) -> "Chat":
+    def apply_to_all(self, **kwargs: str) -> Chat:
         """
         Calls [rigging.message.Message.apply][] on all messages in the chat with the given keyword arguments.
 
@@ -229,7 +231,7 @@ class Chat(BaseModel):
         self.generated = Message.apply_to_list(self.generated, **kwargs)
         return self
 
-    def strip(self, model_type: type[Model], fail_on_missing: bool = False) -> "Chat":
+    def strip(self, model_type: type[Model], fail_on_missing: bool = False) -> Chat:
         """
         Strips all parsed parts of a particular type from the message content.
 
@@ -341,8 +343,8 @@ class AsyncMapChatCallback(t.Protocol):
         ...
 
 
-ThenChatCallbacks = ThenChatCallback | AsyncThenChatCallback
-MapChatCallbacks = MapChatCallback | AsyncMapChatCallback
+ThenChatCallbacks = t.Union[ThenChatCallback, AsyncThenChatCallback]
+MapChatCallbacks = t.Union[MapChatCallback, AsyncMapChatCallback]
 
 # Generators
 
@@ -355,7 +357,7 @@ MessagesProducer = t.Generator[t.Sequence[t.Sequence[Message]], None, None]
 @dataclass
 class RunState:
     messages: list[Message]
-    params: "GenerateParams"
+    params: GenerateParams
     processor: t.Generator[list[Message], Message, list[Message]]
     chat: Chat | None = None
     done: bool = False
@@ -365,7 +367,7 @@ class RunState:
 class BatchRunState:
     inputs: list[Message]
     messages: list[Message]
-    params: "GenerateParams"
+    params: GenerateParams
     processor: t.Generator[list[Message], Message, list[Message]]
     chat: Chat | None = None
     done: bool = False
@@ -373,7 +375,7 @@ class BatchRunState:
 
 @dataclass
 class BatchRunPool:
-    generator: "Generator"
+    generator: Generator
     finished_states: list[BatchRunState]
     pending_states: list[BatchRunState]
 
@@ -383,10 +385,8 @@ class PendingChat:
     Represents a pending chat that can be modified and executed.
     """
 
-    def __init__(
-        self, generator: "Generator", messages: t.Sequence[Message], params: t.Optional["GenerateParams"] = None
-    ):
-        self.generator: "Generator" = generator
+    def __init__(self, generator: Generator, messages: t.Sequence[Message], params: t.Optional[GenerateParams] = None):
+        self.generator: Generator = generator
         """The generator object responsible for generating the chat."""
         self.chat: Chat = Chat(messages, pending=self)
         """The chat object representing the conversation."""
@@ -408,7 +408,7 @@ class PendingChat:
     def __len__(self) -> int:
         return len(self.chat)
 
-    def with_(self, params: t.Optional["GenerateParams"] = None, **kwargs: t.Any) -> "PendingChat":
+    def with_(self, params: t.Optional[GenerateParams] = None, **kwargs: t.Any) -> PendingChat:
         """
         Assign specific generation parameter overloads for this chat.
 
@@ -433,9 +433,7 @@ class PendingChat:
         self.params = params
         return self
 
-    def add(
-        self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
-    ) -> "PendingChat":
+    def add(self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str) -> PendingChat:
         """
         Appends new message(s) to the internal chat before generation.
 
@@ -460,7 +458,7 @@ class PendingChat:
 
     def fork(
         self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
-    ) -> "PendingChat":
+    ) -> PendingChat:
         """
         Creates a new instance of `PendingChat` by forking the current chat and adding the specified messages.
 
@@ -474,7 +472,7 @@ class PendingChat:
         """
         return self.clone().add(messages)
 
-    def clone(self, *, only_messages: bool = False) -> "PendingChat":
+    def clone(self, *, only_messages: bool = False) -> PendingChat:
         """
         Creates a clone of the current `PendingChat` instance.
 
@@ -497,7 +495,7 @@ class PendingChat:
             new.metadata = deepcopy(self.metadata)
         return new
 
-    def meta(self, **kwargs: t.Any) -> "PendingChat":
+    def meta(self, **kwargs: t.Any) -> PendingChat:
         """
         Updates the metadata of the chat with the provided key-value pairs.
 
@@ -510,7 +508,7 @@ class PendingChat:
         self.metadata.update(kwargs)
         return self
 
-    def then(self, callback: ThenChatCallback | AsyncThenChatCallback) -> "PendingChat":
+    def then(self, callback: ThenChatCallback | AsyncThenChatCallback) -> PendingChat:
         """
         Registers a callback to be executed after the generation process completes.
 
@@ -539,7 +537,7 @@ class PendingChat:
         self.then_chat_callbacks.append(callback)
         return self
 
-    def map(self, callback: MapChatCallback | AsyncMapChatCallback) -> "PendingChat":
+    def map(self, callback: MapChatCallback | AsyncMapChatCallback) -> PendingChat:
         """
         Registers a callback to be executed after the generation process completes.
 
@@ -585,7 +583,7 @@ class PendingChat:
     #     self.producer = producer
     #     return self
 
-    def apply(self, **kwargs: str) -> "PendingChat":
+    def apply(self, **kwargs: str) -> PendingChat:
         """
         Clones this pending chat and calls [rigging.chat.Chat.apply][] with the given keyword arguments.
 
@@ -599,7 +597,7 @@ class PendingChat:
         new.chat.apply(**kwargs)
         return new
 
-    def apply_to_all(self, **kwargs: str) -> "PendingChat":
+    def apply_to_all(self, **kwargs: str) -> PendingChat:
         """
         Clones this pending chat and calls [rigging.chat.Chat.apply_to_all][] with the given keyword arguments.
 
@@ -620,7 +618,7 @@ class PendingChat:
         attempt_recovery: bool = True,
         drop_dialog: bool = True,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
-    ) -> "PendingChat":
+    ) -> PendingChat:
         """
         Registers a callback to participate in validating the generation process.
 
@@ -665,7 +663,7 @@ class PendingChat:
         drop_dialog: bool = False,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
         inject_prompt: bool | None = None,
-    ) -> "PendingChat":
+    ) -> PendingChat:
         """
         Adds a tool or a sequence of tools to participate in the generation process.
 
@@ -704,7 +702,7 @@ class PendingChat:
         attempt_recovery: bool = False,
         drop_dialog: bool = True,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
-    ) -> "PendingChat":
+    ) -> PendingChat:
         """
         Adds the specified types to the list of types which should successfully parse
         before the generation process completes.
@@ -732,7 +730,7 @@ class PendingChat:
         try:
             tool_calls = message.try_parse(ToolCalls)
         except ValidationError as e:
-            generated.append(Message.from_model(ValidationErrorModel(content=e)))
+            generated.append(Message.from_model(ValidationErrorModel(content=str(e))))
             return (True, generated)
 
         if tool_calls is None:
@@ -778,7 +776,7 @@ class PendingChat:
             should_continue = True
             generated.append(
                 Message.from_model(
-                    ValidationErrorModel(content=e),
+                    ValidationErrorModel(content=str(e)),
                     suffix="Rewrite your entire message with all the required elements.",
                 )
             )
@@ -786,7 +784,8 @@ class PendingChat:
             should_continue = True
             generated.append(
                 Message.from_model(
-                    SystemErrorModel(content=e), suffix="Rewrite your entire message with all the required elements."
+                    SystemErrorModel(content=str(e)),
+                    suffix="Rewrite your entire message with all the required elements.",
                 )
             )
 
@@ -893,8 +892,8 @@ class PendingChat:
             # self.params.stop = [ToolCalls.xml_end_tag()]
 
     def _fit_params(
-        self, count: int, params: t.Sequence[t.Optional["GenerateParams"] | None] | None = None
-    ) -> list["GenerateParams"]:
+        self, count: int, params: t.Sequence[t.Optional[GenerateParams] | None] | None = None
+    ) -> list[GenerateParams]:
         params = [None] * count if params is None else list(params)
         if len(params) != count:
             raise ValueError(f"The number of params must be {count}")
@@ -944,7 +943,7 @@ class PendingChat:
         self,
         count: int,
         *,
-        params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
+        params: t.Sequence[t.Optional[GenerateParams]] | None = None,
         skip_failed: bool = False,
         include_failed: bool = False,
     ) -> list[Chat]:
@@ -973,7 +972,7 @@ class PendingChat:
                 [self.chat.all + s.messages for s in pending_states], [s.params for s in pending_states]
             )
 
-            for inbound, state in zip(inbounds, pending_states, strict=True):
+            for inbound, state in zip(inbounds, pending_states):
                 try:
                     state.messages = state.processor.send(inbound)
                 except StopIteration as stop:
@@ -1007,7 +1006,7 @@ class PendingChat:
         self,
         count: int,
         *,
-        params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
+        params: t.Sequence[t.Optional[GenerateParams]] | None = None,
         skip_failed: bool = False,
         include_failed: bool = False,
     ) -> list[Chat]:
@@ -1024,7 +1023,7 @@ class PendingChat:
                 [self.chat.all + s.messages for s in pending_states], [s.params for s in pending_states]
             )
 
-            for inbound, state in zip(inbounds, pending_states, strict=True):
+            for inbound, state in zip(inbounds, pending_states):
                 try:
                     state.messages = state.processor.send(inbound)
                 except StopIteration as stop:
@@ -1064,7 +1063,7 @@ class PendingChat:
         | t.Sequence[str]
         | MessageDict
         | str,
-        params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
+        params: t.Sequence[t.Optional[GenerateParams]] | None = None,
         *,
         size: int | None = None,
         skip_failed: bool = False,
@@ -1092,14 +1091,14 @@ class PendingChat:
             raise ValueError("Cannot use both skip_failed and include_failed")
 
         if isinstance(many, dict) or isinstance(many, str):  # Some strange typechecking here
-            many = t.cast(t.Sequence[str] | t.Sequence[MessageDict], [many])
+            many = t.cast(t.Union[t.Sequence[str], t.Sequence[MessageDict]], [many])
 
         count = max(len(many), len(params) if params is not None else 0)
         many = self._fit_many(count, many)
         params = self._fit_params(count, params)
 
         states: list[BatchRunState] = [
-            BatchRunState(self.chat.all + m, [], p, self._process()) for m, p in zip(many, params, strict=True)
+            BatchRunState(self.chat.all + m, [], p, self._process()) for m, p in zip(many, params)
         ]
         _ = [next(state.processor) for state in states]
 
@@ -1113,7 +1112,7 @@ class PendingChat:
                     [s.params for s in chunk],
                 )
 
-                for inbound, state in zip(inbounds, chunk, strict=True):
+                for inbound, state in zip(inbounds, chunk):
                     try:
                         state.messages = state.processor.send(inbound)
                     except StopIteration as stop:
@@ -1151,7 +1150,7 @@ class PendingChat:
         | t.Sequence[str]
         | MessageDict
         | str,
-        params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
+        params: t.Sequence[t.Optional[GenerateParams]] | None = None,
         *,
         size: int | None = None,
         skip_failed: bool = False,
@@ -1163,14 +1162,14 @@ class PendingChat:
             raise ValueError("Cannot use both skip_failed and include_failed")
 
         if isinstance(many, dict) or isinstance(many, str):  # Some strange typechecking here
-            many = t.cast(t.Sequence[str] | t.Sequence[MessageDict], [many])
+            many = t.cast(t.Union[t.Sequence[str], t.Sequence[MessageDict]], [many])
 
         count = max(len(many), len(params) if params is not None else 0)
         many = self._fit_many(count, many)
         params = self._fit_params(count, params)
 
         states: list[BatchRunState] = [
-            BatchRunState(self.chat.all + m, [], p, self._process()) for m, p in zip(many, params, strict=True)
+            BatchRunState(self.chat.all + m, [], p, self._process()) for m, p in zip(many, params)
         ]
         _ = [next(state.processor) for state in states]
 
@@ -1184,7 +1183,7 @@ class PendingChat:
                     [s.params for s in chunk],
                 )
 
-                for inbound, state in zip(inbounds, chunk, strict=True):
+                for inbound, state in zip(inbounds, chunk):
                     try:
                         state.messages = state.processor.send(inbound)
                     except StopIteration as stop:

@@ -2,6 +2,8 @@
 This module defines handles tool interaction with rigging generation.
 """
 
+from __future__ import annotations
+
 import inspect
 import typing as t
 
@@ -10,7 +12,7 @@ from pydantic_xml import attr, element, wrapped
 
 from rigging.model import Model
 
-SUPPORTED_TOOL_ARGUMENT_TYPES = int | float | str | bool
+SUPPORTED_TOOL_ARGUMENT_TYPES = t.Union[int, float, str, bool]
 """Supported types for tool arguments."""
 
 SUPPORTED_TOOL_ARGUMENT_TYPES_LIST = [int, float, str, bool]
@@ -40,7 +42,7 @@ class ToolCallParameter(Model):
         return self.attr_value or self.text_value or ""
 
     @model_validator(mode="after")
-    def validate_value(self) -> "ToolCallParameter":
+    def validate_value(self) -> ToolCallParameter:
         if self.value is None:
             raise ValueError("Missing parameter value")
         return self
@@ -74,12 +76,12 @@ class ToolCalls(Model, tag="tool_calls"):
                 ToolCall(
                     tool="$TOOL_A",
                     function="$FUNCTION_A",
-                    parameters=[ToolCallParameter(name="$PARAMETER_NAME", value="$PARAMETER_VALUE")],
+                    parameters=[ToolCallParameter(name="$PARAMETER_NAME", text_value="$PARAMETER_VALUE")],
                 ),
                 ToolCall(
                     tool="$TOOL_B",
                     function="$FUNCTION_B",
-                    parameters=[ToolCallParameter(name="$PARAMETER_NAME", value="$PARAMETER_VALUE")],
+                    parameters=[ToolCallParameter(name="$PARAMETER_NAME", text_value="$PARAMETER_VALUE")],
                 ),
             ]
         ).to_pretty_xml()

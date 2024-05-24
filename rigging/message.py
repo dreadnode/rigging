@@ -2,6 +2,8 @@
 This module covers core message objects and handling.
 """
 
+from __future__ import annotations
+
 import copy
 import string
 import typing as t
@@ -20,8 +22,10 @@ from pydantic import (
 )
 
 from rigging.error import MissingModelError
-from rigging.model import Model, ModelT
 from rigging.parsing import try_parse_many
+
+if t.TYPE_CHECKING:
+    from rigging.model import Model, ModelT
 
 Role = t.Literal["system", "user", "assistant"]
 """The role of a message. Can be 'system', 'user', or 'assistant'."""
@@ -166,11 +170,11 @@ class Message(BaseModel):
 
         self.parts = sorted(self.parts, key=lambda p: p.slice_.start)
 
-    def clone(self) -> "Message":
+    def clone(self) -> Message:
         """Creates a copy of the message."""
         return Message(self.role, self.content, parts=copy.deepcopy(self.parts))
 
-    def apply(self, **kwargs: str) -> "Message":
+    def apply(self, **kwargs: str) -> Message:
         """
         Applies the given keyword arguments with string templating to the content of the message.
 
@@ -324,8 +328,8 @@ class Message(BaseModel):
 
     @classmethod
     def from_model(
-        cls: type["Message"], models: Model | t.Sequence[Model], role: Role = "user", suffix: str | None = None
-    ) -> "Message":
+        cls: type[Message], models: Model | t.Sequence[Model], role: Role = "user", suffix: str | None = None
+    ) -> Message:
         """
         Create a Message object from one or more Model objects.
 
@@ -352,24 +356,24 @@ class Message(BaseModel):
 
     @classmethod
     def fit_as_list(
-        cls, messages: t.Sequence[MessageDict] | t.Sequence["Message"] | MessageDict | "Message" | str
-    ) -> list["Message"]:
+        cls, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
+    ) -> list[Message]:
         """Helper function to convert various common types to a strict list of Message objects."""
-        if isinstance(messages, Message | dict | str):
+        if isinstance(messages, (Message, dict, str)):
             return [cls.fit(messages)]
         return [cls.fit(message) for message in messages]
 
     @classmethod
-    def fit(cls, message: t.Union["Message", MessageDict, str]) -> "Message":
+    def fit(cls, message: t.Union[Message, MessageDict, str]) -> Message:
         """Helper function to convert various common types to a Message object."""
         if isinstance(message, str):
             return cls(role="user", content=message)
         return cls(**message) if isinstance(message, dict) else message
 
     @classmethod
-    def apply_to_list(cls, messages: t.Sequence["Message"], **kwargs: str) -> list["Message"]:
+    def apply_to_list(cls, messages: t.Sequence[Message], **kwargs: str) -> list[Message]:
         """Helper function to apply keyword arguments to a list of Message objects."""
         return [message.apply(**kwargs) for message in messages]
 
 
-Messages = t.Sequence[MessageDict] | t.Sequence[Message]
+Messages = t.Union[t.Sequence[MessageDict], t.Sequence[Message]]

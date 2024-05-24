@@ -4,9 +4,9 @@ We try to avoid creating custom exceptions unless they are necessary.
 We use the built-in and pydantic exceptions as much as possible.
 """
 
-from typing import TYPE_CHECKING
+import typing as t
 
-if TYPE_CHECKING:
+if t.TYPE_CHECKING:
     from rigging.message import Message
 
 
