@@ -370,7 +370,7 @@ def get_identifier(generator: Generator, params: GenerateParams | None = None) -
     return identifier
 
 
-def get_generator(identifier: str) -> Generator:
+def get_generator(identifier: str, *, params: GenerateParams | None = None) -> Generator:
     """
     Get a generator by an identifier string. Uses LiteLLM by default.
 
@@ -394,6 +394,8 @@ def get_generator(identifier: str) -> Generator:
 
     Args:
         identifier: The identifier string to use to get a generator.
+        params: The generation parameters to use for the generator.
+            These will override any parameters specified in the identifier string.
 
     Returns:
         The generator object.
@@ -404,7 +406,6 @@ def get_generator(identifier: str) -> Generator:
 
     provider: str = list(g_providers.keys())[0]
     model: str = identifier
-    params: GenerateParams = GenerateParams()
 
     # Split provider, model, and kwargs
 
@@ -449,11 +450,11 @@ def get_generator(identifier: str) -> Generator:
             init_kwargs[k] = v.lower() == "true"
 
     try:
-        params = GenerateParams(**kwargs)
+        merged_params = GenerateParams(**kwargs).merge_with(params)
     except Exception as e:
         raise InvalidModelSpecifiedError(identifier) from e
 
-    return generator_cls(model=model, params=params, **init_kwargs)
+    return generator_cls(model=model, params=merged_params, **init_kwargs)
 
 
 def register_generator(provider: str, generator_cls: type[Generator]) -> None:
