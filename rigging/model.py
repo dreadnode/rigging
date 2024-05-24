@@ -2,6 +2,8 @@
 Models are the core datatypes for structured parsing.
 """
 
+from __future__ import annotations
+
 import re
 import typing as t
 from xml.etree import ElementTree as ET
@@ -12,10 +14,12 @@ from pydantic_xml import BaseXmlModel
 from pydantic_xml import attr as attr
 from pydantic_xml import element as element
 from pydantic_xml import wrapped as wrapped
-from pydantic_xml.element import SearchMode  # type: ignore [attr-defined]
 from pydantic_xml.typedefs import EntityLocation, NsMap
 
 from rigging.error import MissingModelError
+
+if t.TYPE_CHECKING:
+    from pydantic_xml.element import SearchMode  # type: ignore [attr-defined]
 
 #
 # Core XML serializable models for messages

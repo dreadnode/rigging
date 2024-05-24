@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import typing as t
 
@@ -91,7 +93,7 @@ class LiteLLMGenerator(Generator):
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[Message]:
         generated: list[Message] = []
-        for i, (_messages, _params) in enumerate(zip(messages, params, strict=True)):
+        for i, (_messages, _params) in enumerate(zip(messages, params)):
             trace_messages(_messages, f"Messages {i+1}/{len(messages)}")
             next_message = self._generate_message(_messages, _params)
             generated.append(next_message)
@@ -112,12 +114,12 @@ class LiteLLMGenerator(Generator):
             chunk_generated = await asyncio.gather(
                 *[
                     self._agenerate_message(_messages, _params)
-                    for _messages, _params in zip(chunk_messages, chunk_params, strict=True)
+                    for _messages, _params in zip(chunk_messages, chunk_params)
                 ]
             )
             generated.extend(chunk_generated)
 
-            for j, (_messages, _generated) in enumerate(zip(chunk_messages, chunk_generated, strict=True)):
+            for j, (_messages, _generated) in enumerate(zip(chunk_messages, chunk_generated)):
                 trace_messages(_messages, f"Messages {i+j+1}/{len(messages)}")
                 trace_messages([_generated], f"Response {i+j+1}/{len(messages)}")
 
@@ -129,7 +131,7 @@ class LiteLLMGenerator(Generator):
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[str]:
         generated: list[str] = []
-        for i, (text, _params) in enumerate(zip(texts, params, strict=True)):
+        for i, (text, _params) in enumerate(zip(texts, params)):
             trace_str(text, f"Text {i+1}/{len(texts)}")
             response = self._generate_text(text, _params)
             generated.append(response)
@@ -148,11 +150,11 @@ class LiteLLMGenerator(Generator):
             chunk_texts = texts[i : i + max_requests]
             chunk_params = params[i : i + max_requests]
             chunk_generated = await asyncio.gather(
-                *[self._agenerate_text(text, _params) for text, _params in zip(chunk_texts, chunk_params, strict=True)]
+                *[self._agenerate_text(text, _params) for text, _params in zip(chunk_texts, chunk_params)]
             )
             generated.extend(chunk_generated)
 
-            for i, (text, response) in enumerate(zip(chunk_texts, chunk_generated, strict=True)):
+            for i, (text, response) in enumerate(zip(chunk_texts, chunk_generated)):
                 trace_str(text, f"Text {i+1}/{len(texts)}")
                 trace_str(response, f"Generated {i+1}/{len(texts)}")
 

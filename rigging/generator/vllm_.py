@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import gc
 import inspect
 import typing as t
@@ -63,7 +65,7 @@ class VLLMGenerator(Generator):
         return self._llm
 
     @classmethod
-    def from_obj(cls, model: str, llm: vllm.LLM, *, params: GenerateParams | None = None) -> "VLLMGenerator":
+    def from_obj(cls, model: str, llm: vllm.LLM, *, params: GenerateParams | None = None) -> VLLMGenerator:
         """Create a generator from an existing vLLM instance.
 
         Args:
@@ -76,11 +78,11 @@ class VLLMGenerator(Generator):
         generator._llm = llm
         return generator
 
-    def load(self) -> "VLLMGenerator":
+    def load(self) -> VLLMGenerator:
         _ = self.llm
         return self
 
-    def unload(self) -> "VLLMGenerator":
+    def unload(self) -> VLLMGenerator:
         del self._llm
         gc.collect()
         torch.cuda.empty_cache()
@@ -127,7 +129,7 @@ class VLLMGenerator(Generator):
         outputs = self._generate(texts, params=params)
         generated = [Message(role="assistant", content=output) for output in outputs]
 
-        for i, (in_messages, out_message) in enumerate(zip(messages, generated, strict=True)):
+        for i, (in_messages, out_message) in enumerate(zip(messages, generated)):
             trace_messages(in_messages, f"Messages {i+1}/{len(in_messages)}")
             trace_messages([out_message], f"Response {i+1}/{len(in_messages)}")
 
@@ -147,7 +149,7 @@ class VLLMGenerator(Generator):
     ) -> t.Sequence[str]:
         generated = self._generate(list(texts), params=params)
 
-        for i, (text, response) in enumerate(zip(texts, generated, strict=True)):
+        for i, (text, response) in enumerate(zip(texts, generated)):
             trace_str(text, f"Text {i+1}/{len(texts)}")
             trace_str(response, f"Generated {i+1}/{len(texts)}")
 

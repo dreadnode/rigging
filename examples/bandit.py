@@ -40,7 +40,7 @@ def get_bandit_level_description(level: int) -> str:
     return re.sub("<.*?>", "", goal)
 
 
-async def connect_ssh(level: int, password: str) -> asyncssh.SSHClientConnection | None:
+async def connect_ssh(level: int, password: str) -> t.Optional[asyncssh.SSHClientConnection]:
     username = f"bandit{level}"
 
     try:
@@ -193,7 +193,7 @@ class SubmitPassword(Action):
         return f"Success! You are now on level {next_level}."
 
 
-Actions = UpdateGoal | SaveMemory | RecallMemory | DeleteMemory | PinToTop | TryCommand | SubmitPassword
+Actions = t.Union[UpdateGoal, SaveMemory, RecallMemory, DeleteMemory, PinToTop, TryCommand, SubmitPassword]
 ActionsList: list[type[Actions]] = [
     UpdateGoal,
     SaveMemory,
@@ -213,10 +213,10 @@ class State:
     base_chat: rg.PendingChat
 
     # Progress
-    result: str | None = ""
+    result: t.Optional[str] = ""
 
     # CTF
-    client: asyncssh.SSHClientConnection | None = None
+    client: t.Optional[asyncssh.SSHClientConnection] = None
     level: int = 1
     level_details: str = ""
 
@@ -348,7 +348,7 @@ Output a new action from the list above in your response. Prior action results a
 
 
 async def agent_loop(state: State) -> State:
-    async def parse_actions(chat: rg.Chat) -> rg.Chat | None:
+    async def parse_actions(chat: rg.Chat) -> t.Optional[rg.Chat]:
         parsed: list[Actions] = []
         for action_cls in ActionsList:
             action = chat.last.try_parse(action_cls)

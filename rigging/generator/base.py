@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import inspect
 import typing as t
 
@@ -13,7 +15,7 @@ if t.TYPE_CHECKING:
     from rigging.completion import PendingCompletion
 
 # Global provider map
-g_providers: dict[str, type["Generator"]] = {}
+g_providers: dict[str, type[Generator]] = {}
 
 
 # TODO: Ideally we flex this to support arbitrary
@@ -77,7 +79,7 @@ class GenerateParams(BaseModel):
             return value
         raise ValueError("Stop sequences must be a list or a string separated by ';'")
 
-    def merge_with(self, *others: t.Optional["GenerateParams"]) -> "GenerateParams":
+    def merge_with(self, *others: t.Optional[GenerateParams]) -> GenerateParams:
         """
         Apply a series of parameter overrides to the current instance and return a copy.
 
@@ -240,7 +242,7 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[MessageDict],
         params: GenerateParams | None = None,
-    ) -> "PendingChat":
+    ) -> PendingChat:
         ...
 
     @t.overload
@@ -248,14 +250,14 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[Message] | MessageDict | Message | str | None = None,
         params: GenerateParams | None = None,
-    ) -> "PendingChat":
+    ) -> PendingChat:
         ...
 
     def chat(
         self,
         messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str | None = None,
         params: GenerateParams | None = None,
-    ) -> "PendingChat":
+    ) -> PendingChat:
         """
         Build a pending chat with the given messages and optional params overloads.
 
@@ -272,7 +274,7 @@ class Generator(BaseModel):
 
     # Helper alternative to complete(generator) -> generator.complete(...)
 
-    def complete(self, text: str, params: GenerateParams | None = None) -> "PendingCompletion":
+    def complete(self, text: str, params: GenerateParams | None = None) -> PendingCompletion:
         """
         Build a pending string completion of the given text with optional param overloads.
 
@@ -290,27 +292,27 @@ class Generator(BaseModel):
 
 @t.overload
 def chat(
-    generator: "Generator",
+    generator: Generator,
     messages: t.Sequence[MessageDict],
     params: GenerateParams | None = None,
-) -> "PendingChat":
+) -> PendingChat:
     ...
 
 
 @t.overload
 def chat(
-    generator: "Generator",
+    generator: Generator,
     messages: t.Sequence[Message] | MessageDict | Message | str | None = None,
     params: GenerateParams | None = None,
-) -> "PendingChat":
+) -> PendingChat:
     ...
 
 
 def chat(
-    generator: "Generator",
+    generator: Generator,
     messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str | None = None,
     params: GenerateParams | None = None,
-) -> "PendingChat":
+) -> PendingChat:
     """
     Creates a pending chat using the given generator, messages, and params.
 
@@ -330,7 +332,7 @@ def complete(
     generator: Generator,
     text: str,
     params: GenerateParams | None = None,
-) -> "PendingCompletion":
+) -> PendingCompletion:
     return generator.complete(text, params)
 
 
@@ -370,7 +372,7 @@ def get_identifier(generator: Generator, params: GenerateParams | None = None) -
     return identifier
 
 
-def get_generator(identifier: str) -> Generator:
+def get_generator(identifier: str, *, params: GenerateParams | None = None) -> Generator:
     """
     Get a generator by an identifier string. Uses LiteLLM by default.
 
@@ -394,6 +396,8 @@ def get_generator(identifier: str) -> Generator:
 
     Args:
         identifier: The identifier string to use to get a generator.
+        params: The generation parameters to use for the generator.
+            These will override any parameters specified in the identifier string.
 
     Returns:
         The generator object.
@@ -404,7 +408,6 @@ def get_generator(identifier: str) -> Generator:
 
     provider: str = list(g_providers.keys())[0]
     model: str = identifier
-    params: GenerateParams = GenerateParams()
 
     # Split provider, model, and kwargs
 
@@ -449,11 +452,11 @@ def get_generator(identifier: str) -> Generator:
             init_kwargs[k] = v.lower() == "true"
 
     try:
-        params = GenerateParams(**kwargs)
+        merged_params = GenerateParams(**kwargs).merge_with(params)
     except Exception as e:
         raise InvalidModelSpecifiedError(identifier) from e
 
-    return generator_cls(model=model, params=params, **init_kwargs)
+    return generator_cls(model=model, params=merged_params, **init_kwargs)
 
 
 def register_generator(provider: str, generator_cls: type[Generator]) -> None:

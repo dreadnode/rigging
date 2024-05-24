@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import typing as t
 
 import pytest
@@ -35,8 +37,8 @@ class EchoGenerator(Generator):
 
 
 class CallbackGenerator(Generator):
-    message_callback: t.Callable[["CallbackGenerator", t.Sequence[Message]], str] | None = None
-    text_callback: t.Callable[["CallbackGenerator", str], str] | None = None
+    message_callback: t.Callable[[CallbackGenerator, t.Sequence[Message]], str] | None = None
+    text_callback: t.Callable[[CallbackGenerator, str], str] | None = None
 
     def generate_messages(
         self,

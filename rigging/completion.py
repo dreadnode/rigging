@@ -2,6 +2,8 @@
 Completions work with isolated strings of text pre and post generation.
 """
 
+from __future__ import annotations
+
 import asyncio
 import string
 import typing as t
@@ -16,8 +18,10 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from rigging.error import CompletionExhaustedMaxRoundsError
 from rigging.generator import GenerateParams, Generator, get_generator
-from rigging.model import Model, ModelT
 from rigging.parsing import parse_many
+
+if t.TYPE_CHECKING:
+    from rigging.model import Model, ModelT
 
 DEFAULT_MAX_ROUNDS = 5
 
@@ -43,9 +47,9 @@ class Completion(BaseModel):
     metadata: dict[str, t.Any] = Field(default_factory=dict)
     """Additional metadata for the completion."""
 
-    generator: t.Optional["Generator"] = Field(None, exclude=True, repr=False)
+    generator: t.Optional[Generator] = Field(None, exclude=True, repr=False)
     """The generator associated with the completion."""
-    params: t.Optional["GenerateParams"] = Field(None, exclude=True, repr=False)
+    params: t.Optional[GenerateParams] = Field(None, exclude=True, repr=False)
     """Any additional generation params used for this completion."""
 
     failed: bool = Field(default=False, repr=False)
@@ -66,7 +70,7 @@ class Completion(BaseModel):
         self,
         text: str,
         generated: str,
-        generator: t.Optional["Generator"] = None,
+        generator: t.Optional[Generator] = None,
         **kwargs: t.Any,
     ):
         """
@@ -97,7 +101,7 @@ class Completion(BaseModel):
         """Returns both the text and the generation."""
         return self.text + self.generated
 
-    def restart(self, *, generator: t.Optional["Generator"] = None, include_all: bool = False) -> "PendingCompletion":
+    def restart(self, *, generator: t.Optional[Generator] = None, include_all: bool = False) -> PendingCompletion:
         """
         Attempt to convert back to a PendingCompletion for further generation.
 
@@ -120,7 +124,7 @@ class Completion(BaseModel):
             raise ValueError("Cannot restart a completion without an associated generator")
         return generator.complete(text, self.params)
 
-    def fork(self, text: str, *, include_all: bool = False) -> "PendingCompletion":
+    def fork(self, text: str, *, include_all: bool = False) -> PendingCompletion:
         """
         Forks the completion by creating calling [rigging.completion.Completion.restart][] and appends the specified text.
 
@@ -132,18 +136,18 @@ class Completion(BaseModel):
         """
         return self.restart(include_all=include_all).add(text)
 
-    def continue_(self, text: str) -> "PendingCompletion":
+    def continue_(self, text: str) -> PendingCompletion:
         """Alias for the [rigging.completion.Completion.fork][] with `include_all=True`."""
         return self.fork(text, include_all=True)
 
-    def clone(self, *, only_messages: bool = False) -> "Completion":
+    def clone(self, *, only_messages: bool = False) -> Completion:
         """Creates a deep copy of the completion."""
         new = Completion(self.text, self.generated, self.generator)
         if not only_messages:
             new.metadata = deepcopy(self.metadata)
         return new
 
-    def meta(self, **kwargs: t.Any) -> "Completion":
+    def meta(self, **kwargs: t.Any) -> Completion:
         """
         Updates the metadata of the completion with the provided key-value pairs.
 
@@ -207,14 +211,14 @@ class AsyncMapCompletionCallback(t.Protocol):
         ...
 
 
-ThenCompletionCallbacks = ThenCompletionCallback | AsyncThenCompletionCallback
-MapCompletionCallbacks = MapCompletionCallback | AsyncMapCompletionCallback
+ThenCompletionCallbacks = t.Union[ThenCompletionCallback, AsyncThenCompletionCallback]
+MapCompletionCallbacks = t.Union[MapCompletionCallback, AsyncMapCompletionCallback]
 
 
 @dataclass
 class RunState:
     text: str
-    params: "GenerateParams"
+    params: GenerateParams
     processor: t.Generator[None, str, str]
     completion: Completion | None = None
     done: bool = False
@@ -225,8 +229,8 @@ class PendingCompletion:
     Represents a pending completion that can be modified and executed.
     """
 
-    def __init__(self, generator: "Generator", text: str, params: t.Optional["GenerateParams"] = None):
-        self.generator: "Generator" = generator
+    def __init__(self, generator: Generator, text: str, params: t.Optional[GenerateParams] = None):
+        self.generator: Generator = generator
         """The generator object responsible for generating the completion."""
         self.text = text
         """The text to be completed."""
@@ -244,7 +248,7 @@ class PendingCompletion:
     def __len__(self) -> int:
         return len(self.text)
 
-    def with_(self, params: t.Optional["GenerateParams"] = None, **kwargs: t.Any) -> "PendingCompletion":
+    def with_(self, params: t.Optional[GenerateParams] = None, **kwargs: t.Any) -> PendingCompletion:
         """
         Assign specific generation parameter overloads for this completion.
 
@@ -269,7 +273,7 @@ class PendingCompletion:
         self.params = params
         return self
 
-    def then(self, callback: ThenCompletionCallback) -> "PendingCompletion":
+    def then(self, callback: ThenCompletionCallback) -> PendingCompletion:
         """
         Registers a callback to be executed after the generation process completes.
 
@@ -293,7 +297,7 @@ class PendingCompletion:
         self.then_callbacks.append(callback)
         return self
 
-    def map(self, callback: MapCompletionCallback | AsyncMapCompletionCallback) -> "PendingCompletion":
+    def map(self, callback: MapCompletionCallback | AsyncMapCompletionCallback) -> PendingCompletion:
         """
         Registers a callback to be executed after the generation process completes.
 
@@ -321,7 +325,7 @@ class PendingCompletion:
         self.map_callbacks.append(callback)
         return self
 
-    def add(self, text: str) -> "PendingCompletion":
+    def add(self, text: str) -> PendingCompletion:
         """
         Appends new text to the internal text before generation.
 
@@ -334,7 +338,7 @@ class PendingCompletion:
         self.text += text
         return self
 
-    def fork(self, text: str) -> "PendingCompletion":
+    def fork(self, text: str) -> PendingCompletion:
         """
         Creates a new instance of `PendingCompletion` by forking the current completion and adding the specified text.
 
@@ -348,7 +352,7 @@ class PendingCompletion:
         """
         return self.clone().add(text)
 
-    def clone(self, *, only_text: bool = False) -> "PendingCompletion":
+    def clone(self, *, only_text: bool = False) -> PendingCompletion:
         """
         Creates a clone of the current `PendingCompletion` instance.
 
@@ -367,7 +371,7 @@ class PendingCompletion:
             new.metadata = deepcopy(self.metadata)
         return new
 
-    def meta(self, **kwargs: t.Any) -> "PendingCompletion":
+    def meta(self, **kwargs: t.Any) -> PendingCompletion:
         """
         Updates the metadata of the completion with the provided key-value pairs.
 
@@ -380,7 +384,7 @@ class PendingCompletion:
         self.metadata.update(kwargs)
         return self
 
-    def apply(self, **kwargs: str) -> "PendingCompletion":
+    def apply(self, **kwargs: str) -> PendingCompletion:
         """
         Applies keyword arguments to the text using string template substitution.
 
@@ -404,7 +408,7 @@ class PendingCompletion:
         *,
         use_all_text: bool = False,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
-    ) -> "PendingCompletion":
+    ) -> PendingCompletion:
         """
         Registers a callback to participate in validating the generation process.
 
@@ -438,7 +442,7 @@ class PendingCompletion:
         *types: type[ModelT],
         use_all_text: bool = False,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
-    ) -> "PendingCompletion":
+    ) -> PendingCompletion:
         """
         Adds the specified types to the list of types which should successfully parse
         before the generation process completes.
@@ -501,8 +505,8 @@ class PendingCompletion:
         return completions
 
     def _fit_params(
-        self, count: int, params: t.Sequence[t.Optional["GenerateParams"] | None] | None = None
-    ) -> list["GenerateParams"]:
+        self, count: int, params: t.Sequence[t.Optional[GenerateParams] | None] | None = None
+    ) -> list[GenerateParams]:
         params = [None] * count if params is None else list(params)
         if len(params) != count:
             raise ValueError(f"The number of params must be {count}")
@@ -563,7 +567,7 @@ class PendingCompletion:
         self,
         count: int,
         *,
-        params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
+        params: t.Sequence[t.Optional[GenerateParams]] | None = None,
         skip_failed: bool = False,
         include_failed: bool = False,
     ) -> list[Completion]:
@@ -590,7 +594,7 @@ class PendingCompletion:
                 [s.text for s in pending_states], [s.params for s in pending_states]
             )
 
-            for inbound, state in zip(inbounds, pending_states, strict=True):
+            for inbound, state in zip(inbounds, pending_states):
                 try:
                     state.processor.send(inbound)
                 except StopIteration as stop:
@@ -624,7 +628,7 @@ class PendingCompletion:
         self,
         count: int,
         *,
-        params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
+        params: t.Sequence[t.Optional[GenerateParams]] | None = None,
         skip_failed: bool = False,
         include_failed: bool = False,
     ) -> list[Completion]:
@@ -641,7 +645,7 @@ class PendingCompletion:
                 [s.text for s in pending_states], [s.params for s in pending_states]
             )
 
-            for inbound, state in zip(inbounds, pending_states, strict=True):
+            for inbound, state in zip(inbounds, pending_states):
                 try:
                     state.processor.send(inbound)
                 except StopIteration as stop:
@@ -676,7 +680,7 @@ class PendingCompletion:
     def run_batch(
         self,
         many: t.Sequence[str],
-        params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
+        params: t.Sequence[t.Optional[GenerateParams]] | None = None,
         *,
         skip_failed: bool = False,
         include_failed: bool = False,
@@ -700,7 +704,7 @@ class PendingCompletion:
             raise ValueError("Cannot use both skip_failed and include_failed")
 
         params = self._fit_params(len(many), params)
-        states: list[RunState] = [RunState(m, p, self._process()) for m, p in zip(many, params, strict=True)]
+        states: list[RunState] = [RunState(m, p, self._process()) for m, p in zip(many, params)]
         _ = [next(state.processor) for state in states]
 
         pending_states = states
@@ -710,7 +714,7 @@ class PendingCompletion:
                 [s.params for s in pending_states],
             )
 
-            for inbound, state in zip(inbounds, pending_states, strict=True):
+            for inbound, state in zip(inbounds, pending_states):
                 try:
                     state.processor.send(inbound)
                 except StopIteration as stop:
@@ -743,7 +747,7 @@ class PendingCompletion:
     async def arun_batch(
         self,
         many: t.Sequence[str],
-        params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
+        params: t.Sequence[t.Optional[GenerateParams]] | None = None,
         *,
         skip_failed: bool = False,
         include_failed: bool = False,
@@ -753,7 +757,7 @@ class PendingCompletion:
             raise ValueError("Cannot use both skip_failed and include_failed")
 
         params = self._fit_params(len(many), params)
-        states: list[RunState] = [RunState(m, p, self._process()) for m, p in zip(many, params, strict=True)]
+        states: list[RunState] = [RunState(m, p, self._process()) for m, p in zip(many, params)]
         _ = [next(state.processor) for state in states]
 
         pending_states = states
@@ -763,7 +767,7 @@ class PendingCompletion:
                 [s.params for s in pending_states],
             )
 
-            for inbound, state in zip(inbounds, pending_states, strict=True):
+            for inbound, state in zip(inbounds, pending_states):
                 try:
                     state.processor.send(inbound)
                 except StopIteration as stop:

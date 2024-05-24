@@ -169,17 +169,17 @@ class ResetSession(Action):
         return "Session reset."
 
 
-Actions = (
-    UpdateGoal
-    | SaveMemory
-    | RecallMemory
-    | PinToTop
-    | RecallMemory
-    | DeleteMemory
-    | Request
-    | SetHeaderOnSession
-    | ResetSession
-)
+Actions = t.Union[
+    UpdateGoal,
+    SaveMemory,
+    RecallMemory,
+    PinToTop,
+    RecallMemory,
+    DeleteMemory,
+    Request,
+    SetHeaderOnSession,
+    ResetSession,
+]
 ActionsList: list[type[Action]] = [
     UpdateGoal,
     SaveMemory,
@@ -369,7 +369,7 @@ async def agent_loop(
     state: State,
     max_iterations: int,
 ) -> None:
-    async def parse_actions(chat: rg.Chat) -> rg.Chat | None:
+    async def parse_actions(chat: rg.Chat) -> t.Optional[rg.Chat]:
         parsed: list[Actions] = []
         for action_cls in ActionsList:
             action = chat.last.try_parse(action_cls)
@@ -451,7 +451,7 @@ def cli(
     first_goal: str,
     generator_id: str,
     base_url: str,
-    proxy: str | None,
+    proxy: t.Optional[str],
     max_iterations: int,
     max_actions: int,
     log_level: logging.LogLevelLiteral,

@@ -1,3 +1,6 @@
+# Testing code
+notebooks/
+
 # Custom parquet storage
 *.parquet
 

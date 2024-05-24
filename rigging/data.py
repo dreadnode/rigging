@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import typing as t
 
@@ -28,11 +30,12 @@ def chats_to_df(chats: Chat | t.Sequence[Chat]) -> pd.DataFrame:
     for chat in chats:
         generator_id = chat.generator_id
         metadata = json.dumps(chat.metadata)
+
         generated = False
         for messages in [chat.messages, chat.generated]:
             for message in messages:
-                message_dict = message.model_dump()
-                message_dict["message_id"] = message_dict.pop("uuid")
+                message_dict = message.model_dump(exclude={"uuid"})
+                message_parts_json = json.dumps(message_dict.pop("parts"))
                 data.append(
                     {
                         "chat_id": chat.uuid,
@@ -40,7 +43,9 @@ def chats_to_df(chats: Chat | t.Sequence[Chat]) -> pd.DataFrame:
                         "chat_generator_id": generator_id,
                         "chat_timestamp": chat.timestamp,
                         "generated": generated,
+                        "message_id": str(message.uuid),
                         **message_dict,
+                        "parts": message_parts_json,
                     }
                 )
             generated = True
@@ -89,8 +94,11 @@ def df_to_chats(df: pd.DataFrame) -> list[Chat]:
             message = Message(
                 role=message_data["role"],
                 content=message_data["content"],
-                parts=json.loads(message_data["parts"]),
                 **{"uuid": message_data["message_id"]},
+                # TODO: I don't believe this is safe to deserialize
+                # here as we aren't bonded to the underlying rg.Model
+                # which was the original object. Skipping for now.
+                # parts=json.loads(message_data["parts"]),
             )
             if message_data["generated"]:
                 generated.append(message)
