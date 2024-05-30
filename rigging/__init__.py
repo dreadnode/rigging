@@ -1,7 +1,16 @@
 from rigging.chat import Chat, PendingChat
 from rigging.completion import Completion, PendingCompletion
 from rigging.data import chats_to_df, df_to_chats
-from rigging.generator import GenerateParams, Generator, chat, complete, get_generator, register_generator
+from rigging.generator import (
+    GeneratedMessage,
+    GeneratedText,
+    GenerateParams,
+    Generator,
+    chat,
+    complete,
+    get_generator,
+    register_generator,
+)
 from rigging.message import Message, MessageDict, Messages
 from rigging.model import Model, attr, element, make_primitive, wrapped
 from rigging.tool import Tool
@@ -22,6 +31,8 @@ __all__ = [
     "PendingChat",
     "Generator",
     "GenerateParams",
+    "GeneratedMessage",
+    "GeneratedText",
     "chat",
     "complete",
     "Completion",

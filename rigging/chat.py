@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, computed_fie
 
 from rigging.error import MessagesExhaustedMaxRoundsError
 from rigging.generator import GenerateParams, Generator, get_generator
+from rigging.generator.base import StopReason, Usage  # noqa: TCH001
 from rigging.message import Message, MessageDict, Messages
 from rigging.model import Model, ModelT, SystemErrorModel, ValidationErrorModel
 from rigging.prompt import system_tool_extension
@@ -45,6 +46,13 @@ class Chat(BaseModel):
     """The list of messages resulting from the generation."""
     metadata: dict[str, t.Any] = Field(default_factory=dict)
     """Additional metadata for the chat."""
+
+    stop_reason: StopReason = Field(default="unknown")
+    """The reason the generation stopped."""
+    usage: t.Optional[Usage] = Field(None, repr=False)
+    """The usage statistics for the generation if available."""
+    extra: dict[str, t.Any] = Field(default_factory=dict, repr=False)
+    """Any additional information from the generation."""
 
     generator: t.Optional[Generator] = Field(None, exclude=True, repr=False)
     """The generator associated with the chat."""
@@ -974,7 +982,7 @@ class PendingChat:
 
             for inbound, state in zip(inbounds, pending_states):
                 try:
-                    state.messages = state.processor.send(inbound)
+                    state.messages = state.processor.send(inbound.message)
                 except StopIteration as stop:
                     state.done = True
                     state.chat = Chat(
@@ -983,6 +991,9 @@ class PendingChat:
                         generator=self.generator,
                         metadata=self.metadata,
                         params=state.params,
+                        stop_reason=inbound.stop_reason,
+                        usage=inbound.usage,
+                        extra=inbound.extra,
                     )
                 except MessagesExhaustedMaxRoundsError as exhausted:
                     if not skip_failed and not include_failed:
@@ -994,6 +1005,9 @@ class PendingChat:
                             generator=self.generator,
                             metadata=self.metadata,
                             params=state.params,
+                            stop_reason=inbound.stop_reason,
+                            usage=inbound.usage,
+                            extra=inbound.extra,
                             failed=True,
                         )
                     state.done = True
@@ -1025,7 +1039,7 @@ class PendingChat:
 
             for inbound, state in zip(inbounds, pending_states):
                 try:
-                    state.messages = state.processor.send(inbound)
+                    state.messages = state.processor.send(inbound.message)
                 except StopIteration as stop:
                     state.done = True
                     state.chat = Chat(
@@ -1034,6 +1048,9 @@ class PendingChat:
                         generator=self.generator,
                         metadata=self.metadata,
                         params=state.params,
+                        stop_reason=inbound.stop_reason,
+                        usage=inbound.usage,
+                        extra=inbound.extra,
                     )
                 except MessagesExhaustedMaxRoundsError as exhausted:
                     if not skip_failed and not include_failed:
@@ -1045,6 +1062,9 @@ class PendingChat:
                             generator=self.generator,
                             metadata=self.metadata,
                             params=state.params,
+                            stop_reason=inbound.stop_reason,
+                            usage=inbound.usage,
+                            extra=inbound.extra,
                             failed=True,
                         )
                     state.done = True
@@ -1114,7 +1134,7 @@ class PendingChat:
 
                 for inbound, state in zip(inbounds, chunk):
                     try:
-                        state.messages = state.processor.send(inbound)
+                        state.messages = state.processor.send(inbound.message)
                     except StopIteration as stop:
                         state.done = True
                         state.chat = Chat(
@@ -1123,6 +1143,9 @@ class PendingChat:
                             generator=self.generator,
                             metadata=self.metadata,
                             params=state.params,
+                            stop_reason=inbound.stop_reason,
+                            usage=inbound.usage,
+                            extra=inbound.extra,
                         )
                     except MessagesExhaustedMaxRoundsError as exhausted:
                         if not skip_failed and not include_failed:
@@ -1134,6 +1157,9 @@ class PendingChat:
                                 generator=self.generator,
                                 metadata=self.metadata,
                                 params=state.params,
+                                stop_reason=inbound.stop_reason,
+                                usage=inbound.usage,
+                                extra=inbound.extra,
                                 failed=True,
                             )
                         state.done = True
@@ -1185,7 +1211,7 @@ class PendingChat:
 
                 for inbound, state in zip(inbounds, chunk):
                     try:
-                        state.messages = state.processor.send(inbound)
+                        state.messages = state.processor.send(inbound.message)
                     except StopIteration as stop:
                         state.done = True
                         state.chat = Chat(
@@ -1194,6 +1220,9 @@ class PendingChat:
                             generator=self.generator,
                             metadata=self.metadata,
                             params=state.params,
+                            stop_reason=inbound.stop_reason,
+                            usage=inbound.usage,
+                            extra=inbound.extra,
                         )
                     except MessagesExhaustedMaxRoundsError as exhausted:
                         if not skip_failed and not include_failed:
@@ -1205,6 +1234,9 @@ class PendingChat:
                                 generator=self.generator,
                                 metadata=self.metadata,
                                 params=state.params,
+                                stop_reason=inbound.stop_reason,
+                                usage=inbound.usage,
+                                extra=inbound.extra,
                                 failed=True,
                             )
                         state.done = True

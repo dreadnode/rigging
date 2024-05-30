@@ -169,3 +169,40 @@ print(chat.metadata)
 #   'user': 'Will'
 # }
 ```
+
+## Generation Context and Additional Data
+
+Chats maintain some additional data to understand more about the generation process:
+
+- [`Chat.stop_reason`][rigging.chat.Chat.stop_reason]
+- [`Chat.usage`][rigging.chat.Chat.usage]
+- [`Chat.extra`][rigging.chat.Chat.extra]
+
+It's the responsibility of the generator to populate these fields, and their content
+will vary dependent on the underlying implementation. For instance, the `transformers` generator
+doesn't provide any usage information and the `vllm` generator will add metrics information
+to the `extra` field.
+
+We intentionally keep these fields as generic as possible to allow for future expansion. You'll
+often find deep information about the generation process in the [`Chat.extra`][rigging.chat.Chat.extra] field.
+
+```py
+import rigging as rg
+
+pending = (
+    rg.get_generator("gpt-4")
+    .chat("What is the 4th form of water?")
+)
+
+chat = pending.with_(stop=["water"]).run()
+
+print(chat.last.content) # "The fourth form of"
+print(chat.stop_reason)  # stop
+print(chat.usage)        # input_tokens=17 output_tokens=5 total_tokens=22
+print(chat.extra)        # {'response_id': 'chatcmpl-9UgcwYrdaVrqUXoNrMGvgxGQqS04V'}
+
+chat = pending.with_(stop=[], max_tokens=10).run()
+
+print(chat.last.content) # "The fourth form of water is often referred to as"
+print(chat.stop_reason)  # length
+```

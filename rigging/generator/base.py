@@ -4,7 +4,7 @@ import inspect
 import typing as t
 
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 from typing_extensions import Self
 
 from rigging.error import InvalidModelSpecifiedError
@@ -115,6 +115,88 @@ class GenerateParams(BaseModel):
         return params
 
 
+StopReason = t.Literal["stop", "length", "content_filter", "unknown"]
+"""Reporting reason for generation completing."""
+
+
+def convert_stop_reason(reason: t.Optional[str]) -> StopReason:
+    if reason in ["stop", "eos"]:
+        return "stop"
+    elif reason in ["model_length"]:
+        return "length"
+    elif reason in ["length"]:
+        return "length"
+    elif reason in ["content_filter"]:
+        return "content_filter"
+    return "unknown"
+
+
+class Usage(BaseModel):
+    input_tokens: int
+    """The number of input tokens."""
+    output_tokens: int
+    """The number of output tokens."""
+    total_tokens: int
+    """The total number of tokens processed."""
+
+
+GeneratedT = t.TypeVar("GeneratedT", Message, str)
+
+
+class GeneratedMessage(BaseModel):
+    """A generated message with additional generation information."""
+
+    message: Message
+    """The generated message."""
+
+    stop_reason: t.Annotated[StopReason, BeforeValidator(convert_stop_reason)] = "unknown"
+    """The reason for stopping generation."""
+
+    usage: t.Optional[Usage] = None
+    """The usage statistics for the generation if available."""
+
+    extra: dict[str, t.Any] = Field(default_factory=dict)
+    """Any additional information from the generation."""
+
+    def __str__(self) -> str:
+        return str(self.message)
+
+    @classmethod
+    def from_text(cls, text: str, stop_reason: StopReason = "unknown") -> GeneratedMessage:
+        return cls(message=Message(role="assistant", content=text), stop_reason=stop_reason)
+
+
+class GeneratedText(BaseModel):
+    """A generated text with additional generation information."""
+
+    text: str
+    """The generated text."""
+
+    stop_reason: t.Annotated[StopReason, BeforeValidator(convert_stop_reason)] = "unknown"
+    """The reason for stopping generation."""
+
+    usage: t.Optional[Usage] = None
+    """The usage statistics for the generation if available."""
+
+    extra: dict[str, t.Any] = Field(default_factory=dict)
+    """Any additional information from the generation."""
+
+    def __str__(self) -> str:
+        return self.text
+
+    @classmethod
+    def from_text(cls, text: str, stop_reason: StopReason = "unknown") -> GeneratedText:
+        return cls(text=text, stop_reason=stop_reason)
+
+    def to_generated_message(self) -> GeneratedMessage:
+        return GeneratedMessage(
+            message=Message(role="assistant", content=self.text),
+            stop_reason=self.stop_reason,
+            usage=self.usage,
+            extra=self.extra,
+        )
+
+
 class Generator(BaseModel):
     """
     Base class for all rigging generators.
@@ -172,7 +254,7 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[Message]:
+    ) -> t.Sequence[GeneratedMessage]:
         """
         Generate a batch of messages using the specified parameters.
 
@@ -195,7 +277,7 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[Message]:
+    ) -> t.Sequence[GeneratedMessage]:
         """async version of [rigging.generator.Generator.generate_messages][]"""
         raise NotImplementedError("`agenerate_messages` is not supported by this generator.")
 
@@ -203,7 +285,7 @@ class Generator(BaseModel):
         self,
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[str]:
+    ) -> t.Sequence[GeneratedText]:
         """
         Generate a batch of text completions using the generator.
 
@@ -229,7 +311,7 @@ class Generator(BaseModel):
         self,
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[str]:
+    ) -> t.Sequence[GeneratedText]:
         """async version of [rigging.generator.Generator.generate_texts][]"""
         raise NotImplementedError("`agenerate_texts` is not supported by this generator.")
 
@@ -473,7 +555,7 @@ def register_generator(provider: str, generator_cls: type[Generator]) -> None:
     g_providers[provider] = generator_cls
 
 
-def trace_messages(messages: t.Sequence[Message], title: str) -> None:
+def trace_messages(messages: t.Sequence[Message] | t.Sequence[GeneratedMessage], title: str) -> None:
     """
     Helper function to trace log a sequence of Message objects.
 
@@ -489,7 +571,7 @@ def trace_messages(messages: t.Sequence[Message], title: str) -> None:
     logger.trace("---")
 
 
-def trace_str(content: str, title: str) -> None:
+def trace_str(content: str | GeneratedText, title: str) -> None:
     """
     Helper function to trace log a string.
 
@@ -501,5 +583,5 @@ def trace_str(content: str, title: str) -> None:
         None
     """
     logger.trace(f"--- {title} ---")
-    logger.trace(content)
+    logger.trace(str(content))
     logger.trace("---")

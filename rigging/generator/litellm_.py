@@ -5,7 +5,15 @@ import typing as t
 
 import litellm  # type: ignore
 
-from rigging.generator.base import GenerateParams, Generator, register_generator, trace_messages, trace_str
+from rigging.generator.base import (
+    GeneratedMessage,
+    GeneratedText,
+    GenerateParams,
+    Generator,
+    register_generator,
+    trace_messages,
+    trace_str,
+)
 from rigging.message import Message
 
 # We should probably let people configure
@@ -55,44 +63,68 @@ class LiteLLMGenerator(Generator):
     # This seems like a brittle feature at the moment, so we'll
     # leave it out for now.
 
-    def _generate_message(self, messages: t.Sequence[Message], params: GenerateParams) -> Message:
-        result = litellm.completion(
-            self.model,
-            [message.model_dump(include={"role", "content"}) for message in messages],
-            api_key=self.api_key,
-            **self.params.merge_with(params).to_dict(),
+    def _parse_model_response(self, response: litellm.utils.ModelResponse) -> GeneratedMessage:
+        choice = response.choices[-1]
+        usage = response.usage.model_dump()
+        usage["input_tokens"] = usage.pop("prompt_tokens")
+        usage["output_tokens"] = usage.pop("completion_tokens")
+        return GeneratedMessage(
+            message=Message(role="assistant", content=choice.message.content),
+            stop_reason=choice.finish_reason,
+            usage=usage,
+            extra={"response_id": response.id},
         )
-        response = result.choices[-1].message.content.strip()
-        return Message(role="assistant", content=response)
 
-    async def _agenerate_message(self, messages: t.Sequence[Message], params: GenerateParams) -> Message:
-        result = await litellm.acompletion(
-            self.model,
-            [message.model_dump(include={"role", "content"}) for message in messages],
-            api_key=self.api_key,
-            **self.params.merge_with(params).to_dict(),
+    def _parse_text_completion_response(self, response: litellm.utils.TextCompletionResponse) -> GeneratedText:
+        choice = response.choices[-1]
+        usage = response.usage.model_dump()
+        usage["input_tokens"] = usage.pop("prompt_tokens")
+        usage["output_tokens"] = usage.pop("completion_tokens")
+        return GeneratedText(
+            text=choice["text"],
+            stop_reason=choice.finish_reason,
+            usage=usage,
+            extra={"response_id": response.id},
         )
-        response = result.choices[-1].message.content.strip()
-        return Message(role="assistant", content=response)
 
-    def _generate_text(self, text: str, params: GenerateParams) -> str:
-        result = litellm.text_completion(
-            text, self.model, api_key=self.api_key, **self.params.merge_with(params).to_dict()
+    def _generate_message(self, messages: t.Sequence[Message], params: GenerateParams) -> GeneratedMessage:
+        return self._parse_model_response(
+            litellm.completion(
+                self.model,
+                [message.model_dump(include={"role", "content"}) for message in messages],
+                api_key=self.api_key,
+                **self.params.merge_with(params).to_dict(),
+            )
         )
-        return t.cast(str, result.choices[-1]["text"])
 
-    async def _agenerate_text(self, text: str, params: GenerateParams) -> str:
-        result = await litellm.atext_completion(
-            text, self.model, api_key=self.api_key, **self.params.merge_with(params).to_dict()
+    async def _agenerate_message(self, messages: t.Sequence[Message], params: GenerateParams) -> GeneratedMessage:
+        return self._parse_model_response(
+            await litellm.acompletion(
+                self.model,
+                [message.model_dump(include={"role", "content"}) for message in messages],
+                api_key=self.api_key,
+                **self.params.merge_with(params).to_dict(),
+            )
         )
-        return t.cast(str, result.choices[-1]["text"])
+
+    def _generate_text(self, text: str, params: GenerateParams) -> GeneratedText:
+        return self._parse_text_completion_response(
+            litellm.text_completion(text, self.model, api_key=self.api_key, **self.params.merge_with(params).to_dict()),
+        )
+
+    async def _agenerate_text(self, text: str, params: GenerateParams) -> GeneratedText:
+        return self._parse_text_completion_response(
+            await litellm.atext_completion(
+                text, self.model, api_key=self.api_key, **self.params.merge_with(params).to_dict()
+            )
+        )
 
     def generate_messages(
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[Message]:
-        generated: list[Message] = []
+    ) -> t.Sequence[GeneratedMessage]:
+        generated: list[GeneratedMessage] = []
         for i, (_messages, _params) in enumerate(zip(messages, params)):
             trace_messages(_messages, f"Messages {i+1}/{len(messages)}")
             next_message = self._generate_message(_messages, _params)
@@ -105,8 +137,8 @@ class LiteLLMGenerator(Generator):
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[Message]:
-        generated: list[Message] = []
+    ) -> t.Sequence[GeneratedMessage]:
+        generated: list[GeneratedMessage] = []
         max_requests = self.max_requests or len(messages)
         for i in range(0, len(messages), max_requests):
             chunk_messages = messages[i : i + max_requests]
@@ -129,8 +161,8 @@ class LiteLLMGenerator(Generator):
         self,
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[str]:
-        generated: list[str] = []
+    ) -> t.Sequence[GeneratedText]:
+        generated: list[GeneratedText] = []
         for i, (text, _params) in enumerate(zip(texts, params)):
             trace_str(text, f"Text {i+1}/{len(texts)}")
             response = self._generate_text(text, _params)
@@ -143,8 +175,8 @@ class LiteLLMGenerator(Generator):
         self,
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[str]:
-        generated: list[str] = []
+    ) -> t.Sequence[GeneratedText]:
+        generated: list[GeneratedText] = []
         max_requests = self.max_requests or len(texts)
         for i in range(0, len(texts), max_requests or len(texts)):
             chunk_texts = texts[i : i + max_requests]
