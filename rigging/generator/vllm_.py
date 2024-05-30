@@ -7,8 +7,18 @@ import typing as t
 import torch
 import vllm
 
-from rigging.generator.base import GenerateParams, Generator, register_generator, trace_messages, trace_str
-from rigging.message import Message
+from rigging.generator.base import (
+    GeneratedMessage,
+    GeneratedText,
+    GenerateParams,
+    Generator,
+    register_generator,
+    trace_messages,
+    trace_str,
+)
+
+if t.TYPE_CHECKING:
+    from rigging.message import Message
 
 # Any batch over this size will trigger a dedicated
 # cache warmup step
@@ -92,7 +102,7 @@ class VLLMGenerator(Generator):
         self,
         texts: list[str],
         params: t.Sequence[GenerateParams],
-    ) -> list[str]:
+    ) -> list[GeneratedText]:
         sampling_params_args = list(inspect.signature(vllm.SamplingParams.__init__).parameters.keys())
         sampling_params = (
             [
@@ -117,17 +127,28 @@ class VLLMGenerator(Generator):
             sampling_params=sampling_params,
             use_tqdm=False,
         )
-        return [output.outputs[-1].text for output in outputs]
+        return [
+            GeneratedText(
+                text=o.outputs[-1].text,
+                stop_reason=o.outputs[-1].finish_reason,
+                extra={
+                    "request_id": o.request_id,
+                    "metrics": o.metrics,
+                    "stop_token": o.outputs[-1].stop_reason,
+                },
+            )
+            for o in outputs
+        ]
 
     def generate_messages(
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[Message]:
+    ) -> t.Sequence[GeneratedMessage]:
         message_dicts = [[m.model_dump(include={"role", "content"}) for m in _messages] for _messages in messages]
         texts = self.llm.get_tokenizer().apply_chat_template(message_dicts, add_generation_prompt=True, tokenize=False)
-        outputs = self._generate(texts, params=params)
-        generated = [Message(role="assistant", content=output) for output in outputs]
+        generated_texts = self._generate(texts, params=params)
+        generated = [g.to_generated_message() for g in generated_texts]
 
         for i, (in_messages, out_message) in enumerate(zip(messages, generated)):
             trace_messages(in_messages, f"Messages {i+1}/{len(in_messages)}")
@@ -139,14 +160,14 @@ class VLLMGenerator(Generator):
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[Message]:
+    ) -> t.Sequence[GeneratedMessage]:
         return self.generate_messages(messages, params)
 
     def generate_texts(
         self,
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[str]:
+    ) -> t.Sequence[GeneratedText]:
         generated = self._generate(list(texts), params=params)
 
         for i, (text, response) in enumerate(zip(texts, generated)):
@@ -159,7 +180,7 @@ class VLLMGenerator(Generator):
         self,
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[str]:
+    ) -> t.Sequence[GeneratedText]:
         return self.generate_texts(texts, params)
 
 

@@ -7,8 +7,18 @@ import torch
 import transformers  # type: ignore
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenizer, TextGenerationPipeline
 
-from rigging.generator.base import GenerateParams, Generator, register_generator, trace_messages, trace_str
-from rigging.message import Message
+from rigging.generator.base import (
+    GeneratedMessage,
+    GeneratedText,
+    GenerateParams,
+    Generator,
+    register_generator,
+    trace_messages,
+    trace_str,
+)
+
+if t.TYPE_CHECKING:
+    from rigging.message import Message
 
 DEFAULT_MAX_TOKENS = 1024
 """Lifting the default max tokens from transformers"""
@@ -128,7 +138,7 @@ class TransformersGenerator(Generator):
         self,
         inputs: t.Sequence[str] | t.Sequence[t.Sequence[dict[str, str]]],
         params: t.Sequence[GenerateParams],
-    ) -> list[str]:
+    ) -> list[GeneratedText]:
         param_set = {p.model_dump_json() for p in params}
         if len(param_set) != 1:
             raise ValueError("All GenerateParams must be identical for this generator")
@@ -144,16 +154,19 @@ class TransformersGenerator(Generator):
             kwargs["do_sample"] = True
 
         outputs = self.pipeline(inputs, **kwargs)
-        return [output[-1]["generated_text"].strip() for output in outputs]
+
+        # TODO: We do strip() here as it's often needed, but I think
+        # we should return and standardize this behavior.
+        return [GeneratedText(text=o["generated_text"].strip()) for o in outputs]
 
     def generate_messages(
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[Message]:
+    ) -> t.Sequence[GeneratedMessage]:
         message_dicts = [[m.model_dump(include={"role", "content"}) for m in _messages] for _messages in messages]
         outputs = self._generate(message_dicts, params)
-        generated = [Message(role="assistant", content=output) for output in outputs]
+        generated = [o.to_generated_message() for o in outputs]
 
         for i, (in_messages, out_message) in enumerate(zip(messages, generated)):
             trace_messages(in_messages, f"Messages {i+1}/{len(in_messages)}")
@@ -165,14 +178,14 @@ class TransformersGenerator(Generator):
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[Message]:
+    ) -> t.Sequence[GeneratedMessage]:
         return self.generate_messages(messages, params)
 
     def generate_texts(
         self,
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[str]:
+    ) -> t.Sequence[GeneratedText]:
         generated = self._generate(texts, params)
 
         for i, (text, response) in enumerate(zip(texts, generated)):
@@ -185,7 +198,7 @@ class TransformersGenerator(Generator):
         self,
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[str]:
+    ) -> t.Sequence[GeneratedText]:
         return self.generate_texts(texts, params)
 
 

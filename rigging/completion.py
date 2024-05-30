@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from rigging.error import CompletionExhaustedMaxRoundsError
 from rigging.generator import GenerateParams, Generator, get_generator
+from rigging.generator.base import StopReason, Usage  # noqa: TCH001
 from rigging.parsing import parse_many
 
 if t.TYPE_CHECKING:
@@ -46,6 +47,13 @@ class Completion(BaseModel):
     """The generated text."""
     metadata: dict[str, t.Any] = Field(default_factory=dict)
     """Additional metadata for the completion."""
+
+    stop_reason: StopReason = Field(default="unknown")
+    """The reason the generation stopped."""
+    usage: t.Optional[Usage] = Field(None, repr=False)
+    """The usage statistics for the generation if available."""
+    extra: dict[str, t.Any] = Field(default_factory=dict, repr=False)
+    """Any additional information from the generation."""
 
     generator: t.Optional[Generator] = Field(None, exclude=True, repr=False)
     """The generator associated with the completion."""
@@ -596,7 +604,7 @@ class PendingCompletion:
 
             for inbound, state in zip(inbounds, pending_states):
                 try:
-                    state.processor.send(inbound)
+                    state.processor.send(inbound.text)
                 except StopIteration as stop:
                     state.done = True
                     state.completion = Completion(
@@ -605,6 +613,9 @@ class PendingCompletion:
                         generator=self.generator,
                         params=state.params,
                         metadata=self.metadata,
+                        stop_reason=inbound.stop_reason,
+                        usage=inbound.usage,
+                        extra=inbound.extra,
                     )
                 except CompletionExhaustedMaxRoundsError as exhausted:
                     if not skip_failed and not include_failed:
@@ -616,6 +627,9 @@ class PendingCompletion:
                             generator=self.generator,
                             params=state.params,
                             metadata=self.metadata,
+                            stop_reason=inbound.stop_reason,
+                            usage=inbound.usage,
+                            extra=inbound.extra,
                             failed=True,
                         )
                     state.done = True
@@ -647,7 +661,7 @@ class PendingCompletion:
 
             for inbound, state in zip(inbounds, pending_states):
                 try:
-                    state.processor.send(inbound)
+                    state.processor.send(inbound.text)
                 except StopIteration as stop:
                     state.done = True
                     state.completion = Completion(
@@ -656,6 +670,9 @@ class PendingCompletion:
                         generator=self.generator,
                         params=state.params,
                         metadata=self.metadata,
+                        stop_reason=inbound.stop_reason,
+                        usage=inbound.usage,
+                        extra=inbound.extra,
                     )
                 except CompletionExhaustedMaxRoundsError as exhausted:
                     if not skip_failed and not include_failed:
@@ -667,6 +684,9 @@ class PendingCompletion:
                             generator=self.generator,
                             params=state.params,
                             metadata=self.metadata,
+                            stop_reason=inbound.stop_reason,
+                            usage=inbound.usage,
+                            extra=inbound.extra,
                             failed=True,
                         )
                     state.done = True
@@ -716,7 +736,7 @@ class PendingCompletion:
 
             for inbound, state in zip(inbounds, pending_states):
                 try:
-                    state.processor.send(inbound)
+                    state.processor.send(inbound.text)
                 except StopIteration as stop:
                     state.done = True
                     state.completion = Completion(
@@ -725,6 +745,9 @@ class PendingCompletion:
                         generator=self.generator,
                         params=state.params,
                         metadata=self.metadata,
+                        stop_reason=inbound.stop_reason,
+                        usage=inbound.usage,
+                        extra=inbound.extra,
                     )
                 except CompletionExhaustedMaxRoundsError as exhausted:
                     if not skip_failed and not include_failed:
@@ -736,6 +759,9 @@ class PendingCompletion:
                             generator=self.generator,
                             params=state.params,
                             metadata=self.metadata,
+                            stop_reason=inbound.stop_reason,
+                            usage=inbound.usage,
+                            extra=inbound.extra,
                             failed=True,
                         )
                     state.done = True
@@ -769,7 +795,7 @@ class PendingCompletion:
 
             for inbound, state in zip(inbounds, pending_states):
                 try:
-                    state.processor.send(inbound)
+                    state.processor.send(inbound.text)
                 except StopIteration as stop:
                     state.done = True
                     state.completion = Completion(
@@ -778,6 +804,9 @@ class PendingCompletion:
                         generator=self.generator,
                         params=state.params,
                         metadata=self.metadata,
+                        stop_reason=inbound.stop_reason,
+                        usage=inbound.usage,
+                        extra=inbound.extra,
                     )
                 except CompletionExhaustedMaxRoundsError as exhausted:
                     if not skip_failed and not include_failed:
@@ -789,6 +818,9 @@ class PendingCompletion:
                             generator=self.generator,
                             params=state.params,
                             metadata=self.metadata,
+                            stop_reason=inbound.stop_reason,
+                            usage=inbound.usage,
+                            extra=inbound.extra,
                             failed=True,
                         )
                     state.done = True

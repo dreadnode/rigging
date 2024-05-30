@@ -6,6 +6,7 @@ import pytest
 
 from rigging import Message
 from rigging.generator import GenerateParams, Generator
+from rigging.generator.base import GeneratedMessage, GeneratedText
 from rigging.model import YesNoAnswer
 from rigging.parsing import try_parse
 
@@ -17,11 +18,11 @@ class FixedGenerator(Generator):
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[Message]:
-        return [Message(role="assistant", content=self.text) for m in messages]
+    ) -> t.Sequence[GeneratedMessage]:
+        return [GeneratedMessage.from_text(self.text) for _ in messages]
 
-    def generate_texts(self, texts: t.Sequence[str], params: t.Sequence[GenerateParams]) -> t.Sequence[str]:
-        return [self.text for _ in texts]
+    def generate_texts(self, texts: t.Sequence[str], params: t.Sequence[GenerateParams]) -> t.Sequence[GeneratedText]:
+        return [GeneratedText.from_text(self.text) for _ in texts]
 
 
 class EchoGenerator(Generator):
@@ -29,11 +30,11 @@ class EchoGenerator(Generator):
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[Message]:
-        return [Message(role="assistant", content=m[-1].content) for m in messages]
+    ) -> t.Sequence[GeneratedMessage]:
+        return [GeneratedMessage.from_text(m[-1].content) for m in messages]
 
-    def generate_texts(self, texts: t.Sequence[str], params: t.Sequence[GenerateParams]) -> t.Sequence[str]:
-        return [texts[-1]]
+    def generate_texts(self, texts: t.Sequence[str], params: t.Sequence[GenerateParams]) -> t.Sequence[GeneratedText]:
+        return [GeneratedText.from_text(t) for t in texts]
 
 
 class CallbackGenerator(Generator):
@@ -44,14 +45,14 @@ class CallbackGenerator(Generator):
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[Message]:
+    ) -> t.Sequence[GeneratedMessage]:
         assert self.message_callback is not None
-        return [Message(role="assistant", content=self.message_callback(self, m)) for m in messages]
+        return [GeneratedMessage.from_text(self.message_callback(self, m)) for m in messages]
 
-    def generate_texts(self, texts: t.Sequence[str], params: t.Sequence[GenerateParams]) -> t.Sequence[str]:
+    def generate_texts(self, texts: t.Sequence[str], params: t.Sequence[GenerateParams]) -> t.Sequence[GeneratedText]:
         assert len(texts) == 1
         assert self.text_callback is not None
-        return [self.text_callback(self, text) for text in texts]
+        return [GeneratedText.from_text(self.text_callback(self, text)) for text in texts]
 
 
 def test_chat_until_parsed_as_with_reset() -> None:

@@ -180,7 +180,7 @@ should be optimizing as much as possible.
     of `api_key`, `model`, and generation params are common enough that they are included in the base class.
 
 ```py
-from rigging import Generator, GenerateParams, Message
+from rigging import Generator, GenerateParams, Message, GeneratedMessage
 
 class Custom(Generator):
     # model: str
@@ -193,7 +193,7 @@ class Custom(Generator):
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[Message]:
+    ) -> t.Sequence[GeneratedMessage]:
         # merge_with is an easy way to combine overloads
         params = [
             self.params.merge_with(p).to_dict() for p in params 
@@ -203,7 +203,8 @@ class Custom(Generator):
         api_key = self.api_key
         model_id = self.model
         custom = self.custom_field
-
+        
+        # Build output messages with stop reason, usage, etc.
         # output_messages = ...
 
         return output_messages

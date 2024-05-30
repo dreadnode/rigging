@@ -3,6 +3,8 @@ Generators produce completions for a given set of messages or text.
 """
 
 from rigging.generator.base import (
+    GeneratedMessage,
+    GeneratedText,
     GenerateParams,
     Generator,
     chat,
@@ -27,6 +29,8 @@ __all__ = [
     "get_generator",
     "Generator",
     "GenerateParams",
+    "GeneratedMessage",
+    "GeneratedText",
     "chat",
     "complete",
     "get_generator",
