@@ -1,4 +1,5 @@
 # Rigging
+![Rigging Logo](./rigging-logo.svg)
 
 Rigging is a lightweight LLM interaction framework built on Pydantic XML. The goal is to make leveraging LLMs in production pipelines as simple and effictive as possible. Here are the highlights:
 
@@ -36,6 +37,24 @@ If you want to build from source:
 ```bash
 cd rigging/
 poetry install
+```
+
+## Supported Models
+
+
+
+```{python}
+import rigging as rg 
+
+generator = rg.get_generator("claude-3-sonnet-20240229") 
+pending = generator.chat(
+    [
+        {"role": "system", "content": "You are a wizard harry."},
+        {"role": "user", "content": "Say hello!"},
+    ]
+)
+chat = pending.run()
+print(chat.all)
 ```
 
 ## Getting Started
