@@ -275,7 +275,21 @@ class PrimitiveModel(Model, tag="primitive"):
 def make_primitive(
     name: str, *, tag: str | None = None, doc: str | None = None, validator: t.Callable[[str], str | None] | None = None
 ) -> type[PrimitiveModel]:
-    """ """
+    """
+    Helper to create a simple primitive model with an optional content validator.
+
+    Note:
+        This API is experimental and may change in the future.
+
+    Args:
+        name: The name of the model.
+        tag: The XML tag for the model.
+        doc: The documentation for the model.
+        validator: An optional content validator for the model.
+
+    Returns:
+        The primitive model class.
+    """
 
     def _validate(value: str) -> str:
         if validator is not None:

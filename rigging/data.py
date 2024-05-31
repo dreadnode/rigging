@@ -3,10 +3,17 @@ from __future__ import annotations
 import json
 import typing as t
 
+import elasticsearch as es
+import elasticsearch.helpers
 import pandas as pd
 
 from rigging.chat import Chat
 from rigging.message import Message
+
+if t.TYPE_CHECKING:
+    from elastic_transport import ObjectApiResponse
+
+# Pandas
 
 
 def chats_to_df(chats: Chat | t.Sequence[Chat]) -> pd.DataFrame:
@@ -30,6 +37,8 @@ def chats_to_df(chats: Chat | t.Sequence[Chat]) -> pd.DataFrame:
     for chat in chats:
         generator_id = chat.generator_id
         metadata = json.dumps(chat.metadata)
+        usage = json.dumps(chat.usage)
+        extra = json.dumps(chat.extra)
 
         generated = False
         for messages in [chat.messages, chat.generated]:
@@ -42,6 +51,9 @@ def chats_to_df(chats: Chat | t.Sequence[Chat]) -> pd.DataFrame:
                         "chat_metadata": metadata,
                         "chat_generator_id": generator_id,
                         "chat_timestamp": chat.timestamp,
+                        "chat_stop_reason": chat.stop_reason,
+                        "chat_usage": usage,
+                        "chat_extra": extra,
                         "generated": generated,
                         "message_id": str(message.uuid),
                         **message_dict,
@@ -56,6 +68,9 @@ def chats_to_df(chats: Chat | t.Sequence[Chat]) -> pd.DataFrame:
             "chat_metadata": "string",
             "chat_generator_id": "string",
             "chat_timestamp": "datetime64[ms]",
+            "chat_stop_reason": "string",
+            "chat_usage": "string",
+            "chat_extra": "string",
             "generated": "bool",
             "message_id": "string",
             "role": "category",
@@ -111,8 +126,144 @@ def df_to_chats(df: pd.DataFrame) -> list[Chat]:
             messages=messages,
             generated=generated,
             metadata=json.loads(chat_data["chat_metadata"]),
+            stop_reason=chat_data["chat_stop_reason"],
+            usage=json.loads(chat_data["chat_usage"]),
+            extra=json.loads(chat_data["chat_extra"]),
             **{"generator_id": chat_data["chat_generator_id"]},
         )
         chats.append(chat)
 
     return chats
+
+
+# Elastic
+
+ElasticOpType = t.Literal["index", "create", "delete"]
+"""Available operations for bulk operations."""
+
+ElasticMapping = {"properties": {"generated": {"type": "nested"}, "messages": {"type": "nested"}}}
+"""Default index mapping for chat objects in elastic."""
+
+
+@t.overload
+def chats_to_elastic(
+    chats: Chat | t.Sequence[Chat],
+    index: str,
+    client: es.Elasticsearch,
+    *,
+    op_type: ElasticOpType,
+    create_index: bool = True,
+) -> int:
+    ...
+
+
+@t.overload
+def chats_to_elastic(
+    chats: Chat | t.Sequence[Chat],
+    index: str,
+    client: None,
+    *,
+    op_type: ElasticOpType,
+    create_index: bool = True,
+) -> list[dict[str, t.Any]]:
+    ...
+
+
+def chats_to_elastic(
+    chats: Chat | t.Sequence[Chat],
+    index: str,
+    client: es.Elasticsearch | None = None,
+    *,
+    op_type: ElasticOpType = "index",
+    create_index: bool = True,
+    **kwargs: t.Any,
+) -> list[dict[str, t.Any]] | int:
+    """
+    Convert chat data to Elasticsearch bulk operation format and optionally store it with a client.
+
+    Args:
+        chats: The chat or list of chats to be converted and stored.
+        index: The name of the Elasticsearch index where the data will be stored.
+        client: The Elasticsearch client instance.
+        op_type: The operation type for Elasticsearch. Defaults to "create".
+        create_index: Whether to create the index if it doesn't exist and update its mapping.
+        kwargs: Additional keyword arguments to be passed to the Elasticsearch client.
+
+
+    Returns:
+        Formatted bulk operation dict if `client` is None, otherwise the modified count.
+    """
+    chats = [chats] if isinstance(chats, Chat) else chats
+
+    es_data: list[dict[str, t.Any]] = []
+    for chat in chats:
+        operation = {"_index": index, "_op_type": op_type, "_id": chat.uuid}
+        if op_type != "delete":
+            operation["_source"] = chat.model_dump(exclude={"uuid"})
+        es_data.append(operation)
+
+    if client is None:
+        return es_data
+
+    if create_index:
+        if client.indices.exists(index=index).meta.status != 200:
+            client.indices.create(index=index, mappings=ElasticMapping)
+        else:
+            client.indices.put_mapping(index=index, properties=ElasticMapping["properties"])
+
+    results = elasticsearch.helpers.bulk(client, es_data, **kwargs)
+    return results[0]  # Return modified count
+
+
+def elastic_data_to_chats(
+    data: t.Mapping[str, t.Any] | ObjectApiResponse[t.Any],
+) -> list[Chat]:
+    """
+    Convert the raw elastic results into a list of Chat objects.
+    """
+    while all(hasattr(data, attr) for attr in ("keys", "__getitem__")) and "hits" in data:
+        data = data["hits"]
+
+    objects = t.cast(t.Sequence[t.Mapping[str, t.Any]], data)
+    if not isinstance(objects, t.Sequence):
+        raise ValueError(f"Expected to find a sequence of objects (optionally under hits), found: {type(data)}")
+
+    chats: list[Chat] = []
+    for obj in objects:
+        merged = {"uuid": obj["_id"], **obj["_source"]}
+        chat = Chat.model_validate(merged)
+
+        # TODO: I don't believe this is safe to deserialize
+        # here as we aren't bonded to the underlying rg.Model
+        # which was the original object. Skipping for now.
+        for msg in chat.all:
+            msg.parts = []
+
+        chats.append(chat)
+
+    return chats
+
+
+def elastic_to_chats(
+    query: t.Mapping[str, t.Any],
+    index: str,
+    client: es.Elasticsearch,
+    *,
+    max_results: int | None = None,
+    **kwargs: t.Any,
+) -> list[Chat]:
+    """
+    Retrieve chat data from Elasticsearch and convert it to a pandas DataFrame.
+
+    Args:
+        query: The Elasticsearch query to be executed.
+        index: The name of the Elasticsearch index where the data will be retrieved.
+        client: The Elasticsearch client instance.
+        max_results: The maximum number of results to retrieve.
+        kwargs: Additional keyword arguments to be passed to the Elasticsearch client.
+
+    Returns:
+        A pandas DataFrame containing the chat data.
+    """
+    data = client.search(index=index, query=query, size=max_results, **kwargs)
+    return elastic_data_to_chats(t.cast(dict[str, t.Any], data))

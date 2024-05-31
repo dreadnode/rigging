@@ -25,6 +25,11 @@ from rigging.model import Model, ModelT, SystemErrorModel, ValidationErrorModel
 from rigging.prompt import system_tool_extension
 from rigging.tool import Tool, ToolCalls, ToolDescriptionList, ToolResult, ToolResults
 
+if t.TYPE_CHECKING:
+    from elasticsearch import Elasticsearch
+
+    from rigging.data import ElasticOpType
+
 DEFAULT_MAX_ROUNDS = 5
 """Maximum number of internal callback rounds to attempt during generation before giving up."""
 
@@ -292,6 +297,8 @@ class Chat(BaseModel):
         """
         Converts the chat to a Pandas DataFrame.
 
+        See [rigging.data.chats_to_df][] for more information.
+
         Returns:
             The chat as a DataFrame.
         """
@@ -299,6 +306,27 @@ class Chat(BaseModel):
         from rigging.data import chats_to_df
 
         return chats_to_df(self)
+
+    def to_elastic(
+        self,
+        index: str,
+        client: Elasticsearch,
+        *,
+        op_type: ElasticOpType = "index",
+        create_index: bool = True,
+        **kwargs: t.Any,
+    ) -> int:
+        """
+        Converts the chat data to Elasticsearch format and indexes it.
+
+        See [rigging.data.chats_to_elastic][] for more information.
+
+        Returns:
+            The number of chats indexed.
+        """
+        from rigging.data import chats_to_elastic
+
+        return chats_to_elastic(self, index, client, op_type=op_type, create_index=create_index, **kwargs)
 
 
 # Callbacks
@@ -688,7 +716,6 @@ class PendingChat:
 
         Returns:
             The updated PendingChat object.
-
         """
         self.until_tools += tools
         self.inject_tool_prompt = inject_prompt or self.inject_tool_prompt

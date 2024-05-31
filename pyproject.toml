@@ -18,6 +18,7 @@ loguru = "^0.7.2"
 litellm = "1.35.21"
 pandas = "^2.2.2"
 eval-type-backport = "^0.2.0" # For 3.9 future annotations
+elasticsearch = "^8.13.2"
 
 vllm = { version = "0.4.2", optional = true }
 transformers = { version = "^4.41.0", optional = true }
@@ -25,12 +26,11 @@ accelerate = { version = "^0.30.1", optional = true }
 
 asyncssh = { version = "^2.14.2", optional = true }
 types-requests = { version = "^2.32.0.20240523", optional = true }
-elasticsearch = { version = "^8.13.2", optional = true }
 click = { version = "^8.1.7", optional = true }
 httpx = { version = "^0.27.0", optional = true }
 
 [tool.poetry.extras]
-examples = ["asyncssh", "types-requests", "elasticsearch", "click", "httpx"]
+examples = ["asyncssh", "types-requests", "click", "httpx"]
 all = ["vllm", "transformers", "accelerate", "asyncssh", "types-requests"]
 
 [tool.poetry.group.dev.dependencies]
@@ -40,6 +40,7 @@ ruff = "^0.1.14"
 pytest = "^8.0.0"
 pandas-stubs = "^2.2.1.240316"
 coverage = "^7.5.1"
+ipywidgets = "^8.1.3"
 
 [tool.poetry.group.docs.dependencies]
 mkdocs = "^1.6.0"
