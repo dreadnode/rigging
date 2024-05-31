@@ -44,6 +44,9 @@ cd rigging/
 poetry install
 ```
 
+## Supported Models
+
+
 ## Useage 
 
 ### Generators ([**Docs**](https://rigging.dreadnode.io/topics/generators/))
@@ -62,7 +65,34 @@ chat = pending.run()
 print(chat.all)
 ```
 
-### Chats and Messages [**Docs**](https://rigging.dreadnode.io/topics/chats-and-messages/)
+### Data Models ([**Docs**](https://rigging.dreadnode.io/topics/models/))
+
+Model definitions are at the core of Rigging, and provide an extremely powerful interface of defining exactly what kinds of input data you support and how it should be validated.
+
+```python
+from pydantic import StringConstraints
+
+str_strip = t.Annotated[str, StringConstraints(strip_whitespace=True)]
+str_upper = t.Annotated[str, StringConstraints(to_upper=True)]
+
+class Header(rg.Model):
+    name: str = rg.attr()
+    value: str_strip
+
+class Parameter(rg.Model):
+    name: str = rg.attr()
+    value: str_strip
+
+class Request(rg.Model):
+    method: str_upper = rg.attr()
+    path: str = rg.attr()
+    headers: list[Header] = rg.wrapped("headers", rg.element(default=[]))
+    url_params: list[Parameter] = rg.wrapped("url-params", rg.element(default=[]))
+    body: str_strip = rg.element(default="")
+```
+
+
+### Chats and Messages ([**Docs**](https://rigging.dreadnode.io/topics/chats-and-messages/))
 
 Chat objects hold a sequence of Message objects pre and post generation. This is the most common way that we interact with LLMs, and the interface of both these and PendingChat's are very flexible objects that let you tune the generation process, gather structured outputs, validate parsing, perform text replacements, serialize and deserialize, fork conversations, etc.
 
@@ -104,7 +134,7 @@ print(chat.conversation)
 # [assistant]: Hello!
 ```
 
-### Chats to Pandas
+### Data Serialization to Pandas DataFrame ([**Docs**](https://rigging.dreadnode.io/topics/serialization/))
 
 Rigging supports various data serialization options for core objects. Chats can be converted to a pandas dataframe as such:
 
@@ -120,14 +150,19 @@ chat = rg.get_generator('gpt-4') \
 
 chat.to_df()
 
-```
+Will output:
 
+```
 | chat_id                              | chat_metadata   | chat_generator_id   | chat_timestamp             | generated   | message_id                           | role      | content                                                                                  | parts                                                                                  |
 |:-------------------------------------|:----------------|:--------------------|:---------------------------|:------------|:-------------------------------------|:----------|:-----------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------|
 | 62758800-8797-4832-92ba-bee9ad923ec7 | {}              | litellm!gpt-4       | 2024-05-31 12:31:25.774000 | False       | 1c9f3021-5932-4b55-bb15-f9d182e54a5b | user      | Give me 3 famous authors between <comma-delimited-answer></comma-delimited-answer> tags. | []                                                                                     |
 | 62758800-8797-4832-92ba-bee9ad923ec7 | {}              | litellm!gpt-4       | 2024-05-31 12:31:25.774000 | True        | b20da004-d54e-4c25-b287-e41f42bc6888 | assistant | <comma-delimited-answer>J.K. Rowling, Stephen King, Jane Austen</comma-delimited-answer> | [{"model": {"content": "J.K. Rowling, Stephen King, Jane Austen"}, "slice_": [0, 88]}] |
 
 
-## Getting Started
+## Support and Discuss with our Founders
+
+This project is built and supported by dreadnode. Sign up for our email list or schedule a call through our website: https://www.dreadnode.io/
+
+## Documentation
 
 Head over to **[our documentation](https://rigging.dreadnode.io)** for more information.
