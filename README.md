@@ -60,45 +60,52 @@ export ANTHROPIC_API_KEY=...
 
 ## Supported Models
 
-Rigging supports various models out of the box using the LiteLMM or local models using a vLLM server. Models include
 
-### Via LiteLLM
+<table>
+<tbody>
+<tr align="center" valign="middle">
+<td>
+  <b>Hosted (LiteLLM)</b>
+</td>
+<td>
+  <b>Local (vLLM)</b>
+</td>
+<tr valign="top">
+<td align="left" valign="top">
+<ul>
+  <li>gpt-4o [OpenAI]</li>
+  <li>gpt-4 [OpenAI]</li>
+  <li>gpt-3.5-turbo [OpenAI]</li>
+  <li>claude-2 [Anthropic]</li>
+  <li>claude-3-sonnet [Anthropic]</li>
+  <li>claude-3-haiku [Anthropic]</li>
+  <li>chat-bison [VertexAI]</li>
+  <li>Llama-2-70b-chat-hf [via TogetherAI]</li>
+  <li>Llama-3-8b-chat-hf [via TogetherAI]</li>
+  <li>Mistral-7B-Instruct[via TogetherAI]</li>
+  <li>Mixtral-8x22B [via TogetherAI]</li>
+</ul>
+</td>
+<td>
+<ul>
+  <li>Llama2 (7B - 70B)</li>
+  <li>Llama3 (8B, 70B)</li>
+  <li>Falcon (7B - 180B)</li>
+  <li>Mistral (7B)</li>
+  <li>Mixtral (8x7B, 8x22B)</li>
+  <li>Gemma (2B - 7B)</li>
+  <li>Phi-3-mini (3.8B)</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
 
-Includes but not limited to:
-- openai
-- azure
-- aws
-- google[gemini]
-- mistral
-- anthorpic
+Complete list of available models via hosts:
+- [liteLLM Supported Models](https://github.com/BerriAI/litellm/blob/main/README.md#supported-providers-docs)
+- [vLLM Supported models](https://docs.vllm.ai/en/latest/models/supported_models.html)
+- [TogetherAI Inference Models](https://docs.together.ai/docs/inference-models)
 
-Full list via the liteLLM docs [here](https://github.com/BerriAI/litellm/blob/main/README.md#supported-providers-docs)
-
-
-### Local Models
-
-Rigging also supports local models hosted via vLLM. This allows for seamless integration with popular Hugging Face models lie:
-Includes but not limited to:
-
-- llama3
-- phi3
-- mixtral
-- gemma
-
-Example for connecting to a locally hosted llama3 model:
-
-```python
-g_vllm_port = 9999
-g_vllm_model_name = "llama3"
-
-generator = rg.get_generator(
-    f"openai/{g_vllm_model_name}," \
-    f"api_base=http://localhost:{g_vllm_port}/v1," \
-    "api_key=sk-1234," \
-    "temperature=0.9,max_tokens=512," \
-    "stop=<|eot_id|>" # Llama requires some hand holding,
-)
-```
 
 ## Useage 
 
@@ -210,9 +217,7 @@ print(chat.message_dicts)
 
 print(chat.conversation)
 # [system]: You're a helpful assistant.
-
 # [user]: Say hello!
-
 # [assistant]: Hello!
 ```
 
@@ -275,25 +280,18 @@ for i, chat in enumerate(chats):
 #
 # --- Chat 1 (?: False) ---
 # [user]: Tell me a joke about an animal.
-
 # [assistant]: Why did the spider go to the computer? 
-
 # To check his website!
 
 # --- Chat 2 (?: False) ---
 # [user]: Tell me a joke about an animal.
-
 # [assistant]: Why did the chicken join a band? Because it had the drumsticks!
 
 # --- Chat 3 (?: True) ---
 # [user]: Tell me a joke about an animal.
-
 # [assistant]: Why don't elephants use computers?
-
 # Because they're afraid of the mouse!
-
 # [user]: Why did you pick that animal?
-
 # [assistant]: I chose an elephant because they are known for their intelligence and gentle nature, making them a popular subject for jokes and humorous anecdotes. Plus, imagining an elephant trying to use a computer and being scared of a tiny mouse is a funny visual image!
 ```
 
