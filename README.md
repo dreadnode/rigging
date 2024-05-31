@@ -305,3 +305,7 @@ This project is built and supported by dreadnode. Sign up for our email list or 
 
 Head over to **[our documentation](https://rigging.dreadnode.io)** for more information.
 
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=dreadnode/rigging&type=Date)](https://star-history.com/#dreadnode/rigging&Date)
