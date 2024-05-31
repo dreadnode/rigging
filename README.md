@@ -44,8 +44,61 @@ cd rigging/
 poetry install
 ```
 
+### API Keys
+
+All generators carry a .api_key attribute which can be set directly, or by passing ,api_key= as part of an identifier string. Not all generators will require one, but they are common enough that we include the attribute as part of the base class.
+
+Typically you will be using a library like LiteLLM underneath, and can simply use environment variables:
+
+```bash
+export OPENAI_API_KEY=...
+export TOGETHER_API_KEY=...
+export TOGETHERAI_API_KEY=...
+export MISTRAL_API_KEY=...
+export ANTHROPIC_API_KEY=...
+```
+
 ## Supported Models
 
+Rigging supports various models out of the box using the LiteLMM or local models using a vLLM server. Models include
+
+### Via LiteLLM
+
+Includes but not limited to:
+- openai
+- azure
+- aws
+- google[gemini]
+- mistral
+- anthorpic
+
+Full list via the liteLLM docs [here](https://github.com/BerriAI/litellm/blob/main/README.md#supported-providers-docs)
+
+
+### Local Models
+
+Rigging also supports local models hosted via vLLM. This allows for seamless integration with popular Hugging Face models lie:
+Includes but not limited to:
+
+- llama3
+- phi3
+- mixtral
+- gemma
+
+Example for connecting to a locally hosted llama3 model:
+
+```python
+g_vllm_port = 9999
+g_vllm_model_name = "llama3"
+
+generator = rg.get_generator(
+    f"openai/{g_vllm_model_name}," \
+    f"api_base=http://localhost:{g_vllm_port}/v1," \
+    "api_key=sk-1234," \
+    "temperature=0.9,max_tokens=512," \
+    "stop=<|eot_id|>" # Llama requires some hand holding,
+)
+```
 
 ## Useage 
 
@@ -63,6 +116,35 @@ pending = generator.chat(
 )
 chat = pending.run()
 print(chat.all)
+```
+
+### Generater Parameters ([**Docs**](https://rigging.dreadnode.io/api/generator/#rigging.generator.GenerateParams))
+
+We can set model parameters using the `rg.GenerateParams` class. This class allows you to set various model parameters including:
+```
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    top_k: int | None = None,
+    top_p: float | None = None,
+    stop: list[str] | None = None,
+    presence_penalty: float | None = None,
+    frequency_penalty: float | None = None,
+    api_base: str | None = None,
+    timeout: int | None = None,
+    seed: int | None = None,
+    extra: dict[str, typing.Any] = None,
+```
+
+Example of calling a generator chat with cusom model parameters might look like:
+
+```python
+rg_params = rg.GenerateParams(
+    temperature = 0.9,
+    max_tokens = 512,
+)
+base_chat = generator.chat(params=rg_params)
+answer = base_chat.fork('How is it going?').run()
+print(answer.last.content)
 ```
 
 ### Data Models ([**Docs**](https://rigging.dreadnode.io/topics/models/))
@@ -149,17 +231,17 @@ chat = rg.get_generator('gpt-4') \
     .run()
 
 chat.to_df()
+```
 
 Will output:
 
-```
 | chat_id                              | chat_metadata   | chat_generator_id   | chat_timestamp             | generated   | message_id                           | role      | content                                                                                  | parts                                                                                  |
 |:-------------------------------------|:----------------|:--------------------|:---------------------------|:------------|:-------------------------------------|:----------|:-----------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------|
 | 62758800-8797-4832-92ba-bee9ad923ec7 | {}              | litellm!gpt-4       | 2024-05-31 12:31:25.774000 | False       | 1c9f3021-5932-4b55-bb15-f9d182e54a5b | user      | Give me 3 famous authors between <comma-delimited-answer></comma-delimited-answer> tags. | []                                                                                     |
 | 62758800-8797-4832-92ba-bee9ad923ec7 | {}              | litellm!gpt-4       | 2024-05-31 12:31:25.774000 | True        | b20da004-d54e-4c25-b287-e41f42bc6888 | assistant | <comma-delimited-answer>J.K. Rowling, Stephen King, Jane Austen</comma-delimited-answer> | [{"model": {"content": "J.K. Rowling, Stephen King, Jane Austen"}, "slice_": [0, 88]}] |
 
 
-### Async and Batching ([**Docs**](https://rigging.dreadnode.io/topics/serialization/))
+### Async and Batching ([**Docs**](https://rigging.dreadnode.io/topics/async-and-batching/))
 
 Rigging has good support for handling async generation and large batching of requests. How efficiently these mechanisms operates is dependent on the underlying generator that's being used, but Rigging has been developed with scale in mind.
 
@@ -188,6 +270,31 @@ for i, chat in enumerate(chats):
     print(f"--- Chat {i+1} (?: {questioned}) ---")
     print(chat.conversation)
     print()
+
+# Output:
+#
+# --- Chat 1 (?: False) ---
+# [user]: Tell me a joke about an animal.
+
+# [assistant]: Why did the spider go to the computer? 
+
+# To check his website!
+
+# --- Chat 2 (?: False) ---
+# [user]: Tell me a joke about an animal.
+
+# [assistant]: Why did the chicken join a band? Because it had the drumsticks!
+
+# --- Chat 3 (?: True) ---
+# [user]: Tell me a joke about an animal.
+
+# [assistant]: Why don't elephants use computers?
+
+# Because they're afraid of the mouse!
+
+# [user]: Why did you pick that animal?
+
+# [assistant]: I chose an elephant because they are known for their intelligence and gentle nature, making them a popular subject for jokes and humorous anecdotes. Plus, imagining an elephant trying to use a computer and being scared of a tiny mouse is a funny visual image!
 ```
 
 ## Support and Discuss with our Founders
