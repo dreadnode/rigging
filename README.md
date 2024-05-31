@@ -16,7 +16,7 @@ Rigging is a lightweight LLM interaction framework built on Pydantic XML. The go
 - Modern python with type hints, async support, pydantic validation, serialization, etc.
 
 ```py
-import igging as rg
+import rigging as rg
 from rigging.model import CommaDelimitedAnswer as Answer
 
 chat = rg.get_generator('gpt-4') \
@@ -159,6 +159,37 @@ Will output:
 | 62758800-8797-4832-92ba-bee9ad923ec7 | {}              | litellm!gpt-4       | 2024-05-31 12:31:25.774000 | True        | b20da004-d54e-4c25-b287-e41f42bc6888 | assistant | <comma-delimited-answer>J.K. Rowling, Stephen King, Jane Austen</comma-delimited-answer> | [{"model": {"content": "J.K. Rowling, Stephen King, Jane Austen"}, "slice_": [0, 88]}] |
 
 
+### Async and Batching ([**Docs**](https://rigging.dreadnode.io/topics/serialization/))
+
+Rigging has good support for handling async generation and large batching of requests. How efficiently these mechanisms operates is dependent on the underlying generator that's being used, but Rigging has been developed with scale in mind.
+
+The `.run_many` and `.arun_many` functions let you take the same inputs and generation parameters, and simply run the generation multiple times.
+
+```python
+import rigging as rg
+
+def check_animal(chats: list[rg.Chat]) -> list[rg.Chat]:
+    return [
+        chat.continue_(f"Why did you pick that animal?").meta(questioned=True).run()
+        if any(a in chat.last.content.lower() for a in ["cat", "dog", "cow", "mouse"])
+        else chat
+        for chat in chats
+    ]
+
+chats = (
+    rg.get_generator("gpt-3.5-turbo")
+    .chat("Tell me a joke about an animal.")
+    .map(check_animal)
+    .run_many(3)
+)
+
+for i, chat in enumerate(chats):
+    questioned = chat.metadata.get("questioned", False)
+    print(f"--- Chat {i+1} (?: {questioned}) ---")
+    print(chat.conversation)
+    print()
+```
+
 ## Support and Discuss with our Founders
 
 This project is built and supported by dreadnode. Sign up for our email list or schedule a call through our website: https://www.dreadnode.io/
@@ -166,3 +197,4 @@ This project is built and supported by dreadnode. Sign up for our email list or 
 ## Documentation
 
 Head over to **[our documentation](https://rigging.dreadnode.io)** for more information.
+
