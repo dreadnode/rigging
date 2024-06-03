@@ -804,7 +804,7 @@ wmi = ["wmi (>=1.5.1)"]
 name = "elastic-transport"
 version = "8.13.1"
 description = "Transport classes and utilities shared among Python Elastic client libraries"
-optional = true
+optional = false
 python-versions = ">=3.7"
 files = [
     {file = "elastic_transport-8.13.1-py3-none-any.whl", hash = "sha256:5d4bb6b8e9d74a9c16de274e91a5caf65a3a8d12876f1e99152975e15b2746fe"},
@@ -822,7 +822,7 @@ develop = ["aiohttp", "furo", "httpx", "mock", "opentelemetry-api", "opentelemet
 name = "elasticsearch"
 version = "8.13.2"
 description = "Python client for Elasticsearch"
-optional = true
+optional = false
 python-versions = ">=3.7"
 files = [
     {file = "elasticsearch-8.13.2-py3-none-any.whl", hash = "sha256:7412ceae9c0e437a72854ab3123aa1f37110d1635cc645366988b8c0fee98598"},
@@ -3203,6 +3203,24 @@ tomli = {version = ">=1", markers = "python_version < \"3.11\""}
 dev = ["argcomplete", "attrs (>=19.2)", "hypothesis (>=3.56)", "mock", "pygments (>=2.7.2)", "requests", "setuptools", "xmlschema"]
 
 [[package]]
+name = "pytest-asyncio"
+version = "0.23.7"
+description = "Pytest support for asyncio"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "pytest_asyncio-0.23.7-py3-none-any.whl", hash = "sha256:009b48127fbe44518a547bddd25611551b0e43ccdbf1e67d12479f569832c20b"},
+    {file = "pytest_asyncio-0.23.7.tar.gz", hash = "sha256:5f5c72948f4c49e7db4f29f2521d4031f1c27f86e57b046126654083d4770268"},
+]
+
+[package.dependencies]
+pytest = ">=7.0.0,<9"
+
+[package.extras]
+docs = ["sphinx (>=5.3)", "sphinx-rtd-theme (>=1.0)"]
+testing = ["coverage (>=6.2)", "hypothesis (>=5.7.1)"]
+
+[[package]]
 name = "python-dateutil"
 version = "2.9.0.post0"
 description = "Extensions to the standard Python datetime module"
@@ -5184,9 +5202,9 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "jaraco.test", "more
 
 [extras]
 all = ["accelerate", "asyncssh", "transformers", "types-requests", "vllm"]
-examples = ["asyncssh", "click", "elasticsearch", "httpx", "types-requests"]
+examples = ["asyncssh", "click", "httpx", "types-requests"]
 
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "186a3e025a12fbd611166c4e371ff5240c1e3f5450e941dcc179e02c71b8bdca"
+content-hash = "61c21625b82b8b81778c5b3e10439b788ddef9798a57197697a724591c1da11a"

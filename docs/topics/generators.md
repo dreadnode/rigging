@@ -121,8 +121,8 @@ See more about them below:
 
 ## Overload Generation Params
 
-When working with both [`PendingCompletion`][rigging.completion.PendingCompletion] and [`PendingChat`][rigging.chat.PendingChat], you
-can overload and update any generation params by using the associated [`.with_()`][rigging.chat.PendingChat.with_] function. 
+When working with both [`CompletionPipeline`][rigging.completion.CompletionPipeline] and [`ChatPipeline`][rigging.chat.ChatPipeline], you
+can overload and update any generation params by using the associated [`.with_()`][rigging.chat.ChatPipeline.with_] function. 
 
 === "with_() as keyword arguments"
 
@@ -155,10 +155,10 @@ can overload and update any generation params by using the associated [`.with_()
 All generators should inherit from the [`Generator`][rigging.generator.Generator] base class, and
 can elect to implement a series of messages, text, and async methods:
 
-- [`def generate_messages(...)`][rigging.generator.Generator.generate_messages] - Used for [`PendingChat.run`][rigging.chat.PendingChat.run] variants.
-- [`async def agenerate_messages(...)`][rigging.generator.Generator.agenerate_messages] - Used for [`PendingChat.arun`][rigging.chat.PendingChat.arun] variants.
-- [`def generate_texts(...)`][rigging.generator.Generator.generate_texts] - Used for [`PendingCompletion.run`][rigging.completion.PendingCompletion.run] variants.
-- [`async def agenerate_texts(...)`][rigging.generator.Generator.agenerate_texts] - Used for [`PendingCompletion.arun`][rigging.completion.PendingCompletion.arun] variants.
+- [`def generate_messages(...)`][rigging.generator.Generator.generate_messages] - Used for [`ChatPipeline.run`][rigging.chat.ChatPipeline.run] variants.
+- [`async def agenerate_messages(...)`][rigging.generator.Generator.agenerate_messages] - Used for [`ChatPipeline.arun`][rigging.chat.ChatPipeline.arun] variants.
+- [`def generate_texts(...)`][rigging.generator.Generator.generate_texts] - Used for [`CompletionPipeline.run`][rigging.completion.CompletionPipeline.run] variants.
+- [`async def agenerate_texts(...)`][rigging.generator.Generator.agenerate_texts] - Used for [`CompletionPipeline.arun`][rigging.completion.CompletionPipeline.arun] variants.
 
 !!! note "Optional Implementation"
 

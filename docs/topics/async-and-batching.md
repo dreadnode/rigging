@@ -6,7 +6,7 @@ been developed with scale in mind.
 
 ## Multiple Generations
 
-The [`.run_many`][rigging.chat.PendingChat.run_many] and [`.arun_many`][rigging.chat.PendingChat.arun_many] functions
+The [`.run_many`][rigging.chat.ChatPipeline.run_many] and [`.arun_many`][rigging.chat.ChatPipeline.arun_many] functions
 let you take the same inputs and generation parameters, and simply run the generation multiple times.
 
 === "Run Many Code"
@@ -65,9 +65,9 @@ let you take the same inputs and generation parameters, and simply run the gener
 
 ## Batching Inputs
 
-You can use the [`.run_batch`][rigging.chat.PendingChat.run_batch] and [`.arun_batch`][rigging.chat.PendingChat.arun_batch]
+You can use the [`.run_batch`][rigging.chat.ChatPipeline.run_batch] and [`.arun_batch`][rigging.chat.ChatPipeline.arun_batch]
 functions to batch accross a set of inputs and collect all the chats. As processing proceeds with things like
-[`.then`][rigging.chat.PendingChat.then] or [`.until_parsed_as`][rigging.chat.PendingChat.until_parsed_as], that chats
+[`.then`][rigging.chat.ChatPipeline.then] or [`.until_parsed_as`][rigging.chat.ChatPipeline.until_parsed_as], that chats
 will resolve individually and collapse into the final results.
 
 === "Batching Inputs Code"
@@ -107,7 +107,7 @@ will resolve individually and collapse into the final results.
 
 !!! tip "Skipping failed results"
 
-    Passing `skip_failed=True` to [`.run_batch`][rigging.chat.PendingChat.run_batch] will cause the function to
+    Passing `skip_failed=True` to [`.run_batch`][rigging.chat.ChatPipeline.run_batch] will cause the function to
     ignore any parsing errors like [`ExhaustedMaxRoundsError`][rigging.error.ExhaustedMaxRoundsError] and only
     return the chats that were successful.
 
@@ -116,7 +116,7 @@ will resolve individually and collapse into the final results.
 
 In addition to batching against input messages or strings, you can fix a single input
 and build a batch accross a set of generation parameters. The inputs to
-[`.run_batch`][rigging.chat.PendingChat.run_batch] and [`.arun_batch`][rigging.chat.PendingChat.arun_batch]
+[`.run_batch`][rigging.chat.ChatPipeline.run_batch] and [`.arun_batch`][rigging.chat.ChatPipeline.arun_batch]
 will scale either the generate parameters or the input messages if either is a single item.
 
 === "Batching Code"

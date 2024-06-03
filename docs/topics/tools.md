@@ -30,7 +30,7 @@ class WeatherTool(rg.Tool):
 ```
 
 Integrating tools into the generation process is as easy as passing an instantiation
-of your tool class to the [`PendingChat.using()`][rigging.chat.PendingChat.using] method.
+of your tool class to the [`ChatPipeline.using()`][rigging.chat.ChatPipeline.using] method.
 
 ```py
 chat = (
@@ -124,7 +124,7 @@ use a tool, please do so before you continue the conversation.
 [assistant]: The current weather in London is 57°F with a light breeze of 2mph.
 ```
 
-Every tool assigned to the `PendingChat` will be processed by calling [`.get_description()`][rigging.tool.Tool.get_description]
+Every tool assigned to the `ChatPipeline` will be processed by calling [`.get_description()`][rigging.tool.Tool.get_description]
 and a minimal tool-use prompt will be injected as, or appended to, the system message.
 
 !!! warning "The Curse of Complexity"
@@ -141,4 +141,4 @@ and a minimal tool-use prompt will be injected as, or appended to, the system me
 
     You also might consider a pipeline where incoming messages are scanned against
     a list of possible tools, and fork the generation process with something like
-    [`.then`][rigging.chat.PendingChat.then] instead. 
+    [`.then`][rigging.chat.ChatPipeline.then] instead. 

@@ -27,7 +27,7 @@ def write_chats_to_jsonl(file: Path, *, replace: bool = False) -> WatchChatCallb
         replace: If the file should be replaced if it already exists.
 
     Returns:
-        A callback to use in [rigging.chat.PendingChat.watch][]
+        A callback to use in [rigging.chat.ChatPipeline.watch][]
         or [rigging.generator.Generator.watch][].
     """
 
@@ -60,7 +60,7 @@ def write_messages_to_jsonl(file: Path, *, replace: bool = False) -> WatchChatCa
         replace: If the file should be replaced if it already exists.
 
     Returns:
-        A callback to use in [rigging.chat.PendingChat.watch][]
+        A callback to use in [rigging.chat.ChatPipeline.watch][]
         or [rigging.generator.Generator.watch][].
     """
 
@@ -93,7 +93,7 @@ def write_chats_to_elastic(
         kwargs: Additional keyword arguments to be passed to the Elasticsearch client.
 
     Returns:
-        A callback to use in [rigging.chat.PendingChat.watch][]
+        A callback to use in [rigging.chat.ChatPipeline.watch][]
         or [rigging.generator.Generator.watch][].
     """
 

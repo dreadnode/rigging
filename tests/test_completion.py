@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from rigging.completion import Completion, PendingCompletion
+from rigging.completion import Completion, CompletionPipeline
 from rigging.generator import GenerateParams, get_generator
 
 
@@ -51,41 +51,41 @@ def test_completion_clone() -> None:
     assert clone.metadata != clone_2.metadata
 
 
-def test_pending_completion_with() -> None:
-    pending = PendingCompletion(get_generator("gpt-3.5"), "foo")
-    with_pending = pending.with_(GenerateParams(max_tokens=123))
-    assert with_pending == pending
-    assert with_pending.params is not None
-    assert with_pending.params.max_tokens == 123
+def test_completion_pipeline_with() -> None:
+    pipeline = CompletionPipeline(get_generator("gpt-3.5"), "foo")
+    with_pipeline = pipeline.with_(GenerateParams(max_tokens=123))
+    assert with_pipeline == pipeline
+    assert with_pipeline.params is not None
+    assert with_pipeline.params.max_tokens == 123
 
-    with_pending_2 = with_pending.with_(top_p=0.5)
-    assert with_pending_2 != with_pending
-    assert with_pending_2.params is not None
-    assert with_pending_2.params.max_tokens == 123
-    assert with_pending_2.params.top_p == 0.5
+    with_pipeline_2 = with_pipeline.with_(top_p=0.5)
+    assert with_pipeline_2 != with_pipeline
+    assert with_pipeline_2.params is not None
+    assert with_pipeline_2.params.max_tokens == 123
+    assert with_pipeline_2.params.top_p == 0.5
 
 
-def test_pending_completion_fork() -> None:
-    pending = PendingCompletion(get_generator("gpt-3.5"), "foo")
-    forked_1 = pending.fork("bar")
-    forked_2 = pending.fork("baz")
+def test_completion_pipeline_fork() -> None:
+    pipeline = CompletionPipeline(get_generator("gpt-3.5"), "foo")
+    forked_1 = pipeline.fork("bar")
+    forked_2 = pipeline.fork("baz")
 
-    assert pending != forked_1 != forked_2
-    assert pending.text == "foo"
+    assert pipeline != forked_1 != forked_2
+    assert pipeline.text == "foo"
     assert forked_1.text == "foobar"
     assert forked_2.text == "foobaz"
 
 
-def test_pending_completion_meta() -> None:
-    pending = PendingCompletion(get_generator("gpt-3.5"), "foo")
-    with_meta = pending.meta(key="value")
-    assert with_meta == pending
+def test_completion_pipeline_meta() -> None:
+    pipeline = CompletionPipeline(get_generator("gpt-3.5"), "foo")
+    with_meta = pipeline.meta(key="value")
+    assert with_meta == pipeline
     assert with_meta.metadata == {"key": "value"}
 
 
-def test_pending_completion_apply() -> None:
-    pending = PendingCompletion(get_generator("gpt-3.5"), "Hello $name")
-    applied = pending.apply(name="World", noexist="123")
-    assert pending != applied
-    assert pending.text == "Hello $name"
+def test_completion_pipeline_apply() -> None:
+    pipeline = CompletionPipeline(get_generator("gpt-3.5"), "Hello $name")
+    applied = pipeline.apply(name="World", noexist="123")
+    assert pipeline != applied
+    assert pipeline.text == "Hello $name"
     assert applied.text == "Hello World"

@@ -11,8 +11,8 @@ from rigging.error import InvalidModelSpecifiedError
 from rigging.message import Message, MessageDict
 
 if t.TYPE_CHECKING:
-    from rigging.chat import PendingChat, WatchChatCallback
-    from rigging.completion import PendingCompletion, WatchCompletionCallback
+    from rigging.chat import ChatPipeline, WatchChatCallback
+    from rigging.completion import CompletionPipeline, WatchCompletionCallback
 
     WatchCallbacks = t.Union[WatchChatCallback, WatchCompletionCallback]
 
@@ -237,7 +237,7 @@ class Generator(BaseModel):
     def watch(self, *callbacks: WatchCallbacks, allow_duplicates: bool = False) -> Generator:
         """
         Registers watch callbacks to be passed to any created
-        [rigging.chat.PendingChat][] or [rigging.chat.PendingCompletion][].
+        [rigging.chat.ChatPipeline][] or [rigging.chat.CompletionPipeline][].
 
         Args:
             *callbacks: The callback functions to be executed.
@@ -247,7 +247,7 @@ class Generator(BaseModel):
         def log(chats: list[Chat]) -> None:
             ...
 
-        pending.watch(log).run()
+        pipeline.watch(log).run()
         ```
 
         Returns:
@@ -334,7 +334,7 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[MessageDict],
         params: GenerateParams | None = None,
-    ) -> PendingChat:
+    ) -> ChatPipeline:
         ...
 
     @t.overload
@@ -342,29 +342,29 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[Message] | MessageDict | Message | str | None = None,
         params: GenerateParams | None = None,
-    ) -> PendingChat:
+    ) -> ChatPipeline:
         ...
 
     def chat(
         self,
         messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str | None = None,
         params: GenerateParams | None = None,
-    ) -> PendingChat:
+    ) -> ChatPipeline:
         """
-        Build a pending chat with the given messages and optional params overloads.
+        Build a chat pipeline with the given messages and optional params overloads.
 
         Args:
             messages: The messages to be sent in the chat.
             params: Optional parameters for generating responses.
 
         Returns:
-            Pending chat to run.
+            chat pipeline to run.
         """
-        from rigging.chat import PendingChat, WatchChatCallback
+        from rigging.chat import ChatPipeline, WatchChatCallback
 
         chat_watch_callbacks = [cb for cb in self._watch_callbacks if isinstance(cb, (WatchChatCallback))]
 
-        return PendingChat(
+        return ChatPipeline(
             self,
             Message.fit_as_list(messages) if messages else [],
             params=params,
@@ -373,9 +373,9 @@ class Generator(BaseModel):
 
     # Helper alternative to complete(generator) -> generator.complete(...)
 
-    def complete(self, text: str, params: GenerateParams | None = None) -> PendingCompletion:
+    def complete(self, text: str, params: GenerateParams | None = None) -> CompletionPipeline:
         """
-        Build a pending string completion of the given text with optional param overloads.
+        Build a completion pipeline of the given text with optional param overloads.
 
         Args:
             text: The input text to be completed.
@@ -384,11 +384,11 @@ class Generator(BaseModel):
         Returns:
             The completed text.
         """
-        from rigging.completion import PendingCompletion, WatchCompletionCallback
+        from rigging.completion import CompletionPipeline, WatchCompletionCallback
 
         completion_watch_callbacks = [cb for cb in self._watch_callbacks if isinstance(cb, (WatchCompletionCallback))]
 
-        return PendingCompletion(self, text, params=params, watch_callbacks=completion_watch_callbacks)
+        return CompletionPipeline(self, text, params=params, watch_callbacks=completion_watch_callbacks)
 
 
 @t.overload
@@ -396,7 +396,7 @@ def chat(
     generator: Generator,
     messages: t.Sequence[MessageDict],
     params: GenerateParams | None = None,
-) -> PendingChat:
+) -> ChatPipeline:
     ...
 
 
@@ -405,7 +405,7 @@ def chat(
     generator: Generator,
     messages: t.Sequence[Message] | MessageDict | Message | str | None = None,
     params: GenerateParams | None = None,
-) -> PendingChat:
+) -> ChatPipeline:
     ...
 
 
@@ -413,9 +413,9 @@ def chat(
     generator: Generator,
     messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str | None = None,
     params: GenerateParams | None = None,
-) -> PendingChat:
+) -> ChatPipeline:
     """
-    Creates a pending chat using the given generator, messages, and params.
+    Creates a chat pipeline using the given generator, messages, and params.
 
     Args:
         generator: The generator to use for creating the chat.
@@ -424,7 +424,7 @@ def chat(
         params: Additional parameters for generating the chat.
 
     Returns:
-        Pending chat to run.
+        chat pipeline to run.
     """
     return generator.chat(messages, params)
 
@@ -433,7 +433,7 @@ def complete(
     generator: Generator,
     text: str,
     params: GenerateParams | None = None,
-) -> PendingCompletion:
+) -> CompletionPipeline:
     return generator.complete(text, params)
 
 

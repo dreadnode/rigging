@@ -198,7 +198,7 @@ class State:
     # Required
     client: httpx.AsyncClient
     max_actions: int
-    base_chat: rg.PendingChat
+    base_chat: rg.ChatPipeline
 
     # Core
     goals: list[str] = field(default_factory=list)
@@ -389,7 +389,7 @@ async def agent_loop(
 
     for i in range(1, max_iterations + 1):
         logger.info(f"Iteration {i}/{max_iterations}")
-        await state.base_chat.fork(state.get_prompt()).then(parse_actions).arun()
+        await state.base_chat.fork(state.get_prompt()).then(parse_actions).run()
         await state.step()
 
 
@@ -482,7 +482,7 @@ def cli(
         ),
     )
 
-    base_chat: rg.PendingChat = generator.chat(
+    base_chat: rg.ChatPipeline = generator.chat(
         [{"role": "system", "content": SYSTEM_PROMPT}],
         rg.GenerateParams(max_tokens=4096),
     )

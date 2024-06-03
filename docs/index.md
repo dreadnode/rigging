@@ -126,7 +126,7 @@ print(chat.all)
 1. [`generator.chat`][rigging.generator.Generator.chat] is actually just a helper for
    [`chat(generator, ...)`][rigging.generator.chat], they do the same thing.
 
-??? note "PendingChat vs Chat"
+??? note "ChatPipeline vs Chat"
 
     You'll notice we name the result of `chat()` as `pending`. The naming might be confusing,
     but chats go through 2 phases. We first stage them into a pending state, where we operate
@@ -134,12 +134,12 @@ print(chat.all)
 
     Calling `.chat()` doesn't trigger any generation, but calling any of these run methods will:
 
-    - [rigging.chat.PendingChat.run][]
-    - [rigging.chat.PendingChat.run_many][]
-    - [rigging.chat.PendingChat.run_batch][]
+    - [rigging.chat.ChatPipeline.run][]
+    - [rigging.chat.ChatPipeline.run_many][]
+    - [rigging.chat.ChatPipeline.run_batch][]
 
 In this case, we have nothing additional we want to add to our pending chat, and we are only interested
-in generating exactly one response message. We simply call [`.run()`][rigging.chat.PendingChat.chat] to
+in generating exactly one response message. We simply call [`.run()`][rigging.chat.ChatPipeline.chat] to
 execute the generation process and collect our final [`Chat`][rigging.chat.Chat] object.
 
 ```py hl_lines="10-11"
@@ -166,14 +166,14 @@ give you access to exactly what messages were passed into a model, and what came
 
 ### Conversation
 
-Both [`PendingChat`][rigging.chat.PendingChat] and [`Chat`][rigging.chat.Chat] objects provide freedom
+Both [`ChatPipeline`][rigging.chat.ChatPipeline] and [`Chat`][rigging.chat.Chat] objects provide freedom
 for forking off the current state of messages, or continuing a stream of messages after generation has occured.
 
 In general:
 
-- [`PendingChat.fork`][rigging.chat.PendingChat.fork] will clone the current pending chat and let you maintain
+- [`ChatPipeline.fork`][rigging.chat.ChatPipeline.fork] will clone the current pending chat and let you maintain
   both the new and original object for continued processing.
-- [`Chat.fork`][rigging.chat.Chat.fork] will produce a fresh `PendingChat` from all the messages prior to the
+- [`Chat.fork`][rigging.chat.Chat.fork] will produce a fresh `ChatPipeline` from all the messages prior to the
   previous generation (useful for "going back" in time).
 - [`Chat.continue_`][rigging.chat.Chat.continue_] is similar to `fork` (actually a wrapper) which tells `fork` to
   include the generated messages as you move on (useful for "going forward" in time).
@@ -300,7 +300,7 @@ desired output structure. If the last message content is invalid in some way, ou
 will result in an exception from rigging. Rigging is designed at it's core to manage this process, 
 and we have a few options:
 
-1. We can extend our pending chat with [`.until_parsed_as()`][rigging.chat.PendingChat] which will cause the
+1. We can extend our pending chat with [`.until_parsed_as()`][rigging.chat.ChatPipeline] which will cause the
    `run()` function to internally check if parsing is succeeding before returning the chat back to you.
 2. We can make the parsing optional by switching to [`.try_parse()`][rigging.message.Message.try_parse]. The type
    of the return value with automatically switch to `#!python FunFact | None` and you can handle cases
@@ -324,20 +324,20 @@ and we have a few options:
     !!! note "Double Parsing"
     
         We still have to call [`.parse()`][rigging.message.Message.parse] on the message despite
-        using [`.until_parsed_as()`][rigging.chat.PendingChat.until_parsed_as]. This is
-        a limitation of type hinting as we'd have to turn every `PendingChat` and `Chat` into a generic
+        using [`.until_parsed_as()`][rigging.chat.ChatPipeline.until_parsed_as]. This is
+        a limitation of type hinting as we'd have to turn every `ChatPipeline` and `Chat` into a generic
         which could carry types forward. It's a small price for big code complexity savings. However,
-        the use of [`.until_parsed_as()`][rigging.chat.PendingChat.until_parsed_as] **will** cause
+        the use of [`.until_parsed_as()`][rigging.chat.ChatPipeline.until_parsed_as] **will** cause
         the generated messages to have parsed models in their [`.parts`][rigging.message.Message.parts].
         So if you don't need to access the typed object immediately, you can be confident serializing
         the chat object and the model will be there when you need it.
 
     !!! note "Max Rounds Concept"
 
-        When control is passed into a pending chat with [`.until_parsed_as()`][rigging.chat.PendingChat.until_parsed_as],
+        When control is passed into a pending chat with [`.until_parsed_as()`][rigging.chat.ChatPipeline.until_parsed_as],
         a callback is registered internally to operate during generation. When model output is received, the
         callback will attempt to parse, and if it fails, it will re-trigger generation with or without context depending
-        on the [`attempt_recovery`][rigging.chat.PendingChat.until_parsed_as] parameter. This process will repeat
+        on the [`attempt_recovery`][rigging.chat.ChatPipeline.until_parsed_as] parameter. This process will repeat
         until the model produces a valid output or the maximum number of "rounds" is reached.
 
         Often you might find yourself constantly getting [`ExhaustedMaxRoundsError`][rigging.error.ExhaustedMaxRoundsError]
@@ -345,9 +345,9 @@ and we have a few options:
         complexity in your model is too high. You have a few options for gracefull handling these situations:
         
         1. You can adjust the `max_rounds` as needed and try using `attempt_recovery`.
-        2. Pass `allow_failed`/`include_failed` to your [`run()`][rigging.chat.PendingChat.run] 
+        2. Pass `allow_failed`/`include_failed` to your [`run()`][rigging.chat.ChatPipeline.run] 
             methods and check the [`.failed`][rigging.chat.Chat.failed] property after generation
-        3. Use an external callback like [`.then()`][rigging.chat.PendingChat.then] to 
+        3. Use an external callback like [`.then()`][rigging.chat.ChatPipeline.then] to 
             get more external control over the process.
 
 === "Option 2 - Try Parse"
@@ -366,7 +366,7 @@ and we have a few options:
 
 Assuming we wanted to extend our example to produce a set of interesting facts, we have a couple of options:
 
-1. Simply use [`run_many()`][rigging.chat.PendingChat.run_many] and generate N examples individually
+1. Simply use [`run_many()`][rigging.chat.ChatPipeline.run_many] and generate N examples individually
 2. Rework our code slightly and let the model provide us multiple facts at once.
 
 === "Option 1 - Multiple Generations"

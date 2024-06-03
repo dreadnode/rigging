@@ -210,7 +210,7 @@ class State:
     # Required
     id: int
     max_actions: int
-    base_chat: rg.PendingChat
+    base_chat: rg.ChatPipeline
 
     # Progress
     result: t.Optional[str] = ""
@@ -367,7 +367,7 @@ async def agent_loop(state: State) -> State:
         return None
 
     while not state.result:
-        await state.base_chat.fork(state.get_prompt()).then(parse_actions).arun()
+        await state.base_chat.fork(state.get_prompt()).then(parse_actions).run()
         await state.step()
 
     return state

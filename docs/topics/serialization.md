@@ -93,14 +93,14 @@ Let's build a joke pipeline and serialize the final chat into JSON.
 
 You'll notice that every Chat gets a unique `id` field to help track them in a datastore like Elastic or Pandas. We also
 assign a `timestamp` to understand when the generation took place. We are also taking advantage of the
-[`.meta()`][rigging.chat.PendingChat.meta] to add a tracking tag for filtering later.
+[`.meta()`][rigging.chat.ChatPipeline.meta] to add a tracking tag for filtering later.
 
 ## JSON Deserialization
 
 The JSON has everything required to reconstruct a Chat including a `generator_id` dynamically
 constructed to perserve the parameters used to create the generated message(s). We can now
 deserialize a chat from a datastore, and immediately step back into a 
-[`PendingChat`][rigging.chat.PendingChat] for exploration.
+[`ChatPipeline`][rigging.chat.ChatPipeline] for exploration.
 
 ```py
 chat = rg.Chat.model_validate_json(serialized)

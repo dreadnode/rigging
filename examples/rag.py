@@ -4,10 +4,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 import typing as t
 import uuid
+from functools import wraps
 from pathlib import Path
 
 import click
@@ -16,6 +18,7 @@ from elasticsearch import Elasticsearch
 from elasticsearch import helpers as es_helpers
 from loguru import logger
 from pydantic import BaseModel
+from typing_extensions import ParamSpec
 
 import rigging as rg
 from rigging import logging
@@ -40,6 +43,18 @@ CHUNK_SIZE = 2500
 OVERLAP_SIZE = 500
 
 # Helpers
+
+
+P = ParamSpec("P")
+R = t.TypeVar("R")
+
+
+def wrap_async_to_sync(func: t.Callable[P, t.Coroutine[t.Any, t.Any, R]]) -> t.Callable[P, R]:
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        return asyncio.run(func(*args, **kwargs))
+
+    return wrapper
 
 
 class RawDocument(t.TypedDict):
@@ -405,7 +420,8 @@ def cli(
     help="Maximum number of references to send to the LLM",
 )
 @click.pass_context
-def search(ctx: click.Context, query: str, generator_id: str, max_refs: int) -> None:
+@wrap_async_to_sync
+async def search(ctx: click.Context, query: str, generator_id: str, max_refs: int) -> None:
     """
     Perform a RAG-augmented query with the Elasticsearch database.
     """
@@ -422,7 +438,7 @@ def search(ctx: click.Context, query: str, generator_id: str, max_refs: int) -> 
 
     generator = rg.get_generator(generator_id)
 
-    chat = generator.chat(
+    chat = await generator.chat(
         [
             {"role": "system", "content": SYSTEM_PROMPT + "\n\n" + ref_db.hybrid_search(query, max_refs)},
             {"role": "user", "content": query},

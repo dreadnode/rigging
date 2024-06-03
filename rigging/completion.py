@@ -109,20 +109,20 @@ class Completion(BaseModel):
         """Returns both the text and the generation."""
         return self.text + self.generated
 
-    def restart(self, *, generator: t.Optional[Generator] = None, include_all: bool = False) -> PendingCompletion:
+    def restart(self, *, generator: t.Optional[Generator] = None, include_all: bool = False) -> CompletionPipeline:
         """
-        Attempt to convert back to a PendingCompletion for further generation.
+        Attempt to convert back to a CompletionPipeline for further generation.
 
         Args:
             generator: The generator to use for the restarted completion. Otherwise
-                the generator from the original PendingCompletion will be used.
+                the generator from the original CompletionPipeline will be used.
             include_all: Whether to include the generation before the next round.
 
         Returns:
             The restarted completion.
 
         Raises:
-            ValueError: If the completion was not created with a PendingCompletion and no generator is provided.
+            ValueError: If the completion was not created with a CompletionPipeline and no generator is provided.
         """
 
         text = self.all if include_all else self.generated
@@ -132,7 +132,7 @@ class Completion(BaseModel):
             raise ValueError("Cannot restart a completion without an associated generator")
         return generator.complete(text, self.params)
 
-    def fork(self, text: str, *, include_all: bool = False) -> PendingCompletion:
+    def fork(self, text: str, *, include_all: bool = False) -> CompletionPipeline:
         """
         Forks the completion by creating calling [rigging.completion.Completion.restart][] and appends the specified text.
 
@@ -140,11 +140,11 @@ class Completion(BaseModel):
             text: The text to append.
 
         Returns:
-            A new instance of a pending competion with the specified messages added.
+            A new instance of the pipeline with the specified messages added.
         """
         return self.restart(include_all=include_all).add(text)
 
-    def continue_(self, text: str) -> PendingCompletion:
+    def continue_(self, text: str) -> CompletionPipeline:
         """Alias for the [rigging.completion.Completion.fork][] with `include_all=True`."""
         return self.fork(text, include_all=True)
 
@@ -221,9 +221,9 @@ class RunState:
     watched: bool = False
 
 
-class PendingCompletion:
+class CompletionPipeline:
     """
-    Represents a pending completion that can be modified and executed.
+    Pipeline to manipulate and produce completions.
     """
 
     def __init__(
@@ -253,7 +253,7 @@ class PendingCompletion:
     def __len__(self) -> int:
         return len(self.text)
 
-    def with_(self, params: t.Optional[GenerateParams] = None, **kwargs: t.Any) -> PendingCompletion:
+    def with_(self, params: t.Optional[GenerateParams] = None, **kwargs: t.Any) -> CompletionPipeline:
         """
         Assign specific generation parameter overloads for this completion.
 
@@ -278,7 +278,7 @@ class PendingCompletion:
         self.params = params
         return self
 
-    def watch(self, *callbacks: WatchCompletionCallback, allow_duplicates: bool = False) -> PendingCompletion:
+    def watch(self, *callbacks: WatchCompletionCallback, allow_duplicates: bool = False) -> CompletionPipeline:
         """
         Registers a callback to monitor any completions produced.
 
@@ -290,7 +290,7 @@ class PendingCompletion:
         async def log(completions: list[Completion]) -> None:
             ...
 
-        pending.watch(log).run()
+        pipeline.watch(log).run()
         ```
 
         Returns:
@@ -301,7 +301,7 @@ class PendingCompletion:
                 self.watch_callbacks.append(callback)
         return self
 
-    def then(self, callback: ThenCompletionCallback) -> PendingCompletion:
+    def then(self, callback: ThenCompletionCallback) -> CompletionPipeline:
         """
         Registers a callback to be executed after the generation process completes.
 
@@ -313,19 +313,19 @@ class PendingCompletion:
         async def process(completion: Completion) -> Completion | None:
             ...
 
-        pending.then(process).run()
+        pipeline.then(process).run()
         ```
 
         Args:
             callback: The callback function to be executed.
 
         Returns:
-            The current instance of the pending completion.
+            The current instance of the pipeline.
         """
         self.then_callbacks.append(callback)
         return self
 
-    def map(self, callback: MapCompletionCallback) -> PendingCompletion:
+    def map(self, callback: MapCompletionCallback) -> CompletionPipeline:
         """
         Registers a callback to be executed after the generation process completes.
 
@@ -337,7 +337,7 @@ class PendingCompletion:
         async def process(completions: list[Completion]) -> list[Completion]:
             ...
 
-        pending.map(process).run()
+        pipeline.map(process).run()
         ```
 
         Args:
@@ -349,7 +349,7 @@ class PendingCompletion:
         self.map_callbacks.append(callback)
         return self
 
-    def add(self, text: str) -> PendingCompletion:
+    def add(self, text: str) -> CompletionPipeline:
         """
         Appends new text to the internal text before generation.
 
@@ -357,14 +357,14 @@ class PendingCompletion:
             text: The text to be added to the completion.
 
         Returns:
-            The updated PendingCompletion object.
+            The updated CompletionPipeline object.
         """
         self.text += text
         return self
 
-    def fork(self, text: str) -> PendingCompletion:
+    def fork(self, text: str) -> CompletionPipeline:
         """
-        Creates a new instance of `PendingCompletion` by forking the current completion and adding the specified text.
+        Creates a new instance of `CompletionPipeline` by forking the current completion and adding the specified text.
 
         This is a convenience method for calling `clone().add(text)`.
 
@@ -372,30 +372,30 @@ class PendingCompletion:
             text: The text to be added to the new completion.
 
         Returns:
-            A new instance of `PendingCompletion` with the specified text added.
+            A new instance of `CompletionPipeline` with the specified text added.
         """
         return self.clone().add(text)
 
-    def clone(self, *, only_text: bool = False) -> PendingCompletion:
+    def clone(self, *, only_text: bool = False) -> CompletionPipeline:
         """
-        Creates a clone of the current `PendingCompletion` instance.
+        Creates a clone of the current `CompletionPipeline` instance.
 
         Args:
             only_text: If True, only the text will be cloned.
-                If False (default), the entire `PendingCompletion` instance will be cloned
+                If False (default), the entire `CompletionPipeline` instance will be cloned
                 including until callbacks, types, and metadata.
 
         Returns:
-            A new instance of `PendingCompletion` that is a clone of the current instance.
+            A new instance of `CompletionPipeline` that is a clone of the current instance.
         """
-        new = PendingCompletion(self.generator, self.text, params=self.params, watch_callbacks=self.watch_callbacks)
+        new = CompletionPipeline(self.generator, self.text, params=self.params, watch_callbacks=self.watch_callbacks)
         if not only_text:
             new.until_callbacks = self.until_callbacks.copy()
             new.until_types = self.until_types.copy()
             new.metadata = deepcopy(self.metadata)
         return new
 
-    def meta(self, **kwargs: t.Any) -> PendingCompletion:
+    def meta(self, **kwargs: t.Any) -> CompletionPipeline:
         """
         Updates the metadata of the completion with the provided key-value pairs.
 
@@ -408,18 +408,18 @@ class PendingCompletion:
         self.metadata.update(kwargs)
         return self
 
-    def apply(self, **kwargs: str) -> PendingCompletion:
+    def apply(self, **kwargs: str) -> CompletionPipeline:
         """
         Applies keyword arguments to the text using string template substitution.
 
         Note:
-            This produces a clone of the PendingCompletion, leaving the original unchanged.
+            This produces a clone of the CompletionPipeline, leaving the original unchanged.
 
         Args:
             **kwargs: Keyword arguments to be applied to the text.
 
         Returns:
-            A new instance of PendingCompletion with the applied arguments.
+            A new instance of CompletionPipeline with the applied arguments.
         """
         new = self.clone()
         template = string.Template(self.text)
@@ -432,7 +432,7 @@ class PendingCompletion:
         *,
         use_all_text: bool = False,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
-    ) -> PendingCompletion:
+    ) -> CompletionPipeline:
         """
         Registers a callback to participate in validating the generation process.
 
@@ -445,7 +445,7 @@ class PendingCompletion:
             else:
                 return True
 
-        pending.until(callback).run()
+        pipeline.until(callback).run()
         ```
 
         Args:
@@ -466,7 +466,7 @@ class PendingCompletion:
         *types: type[ModelT],
         use_all_text: bool = False,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
-    ) -> PendingCompletion:
+    ) -> CompletionPipeline:
         """
         Adds the specified types to the list of types which should successfully parse
         before the generation process completes.
@@ -477,7 +477,7 @@ class PendingCompletion:
             max_rounds: The maximum number of rounds to try to parse successfully.
 
         Returns:
-            The updated PendingCompletion object.
+            The updated CompletionPipeline object.
         """
         self.until_types += types
         if next((c for c in self.until_callbacks if c[0] == self._until_parse_callback), None) is None:

@@ -1,18 +1,18 @@
 # Callbacks and Mapping
 
 Rigging is designed to give control over how the generation process works, and what occurs after. In fact, 
-higher level functions like [`.using()`][rigging.chat.PendingChat.using] and [`.until_parsed_as()`][rigging.chat.PendingChat]
+higher level functions like [`.using()`][rigging.chat.ChatPipeline.using] and [`.until_parsed_as()`][rigging.chat.ChatPipeline]
 leverage a generic callback system underneath to guide generation. Let's walk through them.
 
 ## Until Callbacks
 
 If you want to gain control over the generation process before it completes, you can use the
-[`PendingChat.until()`][rigging.chat.PendingChat.until] or [`PendingCompletion.until()`][rigging.completion.PendingCompletion.until]
+[`ChatPipeline.until()`][rigging.chat.ChatPipeline.until] or [`CompletionPipeline.until()`][rigging.completion.CompletionPipeline.until]
 methods. These allow you to register a callback function which participates in generation and
 can decide whether generation should proceed, and exactly how it does so. For chat interfaces, these
 functions also get fine control over the contents of the chat while callbacks are resolving. This
 is how we can provide feedback to an LLM model during generation like validation errors when
-parsing fails ([`attempt_recovery`][rigging.chat.PendingChat.until]).
+parsing fails ([`attempt_recovery`][rigging.chat.ChatPipeline.until]).
 
 ```py
 import rigging as rg
@@ -45,7 +45,7 @@ print(chat.last.parse(Joke))
 
 1. Returning `True` from this callback tells Rigging to go back to the generator with the supplied
    messages and rerun the generation step. Whether you're appended messages are used is dependent
-   on the `attempt_recovery=True` on [`PendingChat.until()`][rigging.chat.PendingChat.until]. In
+   on the `attempt_recovery=True` on [`ChatPipeline.until()`][rigging.chat.ChatPipeline.until]. In
    this instance our request to include a cat will be appending to the intermediate messages while
    generation completes. We can essentially provide feedback to the model about how it should attempt
    to satisfy the callback function.
@@ -53,9 +53,9 @@ print(chat.last.parse(Joke))
    our callbacks in the final Chat. It's up to you whether you want these intermediate messages
    included or not. The default is to drop them once the callbacks resolve.
 
-??? "Using .until on PendingCompletion"
+??? "Using .until on CompletionPipeline"
 
-    The interface for a `PendingCompletion` is very similar to `PendingChat`, except that you
+    The interface for a `CompletionPipeline` is very similar to `ChatPipeline`, except that you
     are only allowed to make a statement about whether generation should retry. You are not
     currently allowed to inject additional text as intermediate context while your callback
     is attempting to resolve.
@@ -64,7 +64,7 @@ print(chat.last.parse(Joke))
 
 If you want to allow the generation process to avoid raising an exception when the maximum
 rounds is exhausted, you can pass `allow_failed=True`, `include_failed=True`, or `skip_failed=True`
-to the various [run methods][rigging.chat.PendingChat.run] of a `PendingChat` or `PendingCompletion`.
+to the various [run methods][rigging.chat.ChatPipeline.run] of a `ChatPipeline` or `CompletionPipeline`.
 
 This breaks any guarantees about the validity of final chat objects, but you can check their status
 with the [`Chat.failed`][rigging.chat.Chat.failed] or [`Completion.failed`][rigging.completion.Completion.failed] properties.
@@ -139,10 +139,10 @@ to a complete list of the requested batch/many.
 ## Then Callbacks
 
 You might prefer to have your callbacks execute after generation completes, and operate on
-the Chat/Completion objects from there. This is functionally very similar to [`PendingChat.until()`][rigging.chat.PendingChat.until]
+the Chat/Completion objects from there. This is functionally very similar to [`ChatPipeline.until()`][rigging.chat.ChatPipeline.until]
 and might be preferred to expose more of the parsing internals to your code as opposed to
-the opaque nature of other callback types. Use the [`PendingChat.then()`][rigging.chat.PendingChat.then]
-to register any number of callbacks before executing [`PendingChat.run()`][rigging.chat.PendingChat.run].
+the opaque nature of other callback types. Use the [`ChatPipeline.then()`][rigging.chat.ChatPipeline.then]
+to register any number of callbacks before executing [`ChatPipeline.run()`][rigging.chat.ChatPipeline.run].
 
 !!! tip "Branching Chats"
 
@@ -153,8 +153,8 @@ to register any number of callbacks before executing [`PendingChat.run()`][riggi
 ??? tip "Async Callbacks"
 
     You are free to define async versions of your callbacks here, but the type of callbacks
-    registered has to match your use of either sync [`.run()`][rigging.chat.PendingChat.run] variants
-    or their async [`.arun()`][rigging.chat.PendingChat.arun] versions.
+    registered has to match your use of either sync [`.run()`][rigging.chat.ChatPipeline.run] variants
+    or their async [`.arun()`][rigging.chat.ChatPipeline.arun] versions.
 
 === "Using .then()"
 
@@ -208,8 +208,8 @@ to register any number of callbacks before executing [`PendingChat.run()`][riggi
 ## Map Callbacks
 
 Rigging also allows you to map process a group of Chats all at once. This is particularly
-useful for instances of uses of [`.run_many()`][rigging.chat.PendingChat.run_many], 
-[`.run_batch()`][rigging.chat.PendingChat.run_batch], or their async variants.
+useful for instances of uses of [`.run_many()`][rigging.chat.ChatPipeline.run_many], 
+[`.run_batch()`][rigging.chat.ChatPipeline.run_batch], or their async variants.
 
 You also might want to take certain actions depending on the state of a set of Chats
 all at once. For instance, attempting re-generation if a certain % of Chats didn't
@@ -218,8 +218,8 @@ meet some criteria.
 ??? tip "Async Callbacks"
 
     You are free to define async versions of your callbacks here, but the type of callbacks
-    registered has to match your use of either sync [`.run_many()`][rigging.chat.PendingChat.run_many] variants
-    or their async [`.arun_many()`][rigging.chat.PendingChat.run_many] versions.
+    registered has to match your use of either sync [`.run_many()`][rigging.chat.ChatPipeline.run_many] variants
+    or their async [`.arun_many()`][rigging.chat.ChatPipeline.run_many] versions.
 
 === "Using .map()"
 

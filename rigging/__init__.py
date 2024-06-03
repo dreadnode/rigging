@@ -1,5 +1,5 @@
-from rigging.chat import Chat, PendingChat
-from rigging.completion import Completion, PendingCompletion
+from rigging.chat import Chat, ChatPipeline
+from rigging.completion import Completion, CompletionPipeline
 from rigging.data import (
     chats_to_df,
     chats_to_elastic,
@@ -37,7 +37,7 @@ __all__ = [
     "element",
     "wrapped",
     "Chat",
-    "PendingChat",
+    "ChatPipeline",
     "Generator",
     "GenerateParams",
     "GeneratedMessage",
@@ -45,7 +45,7 @@ __all__ = [
     "chat",
     "complete",
     "Completion",
-    "PendingCompletion",
+    "CompletionPipeline",
     "register_generator",
     "chats_to_df",
     "df_to_chats",

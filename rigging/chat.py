@@ -157,20 +157,20 @@ class Chat(BaseModel):
         self.metadata.update(kwargs)
         return self
 
-    def restart(self, *, generator: t.Optional[Generator] = None, include_all: bool = False) -> PendingChat:
+    def restart(self, *, generator: t.Optional[Generator] = None, include_all: bool = False) -> ChatPipeline:
         """
-        Attempt to convert back to a PendingChat for further generation.
+        Attempt to convert back to a ChatPipeline for further generation.
 
         Args:
             generator: The generator to use for the restarted chat. Otherwise
-                the generator from the original PendingChat will be used.
+                the generator from the original ChatPipeline will be used.
             include_all: Whether to include the next messages in the restarted chat.
 
         Returns:
             The restarted chat.
 
         Raises:
-            ValueError: If the chat was not created with a PendingChat and no generator is provided.
+            ValueError: If the chat was not created with a ChatPipeline and no generator is provided.
         """
         messages = self.all if include_all else self.messages
         if generator is None:
@@ -184,22 +184,22 @@ class Chat(BaseModel):
         messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | MessageDict | str,
         *,
         include_all: bool = False,
-    ) -> PendingChat:
+    ) -> ChatPipeline:
         """
         Forks the chat by creating calling [rigging.chat.Chat.restart][] and appending the specified messages.
 
         Args:
             messages:
-                The messages to be added to the new `PendingChat` instance.
+                The messages to be added to the new `ChatPipeline` instance.
             include_all: Whether to include the next messages in the restarted chat.
 
         Returns:
-            A new instance of `PendingChat` with the specified messages added.
+            A new instance of `ChatPipeline` with the specified messages added.
 
         """
         return self.restart(include_all=include_all).add(messages)
 
-    def continue_(self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | str) -> PendingChat:
+    def continue_(self, messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | str) -> ChatPipeline:
         """Alias for the [rigging.chat.Chat.fork][] with `include_all=True`."""
         return self.fork(messages, include_all=True)
 
@@ -383,9 +383,9 @@ class RunState:
     watched: bool = False
 
 
-class PendingChat:
+class ChatPipeline:
     """
-    Represents a pending chat that can be modified and executed.
+    Pipeline to manipulate and produce chats.
     """
 
     def __init__(
@@ -398,7 +398,7 @@ class PendingChat:
     ):
         self.generator: Generator = generator
         """The generator object responsible for generating the chat."""
-        self.chat: Chat = Chat(messages, pending=self)
+        self.chat: Chat = Chat(messages)
         """The chat object representing the conversation."""
         self.params = params
         """The parameters for generating messages."""
@@ -418,7 +418,7 @@ class PendingChat:
     def __len__(self) -> int:
         return len(self.chat)
 
-    def with_(self, params: t.Optional[GenerateParams] = None, **kwargs: t.Any) -> PendingChat:
+    def with_(self, params: t.Optional[GenerateParams] = None, **kwargs: t.Any) -> ChatPipeline:
         """
         Assign specific generation parameter overloads for this chat.
 
@@ -430,7 +430,7 @@ class PendingChat:
             **kwargs: An alternative way to pass parameters as keyword arguments.
 
         Returns:
-            A new instance of PendingChat with the updated parameters.
+            A new instance of ChatPipeline with the updated parameters.
         """
         if params is None:
             params = GenerateParams(**kwargs)
@@ -443,7 +443,7 @@ class PendingChat:
         self.params = params
         return self
 
-    def watch(self, *callbacks: WatchChatCallback, allow_duplicates: bool = False) -> PendingChat:
+    def watch(self, *callbacks: WatchChatCallback, allow_duplicates: bool = False) -> ChatPipeline:
         """
         Registers a callback to monitor any chats produced.
 
@@ -455,7 +455,7 @@ class PendingChat:
         async def log(chats: list[Chat]) -> None:
             ...
 
-        pending.watch(log).run()
+        pipeline.watch(log).run()
         ```
 
         Returns:
@@ -466,7 +466,9 @@ class PendingChat:
                 self.watch_callbacks.append(callback)
         return self
 
-    def add(self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str) -> PendingChat:
+    def add(
+        self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
+    ) -> ChatPipeline:
         """
         Appends new message(s) to the internal chat before generation.
 
@@ -478,7 +480,7 @@ class PendingChat:
             messages: The messages to be added to the chat. It can be a single message or a sequence of messages.
 
         Returns:
-            The updated PendingChat object.
+            The updated ChatPipeline object.
         """
         message_list = Message.fit_as_list(messages)
         # If the last message is the same role as the first new message, append to it
@@ -491,9 +493,9 @@ class PendingChat:
 
     def fork(
         self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
-    ) -> PendingChat:
+    ) -> ChatPipeline:
         """
-        Creates a new instance of `PendingChat` by forking the current chat and adding the specified messages.
+        Creates a new instance of `ChatPipeline` by forking the current chat and adding the specified messages.
 
         This is a convenience method for calling `clone().add(messages)`.
 
@@ -501,23 +503,23 @@ class PendingChat:
             messages: A sequence of messages or a single message to be added to the new chat.
 
         Returns:
-            A new instance the pending chat with the specified messages added.
+            A new instance the pipeline with the specified messages added.
         """
         return self.clone().add(messages)
 
-    def clone(self, *, only_messages: bool = False) -> PendingChat:
+    def clone(self, *, only_messages: bool = False) -> ChatPipeline:
         """
-        Creates a clone of the current `PendingChat` instance.
+        Creates a clone of the current `ChatPipeline` instance.
 
         Args:
             only_messages: If True, only the messages will be cloned.
-                If False (default), the entire `PendingChat` instance will be cloned
+                If False (default), the entire `ChatPipeline` instance will be cloned
                 including until callbacks, types, tools, metadata, etc.
 
         Returns:
-            A new instance of `PendingChat` that is a clone of the current instance.
+            A new instance of `ChatPipeline` that is a clone of the current instance.
         """
-        new = PendingChat(self.generator, [], params=self.params, watch_callbacks=self.watch_callbacks)
+        new = ChatPipeline(self.generator, [], params=self.params, watch_callbacks=self.watch_callbacks)
         new.chat = self.chat.clone()
         if not only_messages:
             new.until_callbacks = self.until_callbacks.copy()
@@ -528,7 +530,7 @@ class PendingChat:
             new.metadata = deepcopy(self.metadata)
         return new
 
-    def meta(self, **kwargs: t.Any) -> PendingChat:
+    def meta(self, **kwargs: t.Any) -> ChatPipeline:
         """
         Updates the metadata of the chat with the provided key-value pairs.
 
@@ -541,7 +543,7 @@ class PendingChat:
         self.metadata.update(kwargs)
         return self
 
-    def then(self, callback: ThenChatCallback) -> PendingChat:
+    def then(self, callback: ThenChatCallback) -> ChatPipeline:
         """
         Registers a callback to be executed after the generation process completes.
 
@@ -554,7 +556,7 @@ class PendingChat:
         async def process(chat: Chat) -> Chat | None:
             ...
 
-        pending.then(process).run()
+        pipeline.then(process).run()
         ```
 
         Args:
@@ -566,7 +568,7 @@ class PendingChat:
         self.then_callbacks.append(callback)
         return self
 
-    def map(self, callback: MapChatCallback) -> PendingChat:
+    def map(self, callback: MapChatCallback) -> ChatPipeline:
         """
         Registers a callback to be executed after the generation process completes.
 
@@ -579,7 +581,7 @@ class PendingChat:
         async def process(chats: list[Chat]) -> list[Chat]:
             ...
 
-        pending.map(process).run()
+        pipeline.map(process).run()
         ```
 
         Args:
@@ -591,29 +593,29 @@ class PendingChat:
         self.map_callbacks.append(callback)
         return self
 
-    def apply(self, **kwargs: str) -> PendingChat:
+    def apply(self, **kwargs: str) -> ChatPipeline:
         """
-        Clones this pending chat and calls [rigging.chat.Chat.apply][] with the given keyword arguments.
+        Clones this chat pipeline and calls [rigging.chat.Chat.apply][] with the given keyword arguments.
 
         Args:
             **kwargs: Keyword arguments to be applied to the chat.
 
         Returns:
-            A new instance of PendingChat with the applied arguments.
+            A new instance of ChatPipeline with the applied arguments.
         """
         new = self.clone()
         new.chat.apply(**kwargs)
         return new
 
-    def apply_to_all(self, **kwargs: str) -> PendingChat:
+    def apply_to_all(self, **kwargs: str) -> ChatPipeline:
         """
-        Clones this pending chat and calls [rigging.chat.Chat.apply_to_all][] with the given keyword arguments.
+        Clones this chat pipeline and calls [rigging.chat.Chat.apply_to_all][] with the given keyword arguments.
 
         Args:
             **kwargs: Keyword arguments to be applied to the chat.
 
         Returns:
-            A new instance of PendingChat with the applied arguments.
+            A new instance of ChatPipeline with the applied arguments.
         """
         new = self.clone()
         new.chat.apply_to_all(**kwargs)
@@ -626,7 +628,7 @@ class PendingChat:
         attempt_recovery: bool = True,
         drop_dialog: bool = True,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
-    ) -> PendingChat:
+    ) -> ChatPipeline:
         """
         Registers a callback to participate in validating the generation process.
 
@@ -640,7 +642,7 @@ class PendingChat:
             else:
                 return (True, [message, ...])
 
-        pending.until(callback).run()
+        pipeline.until(callback).run()
         ```
 
         Note:
@@ -671,7 +673,7 @@ class PendingChat:
         drop_dialog: bool = False,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
         inject_prompt: bool | None = None,
-    ) -> PendingChat:
+    ) -> ChatPipeline:
         """
         Adds a tool or a sequence of tools to participate in the generation process.
 
@@ -687,7 +689,7 @@ class PendingChat:
                 system message.and will override self.inject_tool_prompt if provided.
 
         Returns:
-            The updated PendingChat object.
+            The updated ChatPipeline object.
         """
         self.until_tools += tools
         self.inject_tool_prompt = inject_prompt or self.inject_tool_prompt
@@ -709,7 +711,7 @@ class PendingChat:
         attempt_recovery: bool = False,
         drop_dialog: bool = True,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
-    ) -> PendingChat:
+    ) -> ChatPipeline:
         """
         Adds the specified types to the list of types which should successfully parse
         before the generation process completes.
@@ -723,7 +725,7 @@ class PendingChat:
             max_rounds: The maximum number of rounds to try to parse successfully.
 
         Returns:
-            The updated PendingChat object.
+            The updated ChatPipeline object.
         """
         self.until_types += types
         if next((c for c in self.until_callbacks if c[0] == self._until_parse_callback), None) is None:
@@ -836,7 +838,7 @@ class PendingChat:
             max_rounds, [next_message] if not attempt_recovery and next_message else running_messages[:-1]
         )
 
-    # TODO: Much like the PendingCompletion code, it's opaque
+    # TODO: Much like the CompletionPipeline code, it's opaque
     # exactly how multiple callbacks should be blended together
     # when generating. I think we should look at limiting it to
     # one callback in total, but I'll leave the behavior as is
@@ -1028,7 +1030,7 @@ class PendingChat:
         Executes the generation process accross multiple input messages.
 
         Note:
-            Anything already in this pending chat will be used as the `prefix` parameter
+            Anything already in this chat pipeline will be used as the `prefix` parameter
             to [rigging.generator.Generator.generate_messages][].
 
         Parameters:

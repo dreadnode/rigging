@@ -21,7 +21,7 @@ with the other code in rigging. Here are the highlights:
 
 - [`chat`][rigging.generator.Generator.chat] -> [`complete`][rigging.generator.Generator.complete]
 - [`Chat`][rigging.chat.Chat] -> [`Completion`][rigging.completion.Completion]
-- [`PendingChat`][rigging.chat.PendingChat] -> [`PendingCompletion`][rigging.completion.PendingCompletion]
+- [`ChatPipeline`][rigging.chat.ChatPipeline] -> [`CompletionPipeline`][rigging.completion.CompletionPipeline]
 - [`generate_messages`][rigging.generator.Generator.generate_messages] -> [`generate_texts`][rigging.generator.Generator.generate_texts]
 
 On all of these interfaces, you'll note that sequences of [`Message`][rigging.message.Message] objects have been
@@ -29,7 +29,7 @@ replaced with basic `str` objects for both inputs and ouputs.
 
 ## Translator Example
 
-Let's build a simply translator object that we can store as a [`PendingCompletion`][rigging.completion.PendingCompletion]
+Let's build a simply translator object that we can store as a [`CompletionPipeline`][rigging.completion.CompletionPipeline]
 and use it quickly translate a phrase to 3 different languages.
 
 ```py
@@ -67,7 +67,7 @@ for language in ["spanish", "french", "german"]:
 
 1. OpenAPI supports the same model IDs for both completions and chats, but other
    providers might require you to specify a specific model ID used for text completions.
-2. We use [`.with_()`][rigging.completion.PendingCompletion.with_] to set stop tokens
+2. We use [`.with_()`][rigging.completion.CompletionPipeline.with_] to set stop tokens
    and prevent the generation from simply continuing until our max tokens are reached. This
    is a very common and often required pattern when doing completions over chats. Here, we 
    aren't totally sure what the model might generate after our translation, so
@@ -75,6 +75,6 @@ for language in ["spanish", "french", "german"]:
 
 !!! tip "Using .apply()"
 
-    Text completion is a great place to use the [`.apply`][rigging.completion.PendingCompletion.apply]
-    method as we can easily slot in our inputs without using [`.add`][rigging.completion.PendingCompletion.add]
+    Text completion is a great place to use the [`.apply`][rigging.completion.CompletionPipeline.apply]
+    method as we can easily slot in our inputs without using [`.add`][rigging.completion.CompletionPipeline.add]
     and following it with our output section of the prompt.

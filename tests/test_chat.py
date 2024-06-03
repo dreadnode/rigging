@@ -5,7 +5,7 @@ import typing as t
 import pytest
 
 from rigging import Message, MessageDict, Model, attr, element
-from rigging.chat import Chat, PendingChat
+from rigging.chat import Chat, ChatPipeline
 from rigging.error import MissingModelError
 from rigging.generator import GenerateParams, get_generator
 
@@ -253,25 +253,25 @@ def test_chat_properties() -> None:
     assert chat.last == assistant_2
 
 
-def test_pending_chat_continue() -> None:
-    pending = PendingChat(get_generator("gpt-3.5"), [], GenerateParams())
-    continued = pending.fork([Message("user", "Hello")])
+def test_chat_pipeline_continue() -> None:
+    pipeline = ChatPipeline(get_generator("gpt-3.5"), [])
+    continued = pipeline.fork([Message("user", "Hello")])
 
-    assert continued != pending
+    assert continued != pipeline
     assert len(continued.chat) == 1
     assert continued.chat.all[0].content == "Hello"
 
 
-def test_pending_chat_add() -> None:
-    pending = PendingChat(get_generator("gpt-3.5"), [Message("user", "Hello")])
-    added = pending.add(Message("user", "There"))
+def test_chat_pipeline_add() -> None:
+    pipeline = ChatPipeline(get_generator("gpt-3.5"), [Message("user", "Hello")])
+    added = pipeline.add(Message("user", "There"))
 
-    assert added == pending
+    assert added == pipeline
     assert len(added.chat) == 1
     assert added.chat.all[0].content == "Hello\nThere"
 
-    diff_added = pending.add(Message("assistant", "Hi there!"))
-    assert diff_added == added == pending
+    diff_added = pipeline.add(Message("assistant", "Hi there!"))
+    assert diff_added == added == pipeline
     assert len(diff_added.chat) == 2
     assert diff_added.chat.all[1].content == "Hi there!"
 
@@ -295,25 +295,25 @@ def test_chat_continue_maintains_parsed_models() -> None:
     assert len(continued.all[2].parts) == 0
 
 
-def test_pending_chat_meta() -> None:
-    pending = PendingChat(get_generator("gpt-3.5"), [Message("user", "Hello")])
-    with_meta = pending.meta(key="value")
-    assert with_meta == pending
+def test_chat_pipeline_meta() -> None:
+    pipeline = ChatPipeline(get_generator("gpt-3.5"), [Message("user", "Hello")])
+    with_meta = pipeline.meta(key="value")
+    assert with_meta == pipeline
     assert with_meta.metadata == {"key": "value"}
 
 
-def test_pending_chat_with() -> None:
-    pending = PendingChat(get_generator("gpt-3.5"), [Message("user", "Hello")])
-    with_pending = pending.with_(GenerateParams(max_tokens=123))
-    assert with_pending == pending
-    assert with_pending.params is not None
-    assert with_pending.params.max_tokens == 123
+def test_chat_pipeline_with() -> None:
+    pipeline = ChatPipeline(get_generator("gpt-3.5"), [Message("user", "Hello")])
+    with_pipeline = pipeline.with_(GenerateParams(max_tokens=123))
+    assert with_pipeline == pipeline
+    assert with_pipeline.params is not None
+    assert with_pipeline.params.max_tokens == 123
 
-    with_pending_2 = with_pending.with_(GenerateParams(top_p=0.5))
-    assert with_pending_2 != with_pending
-    assert with_pending_2.params is not None
-    assert with_pending_2.params.max_tokens == 123
-    assert with_pending_2.params.top_p == 0.5
+    with_pipeline_2 = with_pipeline.with_(GenerateParams(top_p=0.5))
+    assert with_pipeline_2 != with_pipeline
+    assert with_pipeline_2.params is not None
+    assert with_pipeline_2.params.max_tokens == 123
+    assert with_pipeline_2.params.top_p == 0.5
 
 
 def test_chat_strip() -> None:

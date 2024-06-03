@@ -14,26 +14,30 @@ from rigging.parsing import try_parse
 class FixedGenerator(Generator):
     text: str
 
-    def generate_messages(
+    async def generate_messages(
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[GeneratedMessage]:
         return [GeneratedMessage.from_text(self.text) for _ in messages]
 
-    def generate_texts(self, texts: t.Sequence[str], params: t.Sequence[GenerateParams]) -> t.Sequence[GeneratedText]:
+    async def generate_texts(
+        self, texts: t.Sequence[str], params: t.Sequence[GenerateParams]
+    ) -> t.Sequence[GeneratedText]:
         return [GeneratedText.from_text(self.text) for _ in texts]
 
 
 class EchoGenerator(Generator):
-    def generate_messages(
+    async def generate_messages(
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[GeneratedMessage]:
         return [GeneratedMessage.from_text(m[-1].content) for m in messages]
 
-    def generate_texts(self, texts: t.Sequence[str], params: t.Sequence[GenerateParams]) -> t.Sequence[GeneratedText]:
+    async def generate_texts(
+        self, texts: t.Sequence[str], params: t.Sequence[GenerateParams]
+    ) -> t.Sequence[GeneratedText]:
         return [GeneratedText.from_text(t) for t in texts]
 
 
@@ -41,7 +45,7 @@ class CallbackGenerator(Generator):
     message_callback: t.Callable[[CallbackGenerator, t.Sequence[Message]], str] | None = None
     text_callback: t.Callable[[CallbackGenerator, str], str] | None = None
 
-    def generate_messages(
+    async def generate_messages(
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
@@ -49,13 +53,16 @@ class CallbackGenerator(Generator):
         assert self.message_callback is not None
         return [GeneratedMessage.from_text(self.message_callback(self, m)) for m in messages]
 
-    def generate_texts(self, texts: t.Sequence[str], params: t.Sequence[GenerateParams]) -> t.Sequence[GeneratedText]:
+    async def generate_texts(
+        self, texts: t.Sequence[str], params: t.Sequence[GenerateParams]
+    ) -> t.Sequence[GeneratedText]:
         assert len(texts) == 1
         assert self.text_callback is not None
         return [GeneratedText.from_text(self.text_callback(self, text)) for text in texts]
 
 
-def test_chat_until_parsed_as_with_reset() -> None:
+@pytest.mark.asyncio
+async def test_chat_until_parsed_as_with_reset() -> None:
     generator = CallbackGenerator(model="callback", params=GenerateParams())
 
     def valid_cb(self: CallbackGenerator, messages: t.Sequence[Message]) -> str:
@@ -68,13 +75,14 @@ def test_chat_until_parsed_as_with_reset() -> None:
         return "dropped"
 
     generator.message_callback = invalid_cb
-    chat = generator.chat([{"role": "user", "content": "original"}]).until_parsed_as(YesNoAnswer).run()
+    chat = await generator.chat([{"role": "user", "content": "original"}]).until_parsed_as(YesNoAnswer).run()
     assert len(chat) == 2
     assert chat.last.try_parse(YesNoAnswer) is not None
 
 
 @pytest.mark.parametrize("drop_dialog", [True, False])
-def test_chat_until_parsed_as_with_recovery(drop_dialog: bool) -> None:
+@pytest.mark.asyncio
+async def test_chat_until_parsed_as_with_recovery(drop_dialog: bool) -> None:
     generator = CallbackGenerator(model="callback", params=GenerateParams())
 
     def valid_cb(self: CallbackGenerator, messages: t.Sequence[Message]) -> str:
@@ -100,7 +108,7 @@ def test_chat_until_parsed_as_with_recovery(drop_dialog: bool) -> None:
 
     generator.message_callback = invalid_cb_1
     chat = (
-        generator.chat([{"role": "user", "content": "original"}])
+        await generator.chat([{"role": "user", "content": "original"}])
         .until_parsed_as(YesNoAnswer, attempt_recovery=True, drop_dialog=drop_dialog)
         .run()
     )
@@ -109,7 +117,8 @@ def test_chat_until_parsed_as_with_recovery(drop_dialog: bool) -> None:
     assert chat.last.try_parse(YesNoAnswer) is not None
 
 
-def test_completion_until_parsed_as_with_reset() -> None:
+@pytest.mark.asyncio
+async def test_completion_until_parsed_as_with_reset() -> None:
     generator = CallbackGenerator(model="callback", params=GenerateParams())
 
     def valid_cb(self: CallbackGenerator, text: str) -> str:
@@ -121,17 +130,18 @@ def test_completion_until_parsed_as_with_reset() -> None:
         return "dropped"
 
     generator.text_callback = invalid_cb
-    completion = generator.complete("original").until_parsed_as(YesNoAnswer).run()
+    completion = await generator.complete("original").until_parsed_as(YesNoAnswer).run()
     assert try_parse(completion.generated, YesNoAnswer) is not None
 
 
 @pytest.mark.parametrize("attempt_recovery", [True, False])
-def test_chat_run_include_failed(attempt_recovery: bool) -> None:
+@pytest.mark.asyncio
+async def test_chat_run_include_failed(attempt_recovery: bool) -> None:
     generator = EchoGenerator(model="callback", params=GenerateParams())
     max_rounds = 3
 
     chat = (
-        generator.chat([{"role": "user", "content": "test"}])
+        await generator.chat([{"role": "user", "content": "test"}])
         .until_parsed_as(YesNoAnswer, attempt_recovery=attempt_recovery, max_rounds=max_rounds)
         .run(allow_failed=True)
     )
@@ -142,11 +152,12 @@ def test_chat_run_include_failed(attempt_recovery: bool) -> None:
 
 
 @pytest.mark.parametrize("text", ["test", "<yes-no-answer>yes</yes-no-answer>"])
-def test_chat_run_many_include_failed(text: str) -> None:
+@pytest.mark.asyncio
+async def test_chat_run_many_include_failed(text: str) -> None:
     generator = FixedGenerator(model="callback", params=GenerateParams(), text=text)
 
     chats = (
-        generator.chat([{"role": "user", "content": "test"}])
+        await generator.chat([{"role": "user", "content": "test"}])
         .until_parsed_as(YesNoAnswer)
         .run_many(3, include_failed=True)
     )
@@ -158,11 +169,12 @@ def test_chat_run_many_include_failed(text: str) -> None:
         assert chat.last.content == text
 
 
-def test_chat_run_batch_include_failed() -> None:
+@pytest.mark.asyncio
+async def test_chat_run_batch_include_failed() -> None:
     generator = EchoGenerator(model="callback", params=GenerateParams())
 
     chats = (
-        generator.chat()
+        await generator.chat()
         .until_parsed_as(YesNoAnswer)
         .run_batch(
             [[Message(role="user", content=f"test-{i}")] for i in range(3)],

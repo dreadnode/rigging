@@ -1,7 +1,7 @@
 # Chats and Messages
 
 [`Chat`][rigging.chat.Chat] objects hold a sequence of [`Message`][rigging.message.Message] objects pre and post generation. This
-is the most common way that we interact with LLMs, and the interface of both these and [`PendingChat`][rigging.chat.PendingChat]'s are
+is the most common way that we interact with LLMs, and the interface of both these and [`ChatPipeline`][rigging.chat.ChatPipeline]'s are
 very flexible objects that let you tune the generation process, gather structured outputs, validate parsing, perform text replacements,
 serialize and deserialize, fork conversations, etc.
 
@@ -47,7 +47,7 @@ print(chat.conversation)
 
 ## Templating (apply)
 
-You can use both [`PendingChat.apply()`][rigging.chat.PendingChat.apply] and [`PendingChat.apply_to_all()`][rigging.chat.PendingChat.apply_to_all]
+You can use both [`ChatPipeline.apply()`][rigging.chat.ChatPipeline.apply] and [`ChatPipeline.apply_to_all()`][rigging.chat.ChatPipeline.apply_to_all]
 to swap values prefixed with `$` characters inside message contents for fast templating support.
 
 This functionality uses [string.Template.safe_substitute](https://docs.python.org/3/library/string.html#string.Template.safe_substitute) underneath.
@@ -148,13 +148,13 @@ follow_up = without_reasons.continue_(...).run()
 
 ## Metadata
 
-Both Chats and PendingChats support the concept of arbitrary metadata that you can use to
+Both Chats and ChatPipelines support the concept of arbitrary metadata that you can use to
 store things like tags, metrics, and supporting data for storage, sorting, and filtering.
 
-- [`PendingChat.meta()`][rigging.chat.PendingChat.meta] adds to [`PendingChat.metadata`][rigging.chat.PendingChat.metadata]
+- [`ChatPipeline.meta()`][rigging.chat.ChatPipeline.meta] adds to [`ChatPipeline.metadata`][rigging.chat.ChatPipeline.metadata]
 - [`Chat.meta()`][rigging.chat.Chat.meta] adds to [`Chat.metadata`][rigging.chat.Chat.metadata]
 
-Metadata will carry forward from a PendingChat to a Chat object when generation completes. This
+Metadata will carry forward from a ChatPipeline to a Chat object when generation completes. This
 metadata is also maintained in the [serialization process](serialization.md).
 
 ```py
