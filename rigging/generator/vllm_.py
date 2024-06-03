@@ -36,7 +36,7 @@ class VLLMGenerator(Generator):
         installing rigging as `rigging[all]`.
 
     Note:
-        The async methods currently just call synchronous variants for compatibility.
+        This generator doesn't leverage any async capabilities.
 
     Note:
         The model load into memory will occur lazily when the first generation is requested.
@@ -56,6 +56,9 @@ class VLLMGenerator(Generator):
     """Eager enforcement passed to [`vllm.LLM`](https://docs.vllm.ai/en/latest/offline_inference/llm.html)"""
     trust_remote_code: bool = False
     """Trust remote code passed to [`vllm.LLM`](https://docs.vllm.ai/en/latest/offline_inference/llm.html)"""
+
+    # TODO: We should look at leveraging the AsyncLLMEngine or an
+    # async alternative to the LLM class to allow for async generation
 
     _llm: vllm.LLM | None = None
 
@@ -140,7 +143,7 @@ class VLLMGenerator(Generator):
             for o in outputs
         ]
 
-    def generate_messages(
+    async def generate_messages(
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
@@ -156,14 +159,7 @@ class VLLMGenerator(Generator):
 
         return generated
 
-    async def agenerate_messages(
-        self,
-        messages: t.Sequence[t.Sequence[Message]],
-        params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[GeneratedMessage]:
-        return self.generate_messages(messages, params)
-
-    def generate_texts(
+    async def generate_texts(
         self,
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
@@ -175,13 +171,6 @@ class VLLMGenerator(Generator):
             trace_str(response, f"Generated {i+1}/{len(texts)}")
 
         return generated
-
-    async def agenerate_texts(
-        self,
-        texts: t.Sequence[str],
-        params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[GeneratedText]:
-        return self.generate_texts(texts, params)
 
 
 register_generator("vllm", VLLMGenerator)

@@ -39,7 +39,7 @@ class TransformersGenerator(Generator):
         [`.from_obj()`][rigging.generator.transformers_.TransformersGenerator.from_obj].
 
     Note:
-        The async methods currently just call synchronous variants for compatibility.
+        This generator doesn't leverage any async capabilities.
 
     Note:
         The model load into memory will occur lazily when the first generation is requested.
@@ -159,7 +159,7 @@ class TransformersGenerator(Generator):
         # we should return and standardize this behavior.
         return [GeneratedText(text=o["generated_text"].strip()) for o in outputs]
 
-    def generate_messages(
+    async def generate_messages(
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
@@ -174,14 +174,7 @@ class TransformersGenerator(Generator):
 
         return generated
 
-    async def agenerate_messages(
-        self,
-        messages: t.Sequence[t.Sequence[Message]],
-        params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[GeneratedMessage]:
-        return self.generate_messages(messages, params)
-
-    def generate_texts(
+    async def generate_texts(
         self,
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
@@ -193,13 +186,6 @@ class TransformersGenerator(Generator):
             trace_str(response, f"Generated {i+1}/{len(texts)}")
 
         return generated
-
-    async def agenerate_texts(
-        self,
-        texts: t.Sequence[str],
-        params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[GeneratedText]:
-        return self.generate_texts(texts, params)
 
 
 register_generator("transformers", TransformersGenerator)

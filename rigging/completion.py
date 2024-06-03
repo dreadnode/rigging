@@ -184,7 +184,7 @@ class UntilCompletionCallback(t.Protocol):
 
 @runtime_checkable
 class ThenCompletionCallback(t.Protocol):
-    def __call__(self, completion: Completion) -> Completion | None:
+    async def __call__(self, completion: Completion) -> Completion | None:
         """
         Passed a finalized completion to process and can return a new completion to replace it.
         """
@@ -192,35 +192,24 @@ class ThenCompletionCallback(t.Protocol):
 
 
 @runtime_checkable
-class AsyncThenCompletionCallback(t.Protocol):
-    async def __call__(self, completion: Completion) -> Completion | None:
-        """
-        async variant of the [rigging.completion.ThenCompletionCallback][] protocol.
-        """
-        ...
-
-
-@runtime_checkable
 class MapCompletionCallback(t.Protocol):
-    def __call__(self, completions: list[Completion]) -> list[Completion]:
-        """
-        Passed a finalized completion to process. Can replace completions in the pipeline by returning
-        a new completion object.
-        """
-        ...
-
-
-@runtime_checkable
-class AsyncMapCompletionCallback(t.Protocol):
     async def __call__(self, completions: list[Completion]) -> list[Completion]:
         """
-        async variant of the [rigging.completion.MapCompletionCallback][] protocol.
+        Passed a finalized completion to process.
+
+        This callback can replace, remove, or extend completions
+        in the pipeline.
         """
         ...
 
 
-ThenCompletionCallbacks = t.Union[ThenCompletionCallback, AsyncThenCompletionCallback]
-MapCompletionCallbacks = t.Union[MapCompletionCallback, AsyncMapCompletionCallback]
+@runtime_checkable
+class WatchCompletionCallback(t.Protocol):
+    async def __call__(self, completions: list[Completion]) -> None:
+        """
+        Passed any created completion objects for monitoring/logging.
+        """
+        ...
 
 
 @dataclass
@@ -229,7 +218,7 @@ class RunState:
     params: GenerateParams
     processor: t.Generator[None, str, str]
     completion: Completion | None = None
-    done: bool = False
+    watched: bool = False
 
 
 class PendingCompletion:
@@ -237,7 +226,14 @@ class PendingCompletion:
     Represents a pending completion that can be modified and executed.
     """
 
-    def __init__(self, generator: Generator, text: str, params: t.Optional[GenerateParams] = None):
+    def __init__(
+        self,
+        generator: Generator,
+        text: str,
+        *,
+        params: t.Optional[GenerateParams] = None,
+        watch_callbacks: t.Optional[list[WatchCompletionCallback]] = None,
+    ):
         self.generator: Generator = generator
         """The generator object responsible for generating the completion."""
         self.text = text
@@ -250,8 +246,9 @@ class PendingCompletion:
         # (callback, all_text, max_rounds)
         self.until_callbacks: list[tuple[UntilCompletionCallback, bool, int]] = []
         self.until_types: list[type[Model]] = []
-        self.then_callbacks: list[ThenCompletionCallbacks] = []
-        self.map_callbacks: list[MapCompletionCallbacks] = []
+        self.then_callbacks: list[ThenCompletionCallback] = []
+        self.map_callbacks: list[MapCompletionCallback] = []
+        self.watch_callbacks: list[WatchCompletionCallback] = watch_callbacks or []
 
     def __len__(self) -> int:
         return len(self.text)
@@ -281,6 +278,29 @@ class PendingCompletion:
         self.params = params
         return self
 
+    def watch(self, *callbacks: WatchCompletionCallback, allow_duplicates: bool = False) -> PendingCompletion:
+        """
+        Registers a callback to monitor any completions produced.
+
+        Args:
+            *callbacks: The callback functions to be executed.
+            allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
+
+        ```
+        async def log(completions: list[Completion]) -> None:
+            ...
+
+        pending.watch(log).run()
+        ```
+
+        Returns:
+            The current instance.
+        """
+        for callback in callbacks:
+            if allow_duplicates or callback not in self.watch_callbacks:
+                self.watch_callbacks.append(callback)
+        return self
+
     def then(self, callback: ThenCompletionCallback) -> PendingCompletion:
         """
         Registers a callback to be executed after the generation process completes.
@@ -290,7 +310,7 @@ class PendingCompletion:
             for the remainder of the callbacks + return value of `run()`.
 
         ```
-        def process(completion: Completion) -> Completion | None:
+        async def process(completion: Completion) -> Completion | None:
             ...
 
         pending.then(process).run()
@@ -305,7 +325,7 @@ class PendingCompletion:
         self.then_callbacks.append(callback)
         return self
 
-    def map(self, callback: MapCompletionCallback | AsyncMapCompletionCallback) -> PendingCompletion:
+    def map(self, callback: MapCompletionCallback) -> PendingCompletion:
         """
         Registers a callback to be executed after the generation process completes.
 
@@ -313,12 +333,8 @@ class PendingCompletion:
             You must return a list of completion objects from the callback which will
             represent the state of completions for the remainder of the callbacks and return.
 
-        Warning:
-            If you implement an async callback, you must use the async variant of the
-            run methods when executing the generation process.
-
         ```
-        def process(completions: list[Completion]) -> list[Completion]:
+        async def process(completions: list[Completion]) -> list[Completion]:
             ...
 
         pending.map(process).run()
@@ -367,12 +383,12 @@ class PendingCompletion:
         Args:
             only_text: If True, only the text will be cloned.
                 If False (default), the entire `PendingCompletion` instance will be cloned
-                including until callbacks and types.
+                including until callbacks, types, and metadata.
 
         Returns:
             A new instance of `PendingCompletion` that is a clone of the current instance.
         """
-        new = PendingCompletion(self.generator, self.text, self.params)
+        new = PendingCompletion(self.generator, self.text, params=self.params, watch_callbacks=self.watch_callbacks)
         if not only_text:
             new.until_callbacks = self.until_callbacks.copy()
             new.until_types = self.until_types.copy()
@@ -476,51 +492,20 @@ class PendingCompletion:
             return True
         return False
 
-    def _post_run(self, completions: list[Completion]) -> list[Completion]:
+    async def _watch_callback(self, completions: list[Completion]) -> None:
+        coros = [callback(completions) for callback in self.watch_callbacks]
+        await asyncio.gather(*coros)
+
+    async def _post_run(self, completions: list[Completion]) -> list[Completion]:
         for map_callback in self.map_callbacks:
-            if asyncio.iscoroutinefunction(map_callback):
-                raise ValueError(
-                    f"Cannot use async map() callbacks inside a non-async run call: {map_callback.__name__}"
-                )
-            completions = map_callback(completions)  # type: ignore
-
-        for then_callback in self.then_callbacks:
-            if asyncio.iscoroutinefunction(then_callback):
-                raise ValueError(
-                    f"Cannot use async then() callbacks inside a non-async run call: {then_callback.__name__}"
-                )
-            updated = [then_callback(completion) for completion in completions]
-            completions = [updated[i] or completion for i, completion in enumerate(completions)]  # type: ignore
-
-        return completions
-
-    async def _apost_run(self, completions: list[Completion]) -> list[Completion]:
-        for map_callback in self.map_callbacks:
-            if not asyncio.iscoroutinefunction(map_callback):
-                raise ValueError(
-                    f"Cannot use non-async map() callbacks inside an async run call: {map_callback.__call__.__name__}"
-                )
             completions = await map_callback(completions)
 
         for then_callback in self.then_callbacks:
-            if not asyncio.iscoroutinefunction(then_callback):
-                raise ValueError(
-                    f"Cannot use non-async then() callbacks inside an async run call: {then_callback.__call__.__name__}"
-                )
-            updated = [await then_callback(completion) for completion in completions]
-            completions = [updated[i] or completion for i, completion in enumerate(completions)]
+            coros = [then_callback(chat) for chat in completions]
+            new_completions = await asyncio.gather(*coros)
+            completions = [new or chat for new, chat in zip(new_completions, completions)]
 
         return completions
-
-    def _fit_params(
-        self, count: int, params: t.Sequence[t.Optional[GenerateParams] | None] | None = None
-    ) -> list[GenerateParams]:
-        params = [None] * count if params is None else list(params)
-        if len(params) != count:
-            raise ValueError(f"The number of params must be {count}")
-        if self.params is not None:
-            params = [self.params.merge_with(p) for p in params]
-        return [(p or GenerateParams()) for p in params]
 
     # TODO: It's opaque exactly how we should blend multiple
     # until callbacks together, so here is the current implementation:
@@ -554,24 +539,31 @@ class PendingCompletion:
 
         return generated
 
-    def run(self, *, allow_failed: bool = False) -> Completion:
+    def _fit_params(
+        self, count: int, params: t.Sequence[t.Optional[GenerateParams] | None] | None = None
+    ) -> list[GenerateParams]:
+        params = [None] * count if params is None else list(params)
+        if len(params) != count:
+            raise ValueError(f"The number of params must be {count}")
+        if self.params is not None:
+            params = [self.params.merge_with(p) for p in params]
+        return [(p or GenerateParams()) for p in params]
+
+    async def run(self, *, allow_failed: bool = False) -> Completion:
         """
         Execute the generation process to produce the final completion.
 
         Returns:
             The generated Completion.
         """
-        return self.run_many(1, include_failed=allow_failed)[0]
-
-    async def arun(self, *, allow_failed: bool = False) -> Completion:
-        """async variant of the [rigging.completion.PendingCompletion.run][] method."""
-        return (await self.arun_many(1, include_failed=allow_failed))[0]
+        chats = await self.run_many(1, include_failed=allow_failed)
+        return chats[0]
 
     __call__ = run
 
     # Many messages
 
-    def run_many(
+    async def run_many(
         self,
         count: int,
         *,
@@ -598,7 +590,7 @@ class PendingCompletion:
 
         pending_states = states
         while pending_states:
-            inbounds = self.generator.generate_texts(
+            inbounds = await self.generator.generate_texts(
                 [s.text for s in pending_states], [s.params for s in pending_states]
             )
 
@@ -606,7 +598,6 @@ class PendingCompletion:
                 try:
                     state.processor.send(inbound.text)
                 except StopIteration as stop:
-                    state.done = True
                     state.completion = Completion(
                         self.text,
                         t.cast(str, stop.value),
@@ -620,84 +611,36 @@ class PendingCompletion:
                 except CompletionExhaustedMaxRoundsError as exhausted:
                     if not skip_failed and not include_failed:
                         raise
-                    if include_failed:
-                        state.completion = Completion(
-                            self.text,
-                            exhausted.completion,
-                            generator=self.generator,
-                            params=state.params,
-                            metadata=self.metadata,
-                            stop_reason=inbound.stop_reason,
-                            usage=inbound.usage,
-                            extra=inbound.extra,
-                            failed=True,
-                        )
-                    state.done = True
-
-            pending_states = [s for s in pending_states if not s.done]
-
-        return self._post_run([s.completion for s in states if s.completion is not None])
-
-    async def arun_many(
-        self,
-        count: int,
-        *,
-        params: t.Sequence[t.Optional[GenerateParams]] | None = None,
-        skip_failed: bool = False,
-        include_failed: bool = False,
-    ) -> list[Completion]:
-        """async variant of the [rigging.completion.PendingCompletion.run_many][] method."""
-        if skip_failed and include_failed:
-            raise ValueError("Cannot use both skip_failed and include_failed")
-
-        states: list[RunState] = [RunState(self.text, p, self._process()) for p in self._fit_params(count, params)]
-        _ = [next(state.processor) for state in states]
-
-        pending_states = states
-        while pending_states:
-            inbounds = await self.generator.agenerate_texts(
-                [s.text for s in pending_states], [s.params for s in pending_states]
-            )
-
-            for inbound, state in zip(inbounds, pending_states):
-                try:
-                    state.processor.send(inbound.text)
-                except StopIteration as stop:
-                    state.done = True
                     state.completion = Completion(
                         self.text,
-                        t.cast(str, stop.value),
+                        exhausted.completion,
                         generator=self.generator,
                         params=state.params,
                         metadata=self.metadata,
                         stop_reason=inbound.stop_reason,
                         usage=inbound.usage,
                         extra=inbound.extra,
+                        failed=True,
                     )
-                except CompletionExhaustedMaxRoundsError as exhausted:
-                    if not skip_failed and not include_failed:
-                        raise
-                    if include_failed:
-                        state.completion = Completion(
-                            self.text,
-                            exhausted.completion,
-                            generator=self.generator,
-                            params=state.params,
-                            metadata=self.metadata,
-                            stop_reason=inbound.stop_reason,
-                            usage=inbound.usage,
-                            extra=inbound.extra,
-                            failed=True,
-                        )
-                    state.done = True
 
-            pending_states = [s for s in pending_states if not s.done]
+            pending_states = [s for s in pending_states if s.completion is None]
+            to_watch_states = [s for s in states if s.completion is not None and not s.watched]
 
-        return self._post_run([s.completion for s in states if s.completion is not None])
+            await self._watch_callback([s.completion for s in to_watch_states if s.completion is not None])
+
+            for state in to_watch_states:
+                state.watched = True
+
+        if skip_failed:
+            completions = [s.completion for s in states if s.completion is not None and not s.completion.failed]
+        else:
+            completions = [s.completion for s in states if s.completion is not None]
+
+        return await self._post_run(completions)
 
     # Batch completions
 
-    def run_batch(
+    async def run_batch(
         self,
         many: t.Sequence[str],
         params: t.Sequence[t.Optional[GenerateParams]] | None = None,
@@ -729,7 +672,7 @@ class PendingCompletion:
 
         pending_states = states
         while pending_states:
-            inbounds = self.generator.generate_texts(
+            inbounds = await self.generator.generate_texts(
                 [self.text + s.text for s in pending_states],
                 [s.params for s in pending_states],
             )
@@ -738,7 +681,6 @@ class PendingCompletion:
                 try:
                     state.processor.send(inbound.text)
                 except StopIteration as stop:
-                    state.done = True
                     state.completion = Completion(
                         self.text,
                         t.cast(str, stop.value),
@@ -752,79 +694,29 @@ class PendingCompletion:
                 except CompletionExhaustedMaxRoundsError as exhausted:
                     if not skip_failed and not include_failed:
                         raise
-                    if include_failed:
-                        state.completion = Completion(
-                            self.text,
-                            exhausted.completion,
-                            generator=self.generator,
-                            params=state.params,
-                            metadata=self.metadata,
-                            stop_reason=inbound.stop_reason,
-                            usage=inbound.usage,
-                            extra=inbound.extra,
-                            failed=True,
-                        )
-                    state.done = True
-
-            pending_states = [s for s in pending_states if not s.done]
-
-        return self._post_run([s.completion for s in states if s.completion is not None])
-
-    async def arun_batch(
-        self,
-        many: t.Sequence[str],
-        params: t.Sequence[t.Optional[GenerateParams]] | None = None,
-        *,
-        skip_failed: bool = False,
-        include_failed: bool = False,
-    ) -> list[Completion]:
-        """async variant of the [rigging.completion.PendingCompletion.run_batch][] method."""
-        if skip_failed and include_failed:
-            raise ValueError("Cannot use both skip_failed and include_failed")
-
-        params = self._fit_params(len(many), params)
-        states: list[RunState] = [RunState(m, p, self._process()) for m, p in zip(many, params)]
-        _ = [next(state.processor) for state in states]
-
-        pending_states = states
-        while pending_states:
-            inbounds = await self.generator.agenerate_texts(
-                [self.text + s.text for s in pending_states],
-                [s.params for s in pending_states],
-            )
-
-            for inbound, state in zip(inbounds, pending_states):
-                try:
-                    state.processor.send(inbound.text)
-                except StopIteration as stop:
-                    state.done = True
                     state.completion = Completion(
                         self.text,
-                        t.cast(str, stop.value),
+                        exhausted.completion,
                         generator=self.generator,
                         params=state.params,
                         metadata=self.metadata,
                         stop_reason=inbound.stop_reason,
                         usage=inbound.usage,
                         extra=inbound.extra,
+                        failed=True,
                     )
-                except CompletionExhaustedMaxRoundsError as exhausted:
-                    if not skip_failed and not include_failed:
-                        raise
-                    if include_failed:
-                        state.completion = Completion(
-                            self.text,
-                            exhausted.completion,
-                            generator=self.generator,
-                            params=state.params,
-                            metadata=self.metadata,
-                            stop_reason=inbound.stop_reason,
-                            usage=inbound.usage,
-                            extra=inbound.extra,
-                            failed=True,
-                        )
-                    state.done = True
 
-            pending_states = [s for s in pending_states if not s.done]
+            pending_states = [s for s in pending_states if s.completion is None]
+            to_watch_states = [s for s in states if s.completion is not None and not s.watched]
 
-        return self._post_run([s.completion for s in states if s.completion is not None])
+            await self._watch_callback([s.completion for s in to_watch_states if s.completion is not None])
+
+            for state in to_watch_states:
+                state.watched = True
+
+        if skip_failed:
+            completions = [s.completion for s in states if s.completion is not None and not s.completion.failed]
+        else:
+            completions = [s.completion for s in states if s.completion is not None]
+
+        return await self._post_run(completions)

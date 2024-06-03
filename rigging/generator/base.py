@@ -11,8 +11,10 @@ from rigging.error import InvalidModelSpecifiedError
 from rigging.message import Message, MessageDict
 
 if t.TYPE_CHECKING:
-    from rigging.chat import PendingChat
-    from rigging.completion import PendingCompletion
+    from rigging.chat import PendingChat, WatchChatCallback
+    from rigging.completion import PendingCompletion, WatchCompletionCallback
+
+    WatchCallbacks = t.Union[WatchChatCallback, WatchCompletionCallback]
 
 # Global provider map
 g_providers: dict[str, type[Generator]] = {}
@@ -203,12 +205,10 @@ class Generator(BaseModel):
 
     This class provides common functionality and methods for generating completion messages.
 
-    A subclass of this can implement any of the following:
+    A subclass of this can implement both or one of the following:
 
     - `generate_messages`: Process a batch of messages.
     - `generate_texts`: Process a batch of texts.
-
-    (In addition to async variants of these functions)
     """
 
     model: str
@@ -217,6 +217,8 @@ class Generator(BaseModel):
     """The API key used for authentication."""
     params: GenerateParams
     """The parameters used for generating completion messages."""
+
+    _watch_callbacks: list[WatchCallbacks] = []
 
     def to_identifier(self, params: GenerateParams | None = None) -> str:
         """
@@ -231,6 +233,30 @@ class Generator(BaseModel):
             The identifier string.
         """
         return get_identifier(self, params)
+
+    def watch(self, *callbacks: WatchCallbacks, allow_duplicates: bool = False) -> Generator:
+        """
+        Registers watch callbacks to be passed to any created
+        [rigging.chat.PendingChat][] or [rigging.chat.PendingCompletion][].
+
+        Args:
+            *callbacks: The callback functions to be executed.
+            allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
+
+        ```
+        def log(chats: list[Chat]) -> None:
+            ...
+
+        pending.watch(log).run()
+        ```
+
+        Returns:
+            The current instance of the chat.
+        """
+        for callback in callbacks:
+            if allow_duplicates or callback not in self._watch_callbacks:
+                self._watch_callbacks.append(callback)
+        return self
 
     def load(self) -> Self:
         """
@@ -250,7 +276,7 @@ class Generator(BaseModel):
         """
         return self
 
-    def generate_messages(
+    async def generate_messages(
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
@@ -273,15 +299,7 @@ class Generator(BaseModel):
         """
         raise NotImplementedError("`generate_messages` is not supported by this generator.")
 
-    async def agenerate_messages(
-        self,
-        messages: t.Sequence[t.Sequence[Message]],
-        params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[GeneratedMessage]:
-        """async version of [rigging.generator.Generator.generate_messages][]"""
-        raise NotImplementedError("`agenerate_messages` is not supported by this generator.")
-
-    def generate_texts(
+    async def generate_texts(
         self,
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
@@ -306,14 +324,6 @@ class Generator(BaseModel):
             NotImplementedError: This method is not supported by this generator.
         """
         raise NotImplementedError("`generate_texts` is not supported by this generator.")
-
-    async def agenerate_texts(
-        self,
-        texts: t.Sequence[str],
-        params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[GeneratedText]:
-        """async version of [rigging.generator.Generator.generate_texts][]"""
-        raise NotImplementedError("`agenerate_texts` is not supported by this generator.")
 
     # Helper alternative to chat(generator) -> generator.chat(...)
     #
@@ -350,9 +360,16 @@ class Generator(BaseModel):
         Returns:
             Pending chat to run.
         """
-        from rigging.chat import PendingChat
+        from rigging.chat import PendingChat, WatchChatCallback
 
-        return PendingChat(self, Message.fit_as_list(messages) if messages else [], params)
+        chat_watch_callbacks = [cb for cb in self._watch_callbacks if isinstance(cb, (WatchChatCallback))]
+
+        return PendingChat(
+            self,
+            Message.fit_as_list(messages) if messages else [],
+            params=params,
+            watch_callbacks=chat_watch_callbacks,
+        )
 
     # Helper alternative to complete(generator) -> generator.complete(...)
 
@@ -367,9 +384,11 @@ class Generator(BaseModel):
         Returns:
             The completed text.
         """
-        from rigging.completion import PendingCompletion
+        from rigging.completion import PendingCompletion, WatchCompletionCallback
 
-        return PendingCompletion(self, text, params)
+        completion_watch_callbacks = [cb for cb in self._watch_callbacks if isinstance(cb, (WatchCompletionCallback))]
+
+        return PendingCompletion(self, text, params=params, watch_callbacks=completion_watch_callbacks)
 
 
 @t.overload

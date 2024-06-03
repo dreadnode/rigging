@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import json
 import typing as t
 
@@ -12,6 +13,109 @@ from rigging.message import Message
 
 if t.TYPE_CHECKING:
     from elastic_transport import ObjectApiResponse
+
+
+def flatten_chats(chats: Chat | t.Sequence[Chat]) -> list[dict[t.Any, t.Any]]:
+    """
+    Flatten a list of chats into a individual messages with duplicated
+    properties relevant to the chat.
+
+    Args:
+        chats: A Chat or list of Chat objects.
+
+    Returns:
+        A list of flat Message objects.
+    """
+    chats = [chats] if isinstance(chats, Chat) else chats
+
+    flattened: list[dict[t.Any, t.Any]] = []
+    for chat in chats:
+        generator_id = chat.generator_id
+
+        # We let pydantic do the heavy lifting here
+        chat_json = chat.model_dump(include={"metadata", "usage", "extra"})
+        metadata = chat_json.pop("metadata")
+        usage = chat_json.pop("usage")
+        extra = chat_json.pop("extra")
+
+        generated = False
+        for messages in [chat.messages, chat.generated]:
+            for message in messages:
+                message_dict = message.model_dump(exclude={"uuid"})
+                flattened.append(
+                    {
+                        "chat_id": chat.uuid,
+                        "chat_metadata": metadata,
+                        "chat_generator_id": generator_id,
+                        "chat_timestamp": chat.timestamp,
+                        "chat_stop_reason": chat.stop_reason,
+                        "chat_usage": usage,
+                        "chat_extra": extra,
+                        "generated": generated,
+                        "message_id": message.uuid,
+                        **message_dict,
+                    }
+                )
+            generated = True
+
+    return flattened
+
+
+def unflatten_chats(messages: t.Sequence[dict[t.Any, t.Any]]) -> list[Chat]:
+    """
+    Unflatten a list of messages into a list of Chat objects.
+
+    Args:
+        messages: A list of flat Message objects in the format from [rigging.data.flatten_messages][].
+
+    Returns:
+        A list of Chat objects.
+    """
+
+    def by_chat_id(message: dict[t.Any, t.Any]) -> t.Any:
+        return message["chat_id"]
+
+    sorted_messages = sorted(messages, key=by_chat_id)
+    grouped_by = itertools.groupby(sorted_messages, key=by_chat_id)
+
+    chats = []
+    for chat_id, chat_messages in grouped_by:
+        _messages = []
+        _generated = []
+        _first_message: dict[t.Any, t.Any] = {}
+
+        for message_data in chat_messages:
+            if not _first_message:
+                _first_message = message_data
+
+            message = Message(
+                role=message_data["role"],
+                content=message_data["content"],
+                **{"uuid": message_data["message_id"]},
+            )
+            if message_data["generated"]:
+                _generated.append(message)
+            else:
+                _messages.append(message)
+
+        if not _first_message:
+            raise ValueError("Grouped messages yieled an empty chat")
+
+        chat = Chat(
+            uuid=chat_id,
+            timestamp=_first_message["chat_timestamp"],
+            messages=_messages,
+            generated=_generated,
+            metadata=json.loads(_first_message["chat_metadata"]),
+            stop_reason=_first_message["chat_stop_reason"],
+            usage=json.loads(_first_message["chat_usage"]),
+            extra=json.loads(_first_message["chat_extra"]),
+            **{"generator_id": _first_message["chat_generator_id"]},
+        )
+        chats.append(chat)
+
+    return chats
+
 
 # Pandas
 
@@ -33,36 +137,9 @@ def chats_to_df(chats: Chat | t.Sequence[Chat]) -> pd.DataFrame:
     """
     chats = [chats] if isinstance(chats, Chat) else chats
 
-    data: list[dict[t.Any, t.Any]] = []
-    for chat in chats:
-        generator_id = chat.generator_id
-        metadata = json.dumps(chat.metadata)
-        usage = json.dumps(chat.usage)
-        extra = json.dumps(chat.extra)
+    flattened = flatten_chats(chats)
 
-        generated = False
-        for messages in [chat.messages, chat.generated]:
-            for message in messages:
-                message_dict = message.model_dump(exclude={"uuid"})
-                message_parts_json = json.dumps(message_dict.pop("parts"))
-                data.append(
-                    {
-                        "chat_id": chat.uuid,
-                        "chat_metadata": metadata,
-                        "chat_generator_id": generator_id,
-                        "chat_timestamp": chat.timestamp,
-                        "chat_stop_reason": chat.stop_reason,
-                        "chat_usage": usage,
-                        "chat_extra": extra,
-                        "generated": generated,
-                        "message_id": str(message.uuid),
-                        **message_dict,
-                        "parts": message_parts_json,
-                    }
-                )
-            generated = True
-
-    df = pd.DataFrame(data).astype(
+    df = pd.DataFrame(flattened).astype(
         {
             "chat_id": "string",
             "chat_metadata": "string",
@@ -145,53 +222,18 @@ ElasticMapping = {"properties": {"generated": {"type": "nested"}, "messages": {"
 """Default index mapping for chat objects in elastic."""
 
 
-@t.overload
-def chats_to_elastic(
-    chats: Chat | t.Sequence[Chat],
-    index: str,
-    client: es.Elasticsearch,
-    *,
-    op_type: ElasticOpType,
-    create_index: bool = True,
-) -> int:
-    ...
-
-
-@t.overload
-def chats_to_elastic(
-    chats: Chat | t.Sequence[Chat],
-    index: str,
-    client: None,
-    *,
-    op_type: ElasticOpType,
-    create_index: bool = True,
+def chats_to_elastic_data(
+    chats: Chat | t.Sequence[Chat], index: str, *, op_type: ElasticOpType = "index"
 ) -> list[dict[str, t.Any]]:
-    ...
-
-
-def chats_to_elastic(
-    chats: Chat | t.Sequence[Chat],
-    index: str,
-    client: es.Elasticsearch | None = None,
-    *,
-    op_type: ElasticOpType = "index",
-    create_index: bool = True,
-    **kwargs: t.Any,
-) -> list[dict[str, t.Any]] | int:
     """
-    Convert chat data to Elasticsearch bulk operation format and optionally store it with a client.
+    Convert chat data to Elasticsearch bulk operation format.
 
     Args:
-        chats: The chat or list of chats to be converted and stored.
-        index: The name of the Elasticsearch index where the data will be stored.
-        client: The Elasticsearch client instance.
-        op_type: The operation type for Elasticsearch. Defaults to "create".
-        create_index: Whether to create the index if it doesn't exist and update its mapping.
-        kwargs: Additional keyword arguments to be passed to the Elasticsearch client.
-
+        chats: The chat or list of chats to be converted.
+        op_type: The operation type for Elasticsearch.
 
     Returns:
-        Formatted bulk operation dict if `client` is None, otherwise the modified count.
+        Formatted bulk operation dict.
     """
     chats = [chats] if isinstance(chats, Chat) else chats
 
@@ -202,16 +244,41 @@ def chats_to_elastic(
             operation["_source"] = chat.model_dump(exclude={"uuid"})
         es_data.append(operation)
 
-    if client is None:
-        return es_data
+    return es_data
 
+
+async def chats_to_elastic(
+    chats: Chat | t.Sequence[Chat],
+    index: str,
+    client: es.AsyncElasticsearch,
+    *,
+    op_type: ElasticOpType = "index",
+    create_index: bool = True,
+    **kwargs: t.Any,
+) -> int:
+    """
+    Convert chat data to Elasticsearch bulk operation format and store it with a client.
+
+    Args:
+        chats: The chat or list of chats to be converted and stored.
+        index: The name of the Elasticsearch index where the data will be stored.
+        client: The AsyncElasticsearch client instance.
+        op_type: The operation type for Elasticsearch. Defaults to "create".
+        create_index: Whether to create the index if it doesn't exist and update its mapping.
+        kwargs: Additional keyword arguments to be passed to the Elasticsearch client.
+
+
+    Returns:
+        The indexed count from the bulk operation
+    """
+    es_data = chats_to_elastic_data(chats, index, op_type=op_type)
     if create_index:
-        if client.indices.exists(index=index).meta.status != 200:
-            client.indices.create(index=index, mappings=ElasticMapping)
+        if (await client.indices.exists(index=index)).meta.status != 200:
+            await client.indices.create(index=index, mappings=ElasticMapping)
         else:
-            client.indices.put_mapping(index=index, properties=ElasticMapping["properties"])
+            await client.indices.put_mapping(index=index, properties=ElasticMapping["properties"])
 
-    results = elasticsearch.helpers.bulk(client, es_data, **kwargs)
+    results = await elasticsearch.helpers.async_bulk(client, es_data, **kwargs)
     return results[0]  # Return modified count
 
 
@@ -244,10 +311,10 @@ def elastic_data_to_chats(
     return chats
 
 
-def elastic_to_chats(
+async def elastic_to_chats(
     query: t.Mapping[str, t.Any],
     index: str,
-    client: es.Elasticsearch,
+    client: es.AsyncElasticsearch,
     *,
     max_results: int | None = None,
     **kwargs: t.Any,
@@ -265,5 +332,5 @@ def elastic_to_chats(
     Returns:
         A pandas DataFrame containing the chat data.
     """
-    data = client.search(index=index, query=query, size=max_results, **kwargs)
+    data = await client.search(index=index, query=query, size=max_results, **kwargs)
     return elastic_data_to_chats(t.cast(dict[str, t.Any], data))

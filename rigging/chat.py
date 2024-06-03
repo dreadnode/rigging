@@ -26,7 +26,7 @@ from rigging.prompt import system_tool_extension
 from rigging.tool import Tool, ToolCalls, ToolDescriptionList, ToolResult, ToolResults
 
 if t.TYPE_CHECKING:
-    from elasticsearch import Elasticsearch
+    from elasticsearch import AsyncElasticsearch
 
     from rigging.data import ElasticOpType
 
@@ -307,10 +307,10 @@ class Chat(BaseModel):
 
         return chats_to_df(self)
 
-    def to_elastic(
+    async def to_elastic(
         self,
         index: str,
-        client: Elasticsearch,
+        client: AsyncElasticsearch,
         *,
         op_type: ElasticOpType = "index",
         create_index: bool = True,
@@ -326,7 +326,7 @@ class Chat(BaseModel):
         """
         from rigging.data import chats_to_elastic
 
-        return chats_to_elastic(self, index, client, op_type=op_type, create_index=create_index, **kwargs)
+        return await chats_to_elastic(self, index, client, op_type=op_type, create_index=create_index, **kwargs)
 
 
 # Callbacks
@@ -344,7 +344,7 @@ class UntilMessageCallback(t.Protocol):
 
 @runtime_checkable
 class ThenChatCallback(t.Protocol):
-    def __call__(self, chat: Chat) -> Chat | None:
+    async def __call__(self, chat: Chat) -> Chat | None:
         """
         Passed a finalized chat to process and can return a new chat to replace it.
         """
@@ -352,17 +352,8 @@ class ThenChatCallback(t.Protocol):
 
 
 @runtime_checkable
-class AsyncThenChatCallback(t.Protocol):
-    async def __call__(self, chat: Chat) -> Chat | None:
-        """
-        async variant of the [rigging.chat.ThenChatCallback][] protocol.
-        """
-        ...
-
-
-@runtime_checkable
 class MapChatCallback(t.Protocol):
-    def __call__(self, chats: list[Chat]) -> list[Chat]:
+    async def __call__(self, chats: list[Chat]) -> list[Chat]:
         """
         Passed a finalized chats to process. Can replace chats in the pipeline by returning
         a new chat object.
@@ -371,49 +362,25 @@ class MapChatCallback(t.Protocol):
 
 
 @runtime_checkable
-class AsyncMapChatCallback(t.Protocol):
-    async def __call__(self, chats: list[Chat]) -> list[Chat]:
+class WatchChatCallback(t.Protocol):
+    async def __call__(self, chats: list[Chat]) -> None:
         """
-        async variant of the [rigging.chat.MapChatCallback][] protocol.
+        Passed any created chat objects for monitoring/logging.
         """
         ...
 
-
-ThenChatCallbacks = t.Union[ThenChatCallback, AsyncThenChatCallback]
-MapChatCallbacks = t.Union[MapChatCallback, AsyncMapChatCallback]
-
-# Generators
-
-MessageProducer = t.Generator[t.Sequence[Message], None, None]
-MessagesProducer = t.Generator[t.Sequence[t.Sequence[Message]], None, None]
 
 # Helper classes to manage complexity inside the run functions
 
 
 @dataclass
 class RunState:
-    messages: list[Message]
-    params: GenerateParams
-    processor: t.Generator[list[Message], Message, list[Message]]
-    chat: Chat | None = None
-    done: bool = False
-
-
-@dataclass
-class BatchRunState:
     inputs: list[Message]
     messages: list[Message]
     params: GenerateParams
     processor: t.Generator[list[Message], Message, list[Message]]
     chat: Chat | None = None
-    done: bool = False
-
-
-@dataclass
-class BatchRunPool:
-    generator: Generator
-    finished_states: list[BatchRunState]
-    pending_states: list[BatchRunState]
+    watched: bool = False
 
 
 class PendingChat:
@@ -421,7 +388,14 @@ class PendingChat:
     Represents a pending chat that can be modified and executed.
     """
 
-    def __init__(self, generator: Generator, messages: t.Sequence[Message], params: t.Optional[GenerateParams] = None):
+    def __init__(
+        self,
+        generator: Generator,
+        messages: t.Sequence[Message],
+        *,
+        params: t.Optional[GenerateParams] = None,
+        watch_callbacks: t.Optional[list[WatchChatCallback]] = None,
+    ):
         self.generator: Generator = generator
         """The generator object responsible for generating the chat."""
         self.chat: Chat = Chat(messages, pending=self)
@@ -437,9 +411,9 @@ class PendingChat:
         self.until_tools: list[Tool] = []
         self.inject_tool_prompt: bool = True
         self.force_tool: bool = False
-        self.then_chat_callbacks: list[ThenChatCallbacks] = []
-        self.map_chat_callbacks: list[MapChatCallbacks] = []
-        # self.producer: MessageProducer | None = None
+        self.then_callbacks: list[ThenChatCallback] = []
+        self.map_callbacks: list[MapChatCallback] = []
+        self.watch_callbacks: list[WatchChatCallback] = watch_callbacks or []
 
     def __len__(self) -> int:
         return len(self.chat)
@@ -467,6 +441,29 @@ class PendingChat:
             return new
 
         self.params = params
+        return self
+
+    def watch(self, *callbacks: WatchChatCallback, allow_duplicates: bool = False) -> PendingChat:
+        """
+        Registers a callback to monitor any chats produced.
+
+        Args:
+            *callbacks: The callback functions to be executed.
+            allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
+
+        ```
+        async def log(chats: list[Chat]) -> None:
+            ...
+
+        pending.watch(log).run()
+        ```
+
+        Returns:
+            The current instance of the chat.
+        """
+        for callback in callbacks:
+            if allow_duplicates or callback not in self.watch_callbacks:
+                self.watch_callbacks.append(callback)
         return self
 
     def add(self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str) -> PendingChat:
@@ -515,12 +512,12 @@ class PendingChat:
         Args:
             only_messages: If True, only the messages will be cloned.
                 If False (default), the entire `PendingChat` instance will be cloned
-                including until callbacks, types, and tools.
+                including until callbacks, types, tools, metadata, etc.
 
         Returns:
             A new instance of `PendingChat` that is a clone of the current instance.
         """
-        new = PendingChat(self.generator, [], self.params)
+        new = PendingChat(self.generator, [], params=self.params, watch_callbacks=self.watch_callbacks)
         new.chat = self.chat.clone()
         if not only_messages:
             new.until_callbacks = self.until_callbacks.copy()
@@ -544,7 +541,7 @@ class PendingChat:
         self.metadata.update(kwargs)
         return self
 
-    def then(self, callback: ThenChatCallback | AsyncThenChatCallback) -> PendingChat:
+    def then(self, callback: ThenChatCallback) -> PendingChat:
         """
         Registers a callback to be executed after the generation process completes.
 
@@ -553,12 +550,8 @@ class PendingChat:
             for the remainder of the callbacks + return value of `run()`. This is
             optional.
 
-        Warning:
-            If you implement an async callback, you must use the async variant of the
-            run methods when executing the generation process.
-
         ```
-        def process(chat: Chat) -> Chat | None:
+        async def process(chat: Chat) -> Chat | None:
             ...
 
         pending.then(process).run()
@@ -570,23 +563,20 @@ class PendingChat:
         Returns:
             The current instance of the chat.
         """
-        self.then_chat_callbacks.append(callback)
+        self.then_callbacks.append(callback)
         return self
 
-    def map(self, callback: MapChatCallback | AsyncMapChatCallback) -> PendingChat:
+    def map(self, callback: MapChatCallback) -> PendingChat:
         """
         Registers a callback to be executed after the generation process completes.
 
         Note:
             You must return a list of Chat objects from the callback which will
-            represent the state of chats for the remainder of the callbacks and return.
-
-        Warning:
-            If you implement an async callback, you must use the async variant of the
-            run methods when executing the generation process.
+            represent the state of chats for the remainder of the callbacks and
+            the final return of control.
 
         ```
-        def process(chats: list[Chat]) -> list[Chat]:
+        async def process(chats: list[Chat]) -> list[Chat]:
             ...
 
         pending.map(process).run()
@@ -598,26 +588,8 @@ class PendingChat:
         Returns:
             The current instance of the chat.
         """
-        self.map_chat_callbacks.append(callback)
+        self.map_callbacks.append(callback)
         return self
-
-    # def from_(self, producer: MessageProducer) -> "PendingChat":
-    #     """
-    #     Adds a generator to the chat to produce messages.
-
-    #     Args:
-    #         producer: The generator that produces messages.
-
-    #     Returns:
-    #         The current instance of the chat.
-
-    #     Raises:
-    #         ValueError: If a producer has already been set.
-    #     """
-    #     if self.producer is not None:
-    #         raise ValueError("A producer has already been set")
-    #     self.producer = producer
-    #     return self
 
     def apply(self, **kwargs: str) -> PendingChat:
         """
@@ -879,37 +851,25 @@ class PendingChat:
             new_messages = new_messages[:-1] + generated
         return new_messages
 
-    def _post_run(self, chats: list[Chat]) -> list[Chat]:
-        for map_callback in self.map_chat_callbacks:
-            if asyncio.iscoroutinefunction(map_callback):
-                raise ValueError(
-                    f"Cannot use async map() callbacks inside a non-async run call: {map_callback.__name__}"
-                )
-            chats = map_callback(chats)  # type: ignore
+    async def _watch_callback(self, chats: list[Chat]) -> None:
+        # Given that these watch callbacks don't return a value,
+        # we should be safe to run them internally.
 
-        for then_callback in self.then_chat_callbacks:
-            if asyncio.iscoroutinefunction(then_callback):
-                raise ValueError(
-                    f"Cannot use async then() callbacks inside a non-async run call: {then_callback.__name__}"
-                )
-            chats = [then_callback(chat) or chat for chat in chats]  # type: ignore
+        coros = [callback(chats) for callback in self.watch_callbacks]
+        await asyncio.gather(*coros)
 
-        return chats
+    async def _post_run(self, chats: list[Chat]) -> list[Chat]:
+        # These have to be sequenced to support the concept of
+        # a pipeline where future then/map calls can depend on
+        # previous calls being ran.
 
-    async def _apost_run(self, chats: list[Chat]) -> list[Chat]:
-        for map_callback in self.map_chat_callbacks:
-            if not asyncio.iscoroutinefunction(map_callback):
-                raise ValueError(
-                    f"Cannot use non-async map() callbacks inside an async run call: {map_callback.__call__.__name__}"
-                )
+        for map_callback in self.map_callbacks:
             chats = await map_callback(chats)
 
-        for then_callback in self.then_chat_callbacks:
-            if not asyncio.iscoroutinefunction(then_callback):
-                raise ValueError(
-                    f"Cannot use non-async then() callbacks inside an async run call: {then_callback.__call__.__name__}"
-                )
-            chats = [await then_callback(chat) or chat for chat in chats]
+        for then_callback in self.then_callbacks:
+            coros = [then_callback(chat) for chat in chats]
+            new_chats = await asyncio.gather(*coros)
+            chats = [new or chat for new, chat in zip(new_chats, chats)]
 
         return chats
 
@@ -953,7 +913,7 @@ class PendingChat:
 
     # Single messages
 
-    def run(self, *, allow_failed: bool = False) -> Chat:
+    async def run(self, *, allow_failed: bool = False) -> Chat:
         """
         Execute the generation process to produce the final chat.
 
@@ -964,17 +924,14 @@ class PendingChat:
         Returns:
             The generated Chat.
         """
-        return self.run_many(1, include_failed=allow_failed)[0]
-
-    async def arun(self, *, allow_failed: bool = False) -> Chat:
-        """async variant of the [rigging.chat.PendingChat.run][] method."""
-        return (await self.arun_many(1, include_failed=allow_failed))[0]
+        chats = await self.run_many(1, include_failed=allow_failed)
+        return chats[0]
 
     __call__ = run
 
     # Many messages
 
-    def run_many(
+    async def run_many(
         self,
         count: int,
         *,
@@ -998,12 +955,12 @@ class PendingChat:
         if skip_failed and include_failed:
             raise ValueError("Cannot use both skip_failed and include_failed")
 
-        states: list[RunState] = [RunState([], p, self._process()) for p in self._fit_params(count, params)]
+        states: list[RunState] = [RunState([], [], p, self._process()) for p in self._fit_params(count, params)]
         _ = [next(state.processor) for state in states]
 
         pending_states = states
         while pending_states:
-            inbounds = self.generator.generate_messages(
+            inbounds = await self.generator.generate_messages(
                 [self.chat.all + s.messages for s in pending_states], [s.params for s in pending_states]
             )
 
@@ -1011,7 +968,6 @@ class PendingChat:
                 try:
                     state.messages = state.processor.send(inbound.message)
                 except StopIteration as stop:
-                    state.done = True
                     state.chat = Chat(
                         self.chat.all,
                         t.cast(list[Message], stop.value),
@@ -1025,84 +981,36 @@ class PendingChat:
                 except MessagesExhaustedMaxRoundsError as exhausted:
                     if not skip_failed and not include_failed:
                         raise
-                    if include_failed:
-                        state.chat = Chat(
-                            self.chat.all,
-                            exhausted.messages,
-                            generator=self.generator,
-                            metadata=self.metadata,
-                            params=state.params,
-                            stop_reason=inbound.stop_reason,
-                            usage=inbound.usage,
-                            extra=inbound.extra,
-                            failed=True,
-                        )
-                    state.done = True
-
-            pending_states = [s for s in pending_states if not s.done]
-
-        return self._post_run([s.chat for s in states if s.chat is not None])
-
-    async def arun_many(
-        self,
-        count: int,
-        *,
-        params: t.Sequence[t.Optional[GenerateParams]] | None = None,
-        skip_failed: bool = False,
-        include_failed: bool = False,
-    ) -> list[Chat]:
-        """async variant of the [rigging.chat.PendingChat.run_many][] method."""
-        if skip_failed and include_failed:
-            raise ValueError("Cannot use both skip_failed and include_failed")
-
-        states: list[RunState] = [RunState([], p, self._process()) for p in self._fit_params(count, params)]
-        _ = [next(state.processor) for state in states]
-
-        pending_states = states
-        while pending_states:
-            inbounds = await self.generator.agenerate_messages(
-                [self.chat.all + s.messages for s in pending_states], [s.params for s in pending_states]
-            )
-
-            for inbound, state in zip(inbounds, pending_states):
-                try:
-                    state.messages = state.processor.send(inbound.message)
-                except StopIteration as stop:
-                    state.done = True
                     state.chat = Chat(
                         self.chat.all,
-                        t.cast(list[Message], stop.value),
+                        exhausted.messages,
                         generator=self.generator,
                         metadata=self.metadata,
                         params=state.params,
                         stop_reason=inbound.stop_reason,
                         usage=inbound.usage,
                         extra=inbound.extra,
+                        failed=True,
                     )
-                except MessagesExhaustedMaxRoundsError as exhausted:
-                    if not skip_failed and not include_failed:
-                        raise
-                    if include_failed:
-                        state.chat = Chat(
-                            self.chat.all,
-                            exhausted.messages,
-                            generator=self.generator,
-                            metadata=self.metadata,
-                            params=state.params,
-                            stop_reason=inbound.stop_reason,
-                            usage=inbound.usage,
-                            extra=inbound.extra,
-                            failed=True,
-                        )
-                    state.done = True
 
-            pending_states = [s for s in pending_states if not s.done]
+            pending_states = [s for s in pending_states if s.chat is None]
+            to_watch_states = [s for s in states if s.chat is not None and not s.watched]
 
-        return await self._apost_run([s.chat for s in states if s.chat is not None])
+            await self._watch_callback([s.chat for s in to_watch_states if s.chat is not None])
+
+            for state in to_watch_states:
+                state.watched = True
+
+        if skip_failed:
+            chats = [s.chat for s in states if s.chat is not None and not s.chat.failed]
+        else:
+            chats = [s.chat for s in states if s.chat is not None]
+
+        return await self._post_run(chats)
 
     # Batch messages
 
-    def run_batch(
+    async def run_batch(
         self,
         many: t.Sequence[t.Sequence[Message]]
         | t.Sequence[Message]
@@ -1144,9 +1052,7 @@ class PendingChat:
         many = self._fit_many(count, many)
         params = self._fit_params(count, params)
 
-        states: list[BatchRunState] = [
-            BatchRunState(self.chat.all + m, [], p, self._process()) for m, p in zip(many, params)
-        ]
+        states: list[RunState] = [RunState(self.chat.all + m, [], p, self._process()) for m, p in zip(many, params)]
         _ = [next(state.processor) for state in states]
 
         size = size or len(states)
@@ -1154,7 +1060,7 @@ class PendingChat:
         pending_states = states
         while pending_states:
             for chunk in [pending_states[i : i + size] for i in range(0, len(pending_states), size)]:
-                inbounds = self.generator.generate_messages(
+                inbounds = await self.generator.generate_messages(
                     [s.inputs + s.messages for s in chunk],
                     [s.params for s in chunk],
                 )
@@ -1163,7 +1069,6 @@ class PendingChat:
                     try:
                         state.messages = state.processor.send(inbound.message)
                     except StopIteration as stop:
-                        state.done = True
                         state.chat = Chat(
                             state.inputs,
                             t.cast(list[Message], stop.value),
@@ -1177,97 +1082,29 @@ class PendingChat:
                     except MessagesExhaustedMaxRoundsError as exhausted:
                         if not skip_failed and not include_failed:
                             raise
-                        if include_failed:
-                            state.chat = Chat(
-                                state.inputs,
-                                exhausted.messages,
-                                generator=self.generator,
-                                metadata=self.metadata,
-                                params=state.params,
-                                stop_reason=inbound.stop_reason,
-                                usage=inbound.usage,
-                                extra=inbound.extra,
-                                failed=True,
-                            )
-                        state.done = True
-
-            pending_states = [s for s in pending_states if not s.done]
-
-        return self._post_run([s.chat for s in states if s.chat is not None])
-
-    async def arun_batch(
-        self,
-        many: t.Sequence[t.Sequence[Message]]
-        | t.Sequence[Message]
-        | t.Sequence[MessageDict]
-        | t.Sequence[str]
-        | MessageDict
-        | str,
-        params: t.Sequence[t.Optional[GenerateParams]] | None = None,
-        *,
-        size: int | None = None,
-        skip_failed: bool = False,
-        include_failed: bool = False,
-    ) -> list[Chat]:
-        """async variant of the [rigging.chat.PendingChat.run_batch][] method."""
-
-        if skip_failed and include_failed:
-            raise ValueError("Cannot use both skip_failed and include_failed")
-
-        if isinstance(many, dict) or isinstance(many, str):  # Some strange typechecking here
-            many = t.cast(t.Union[t.Sequence[str], t.Sequence[MessageDict]], [many])
-
-        count = max(len(many), len(params) if params is not None else 0)
-        many = self._fit_many(count, many)
-        params = self._fit_params(count, params)
-
-        states: list[BatchRunState] = [
-            BatchRunState(self.chat.all + m, [], p, self._process()) for m, p in zip(many, params)
-        ]
-        _ = [next(state.processor) for state in states]
-
-        size = size or len(states)
-
-        pending_states = states
-        while pending_states:
-            for chunk in [pending_states[i : i + size] for i in range(0, len(pending_states), size)]:
-                inbounds = await self.generator.agenerate_messages(
-                    [s.inputs + s.messages for s in chunk],
-                    [s.params for s in chunk],
-                )
-
-                for inbound, state in zip(inbounds, chunk):
-                    try:
-                        state.messages = state.processor.send(inbound.message)
-                    except StopIteration as stop:
-                        state.done = True
                         state.chat = Chat(
                             state.inputs,
-                            t.cast(list[Message], stop.value),
+                            exhausted.messages,
                             generator=self.generator,
                             metadata=self.metadata,
                             params=state.params,
                             stop_reason=inbound.stop_reason,
                             usage=inbound.usage,
                             extra=inbound.extra,
+                            failed=True,
                         )
-                    except MessagesExhaustedMaxRoundsError as exhausted:
-                        if not skip_failed and not include_failed:
-                            raise
-                        if include_failed:
-                            state.chat = Chat(
-                                state.inputs,
-                                exhausted.messages,
-                                generator=self.generator,
-                                metadata=self.metadata,
-                                params=state.params,
-                                stop_reason=inbound.stop_reason,
-                                usage=inbound.usage,
-                                extra=inbound.extra,
-                                failed=True,
-                            )
-                        state.done = True
 
-            pending_states = [s for s in pending_states if not s.done]
+            pending_states = [s for s in pending_states if s.chat is None]
+            to_watch_states = [s for s in states if s.chat is not None and not s.watched]
 
-        return await self._apost_run([s.chat for s in states if s.chat is not None])
+            await self._watch_callback([s.chat for s in to_watch_states if s.chat is not None])
+
+            for state in to_watch_states:
+                state.watched = True
+
+        if skip_failed:
+            chats = [s.chat for s in states if s.chat is not None and not s.chat.failed]
+        else:
+            chats = [s.chat for s in states if s.chat is not None]
+
+        return await self._post_run(chats)

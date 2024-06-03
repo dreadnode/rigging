@@ -1,6 +1,15 @@
 from rigging.chat import Chat, PendingChat
 from rigging.completion import Completion, PendingCompletion
-from rigging.data import chats_to_df, chats_to_elastic, df_to_chats, elastic_data_to_chats, elastic_to_chats
+from rigging.data import (
+    chats_to_df,
+    chats_to_elastic,
+    chats_to_elastic_data,
+    df_to_chats,
+    elastic_data_to_chats,
+    elastic_to_chats,
+    flatten_chats,
+    unflatten_chats,
+)
 from rigging.generator import (
     GeneratedMessage,
     GeneratedText,
@@ -44,6 +53,9 @@ __all__ = [
     "chats_to_elastic",
     "elastic_to_chats",
     "elastic_data_to_chats",
+    "chats_to_elastic_data",
+    "flatten_chats",
+    "unflatten_chats",
 ]
 
 from loguru import logger
