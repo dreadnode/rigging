@@ -15,7 +15,15 @@ if t.TYPE_CHECKING:
     from rigging.completion import PendingCompletion
 
 # Global provider map
-g_providers: dict[str, type[Generator]] = {}
+
+
+@t.runtime_checkable
+class LazyGenerator(t.Protocol):
+    def __call__(self) -> type[Generator]:
+        ...
+
+
+g_providers: dict[str, type[Generator] | LazyGenerator] = {}
 
 
 # TODO: Ideally we flex this to support arbitrary
@@ -433,7 +441,9 @@ def get_identifier(generator: Generator, params: GenerateParams | None = None) -
         The identifier string for the generator.
     """
 
-    provider = next(name for name, klass in g_providers.items() if isinstance(generator, klass))
+    provider = next(
+        name for name, klass in g_providers.items() if isinstance(klass, type) and isinstance(generator, klass)
+    )
     identifier = f"{provider}!{generator.model}"
 
     extra_cls_args = generator.model_dump(exclude_unset=True, exclude={"model", "api_key", "params"})
@@ -502,7 +512,11 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
     if provider not in g_providers:
         raise InvalidModelSpecifiedError(identifier)
 
-    generator_cls = g_providers[provider]
+    if not isinstance(g_providers[provider], type):
+        lazy_generator = t.cast(LazyGenerator, g_providers[provider])
+        g_providers[provider] = lazy_generator()
+
+    generator_cls = t.cast(type[Generator], g_providers[provider])
 
     kwargs = {}
     if "," in model:
@@ -541,7 +555,7 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
     return generator_cls(model=model, params=merged_params, **init_kwargs)
 
 
-def register_generator(provider: str, generator_cls: type[Generator]) -> None:
+def register_generator(provider: str, generator_cls: type[Generator] | LazyGenerator) -> None:
     """
     Register a generator class for a provider id.
 

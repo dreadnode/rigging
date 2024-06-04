@@ -10,7 +10,6 @@ from rigging.generator.base import (
     GeneratedText,
     GenerateParams,
     Generator,
-    register_generator,
     trace_messages,
     trace_str,
 )
@@ -191,6 +190,3 @@ class LiteLLMGenerator(Generator):
                 trace_str(response, f"Generated {i+1}/{len(texts)}")
 
         return generated
-
-
-register_generator("litellm", LiteLLMGenerator)

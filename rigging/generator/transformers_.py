@@ -12,7 +12,6 @@ from rigging.generator.base import (
     GeneratedText,
     GenerateParams,
     Generator,
-    register_generator,
     trace_messages,
     trace_str,
 )
@@ -200,6 +199,3 @@ class TransformersGenerator(Generator):
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[GeneratedText]:
         return self.generate_texts(texts, params)
-
-
-register_generator("transformers", TransformersGenerator)
