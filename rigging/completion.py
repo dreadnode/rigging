@@ -377,6 +377,7 @@ class PendingCompletion:
             new.until_callbacks = self.until_callbacks.copy()
             new.until_types = self.until_types.copy()
             new.metadata = deepcopy(self.metadata)
+            new.then_callbacks = self.then_callbacks.copy()
         return new
 
     def meta(self, **kwargs: t.Any) -> PendingCompletion:

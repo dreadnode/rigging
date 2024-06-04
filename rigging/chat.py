@@ -329,6 +329,52 @@ class Chat(BaseModel):
         return chats_to_elastic(self, index, client, op_type=op_type, create_index=create_index, **kwargs)
 
 
+# List Helper Type
+
+
+class ChatList(list[Chat]):
+    """
+    Represents a list of chat objects.
+
+    Inherits from the built-in `list` class and is specialized for storing `Chat` objects.
+    """
+
+    def to_df(self) -> t.Any:
+        """
+        Converts the chat list to a Pandas DataFrame.
+
+        See [rigging.data.chats_to_df][] for more information.
+
+        Returns:
+            The chat list as a DataFrame.
+        """
+        # Late import for circular
+        from rigging.data import chats_to_df
+
+        return chats_to_df(self)
+
+    def to_elastic(
+        self,
+        index: str,
+        client: Elasticsearch,
+        *,
+        op_type: ElasticOpType = "index",
+        create_index: bool = True,
+        **kwargs: t.Any,
+    ) -> int:
+        """
+        Converts the chat list to Elasticsearch format and indexes it.
+
+        See [rigging.data.chats_to_elastic][] for more information.
+
+        Returns:
+            The number of chats indexed.
+        """
+        from rigging.data import chats_to_elastic
+
+        return chats_to_elastic(self, index, client, op_type=op_type, create_index=create_index, **kwargs)
+
+
 # Callbacks
 
 
@@ -362,7 +408,7 @@ class AsyncThenChatCallback(t.Protocol):
 
 @runtime_checkable
 class MapChatCallback(t.Protocol):
-    def __call__(self, chats: list[Chat]) -> list[Chat]:
+    def __call__(self, chats: ChatList) -> list[Chat]:
         """
         Passed a finalized chats to process. Can replace chats in the pipeline by returning
         a new chat object.
@@ -372,7 +418,7 @@ class MapChatCallback(t.Protocol):
 
 @runtime_checkable
 class AsyncMapChatCallback(t.Protocol):
-    async def __call__(self, chats: list[Chat]) -> list[Chat]:
+    async def __call__(self, chats: ChatList) -> list[Chat]:
         """
         async variant of the [rigging.chat.MapChatCallback][] protocol.
         """
@@ -529,6 +575,8 @@ class PendingChat:
             new.inject_tool_prompt = self.inject_tool_prompt
             new.force_tool = self.force_tool
             new.metadata = deepcopy(self.metadata)
+            new.then_chat_callbacks = self.then_chat_callbacks.copy()
+            new.map_chat_callbacks = self.map_chat_callbacks.copy()
         return new
 
     def meta(self, **kwargs: t.Any) -> PendingChat:
@@ -879,7 +927,7 @@ class PendingChat:
             new_messages = new_messages[:-1] + generated
         return new_messages
 
-    def _post_run(self, chats: list[Chat]) -> list[Chat]:
+    def _post_run(self, chats: list[Chat]) -> ChatList:
         for map_callback in self.map_chat_callbacks:
             if asyncio.iscoroutinefunction(map_callback):
                 raise ValueError(
@@ -894,15 +942,15 @@ class PendingChat:
                 )
             chats = [then_callback(chat) or chat for chat in chats]  # type: ignore
 
-        return chats
+        return ChatList(chats)
 
-    async def _apost_run(self, chats: list[Chat]) -> list[Chat]:
+    async def _apost_run(self, chats: list[Chat]) -> ChatList:
         for map_callback in self.map_chat_callbacks:
             if not asyncio.iscoroutinefunction(map_callback):
                 raise ValueError(
                     f"Cannot use non-async map() callbacks inside an async run call: {map_callback.__call__.__name__}"
                 )
-            chats = await map_callback(chats)
+            chats = await map_callback(ChatList(chats))
 
         for then_callback in self.then_chat_callbacks:
             if not asyncio.iscoroutinefunction(then_callback):
@@ -911,7 +959,7 @@ class PendingChat:
                 )
             chats = [await then_callback(chat) or chat for chat in chats]
 
-        return chats
+        return ChatList(chats)
 
     def _pre_run(self) -> None:
         if self.until_tools:
@@ -981,7 +1029,7 @@ class PendingChat:
         params: t.Sequence[t.Optional[GenerateParams]] | None = None,
         skip_failed: bool = False,
         include_failed: bool = False,
-    ) -> list[Chat]:
+    ) -> ChatList:
         """
         Executes the generation process multiple times with the same inputs.
 
@@ -1050,7 +1098,7 @@ class PendingChat:
         params: t.Sequence[t.Optional[GenerateParams]] | None = None,
         skip_failed: bool = False,
         include_failed: bool = False,
-    ) -> list[Chat]:
+    ) -> ChatList:
         """async variant of the [rigging.chat.PendingChat.run_many][] method."""
         if skip_failed and include_failed:
             raise ValueError("Cannot use both skip_failed and include_failed")
@@ -1115,7 +1163,7 @@ class PendingChat:
         size: int | None = None,
         skip_failed: bool = False,
         include_failed: bool = False,
-    ) -> list[Chat]:
+    ) -> ChatList:
         """
         Executes the generation process accross multiple input messages.
 
@@ -1208,7 +1256,7 @@ class PendingChat:
         size: int | None = None,
         skip_failed: bool = False,
         include_failed: bool = False,
-    ) -> list[Chat]:
+    ) -> ChatList:
         """async variant of the [rigging.chat.PendingChat.run_batch][] method."""
 
         if skip_failed and include_failed:
@@ -1271,3 +1319,74 @@ class PendingChat:
             pending_states = [s for s in pending_states if not s.done]
 
         return await self._apost_run([s.chat for s in states if s.chat is not None])
+
+    def run_over(
+        self,
+        *generators: Generator | str,
+        include_original: bool = True,
+        skip_failed: bool = False,
+        include_failed: bool = False,
+    ) -> ChatList:
+        """
+        Executes the generation process across multiple generators.
+
+        For each generator, this pending chat is cloned and the generator is replaced
+        before the run call. All callbacks and parameters are preserved.
+
+        Parameters:
+            *generators: A sequence of generators to be used for the generation process.
+            include_original: Whether to include the original generator in the list of runs.
+            skip_failed: Enable to ignore any max rounds errors and return only successful chats.
+            include_failed: Enable to ignore max rounds errors and return both
+                successful and failed chats.
+
+        Returns:
+            A list of generatated Chats.
+        """
+        if skip_failed and include_failed:
+            raise ValueError("Cannot use both skip_failed and include_failed")
+
+        _generators: list[Generator] = [g if isinstance(g, Generator) else get_generator(g) for g in generators]
+        if include_original:
+            _generators.append(self.generator)
+
+        chats: list[Chat] = []
+        for generator in _generators:
+            sub = self.clone()
+            sub.generator = generator
+            chats.append(sub.run(allow_failed=include_failed or skip_failed))
+
+        if skip_failed:
+            chats = [c for c in chats if not c.failed]
+
+        return ChatList(chats)
+
+    async def arun_over(
+        self,
+        *generators: Generator | str,
+        include_original: bool = True,
+        skip_failed: bool = False,
+        include_failed: bool = False,
+    ) -> ChatList:
+        """
+        async variant of the [rigging.chat.PendingChat.run_over][] method.
+        """
+        if skip_failed and include_failed:
+            raise ValueError("Cannot use both skip_failed and include_failed")
+
+        _generators: list[Generator] = [g if isinstance(g, Generator) else get_generator(g) for g in generators]
+        if include_original:
+            _generators.append(self.generator)
+
+        coros: list[t.Coroutine[t.Any, t.Any, Chat]] = []
+        for generator in _generators:
+            sub = self.clone()
+            sub.generator = generator
+            coros.append(sub.arun(allow_failed=skip_failed or include_failed))
+
+        chats = await asyncio.gather(*coros)
+
+        if skip_failed:
+            chats = [c for c in chats if not c.failed]
+
+        return ChatList(chats)
