@@ -22,8 +22,7 @@ from rigging.generator import GenerateParams, Generator, get_generator
 from rigging.generator.base import StopReason, Usage  # noqa: TCH001
 from rigging.message import Message, MessageDict, Messages
 from rigging.model import Model, ModelT, SystemErrorModel, ValidationErrorModel
-from rigging.prompt import system_tool_extension
-from rigging.tool import Tool, ToolCalls, ToolDescriptionList, ToolResult, ToolResults
+from rigging.tool import Tool, ToolCalls, ToolDescriptionList, ToolResult, ToolResults, system_tool_extension
 
 if t.TYPE_CHECKING:
     from elasticsearch import AsyncElasticsearch

@@ -8,7 +8,14 @@ import re
 import typing as t
 from xml.etree import ElementTree as ET
 
-from pydantic import SerializationInfo, ValidationError, create_model, field_serializer, field_validator
+from pydantic import (
+    BeforeValidator,
+    SerializationInfo,
+    ValidationError,
+    create_model,
+    field_serializer,
+    field_validator,
+)
 from pydantic.alias_generators import to_snake
 from pydantic_xml import BaseXmlModel
 from pydantic_xml import attr as attr
@@ -56,7 +63,23 @@ def unescape_xml(xml_string: str) -> str:
 
 class XmlTagDescriptor:
     def __get__(self, _: t.Any, owner: t.Any) -> str:
-        return to_snake(next(iter(owner.mro())).__name__).replace("_", "-")
+        mro_iter = iter(owner.mro())
+        cls = next(mro_iter)
+        parent = next(mro_iter)
+
+        # Generics produce names which are difficult
+        # to override manually, so we'll just use the
+        # parent's tag
+        #
+        # The altnernative is to use this syntax:
+        #
+        # class IntModel(Model[int], tag="override"):
+        #   ...
+        #
+        if "[" in cls.__name__:
+            return t.cast(str, parent.__xml_tag__)
+
+        return to_snake(cls.__name__).replace("_", "-")
 
 
 class Model(BaseXmlModel):
@@ -267,14 +290,21 @@ class Model(BaseXmlModel):
 # Functional Constructor
 #
 
+PrimitiveT = t.TypeVar("PrimitiveT", int, str, float, bool)
 
-class PrimitiveModel(Model, tag="primitive"):
-    content: str
+
+class Primitive(Model, t.Generic[PrimitiveT]):
+    content: t.Annotated[PrimitiveT, BeforeValidator(lambda x: x.strip() if isinstance(x, str) else x)]
 
 
 def make_primitive(
-    name: str, *, tag: str | None = None, doc: str | None = None, validator: t.Callable[[str], str | None] | None = None
-) -> type[PrimitiveModel]:
+    name: str,
+    type_: PrimitiveT = str,
+    *,
+    tag: str | None = None,
+    doc: str | None = None,
+    validator: t.Callable[[str], str | None] | None = None,
+) -> type[Primitive[PrimitiveT]]:
     """
     Helper to create a simple primitive model with an optional content validator.
 
@@ -298,10 +328,10 @@ def make_primitive(
 
     return create_model(
         name,
-        __base__=PrimitiveModel,
+        __base__=Primitive[type_],
         __doc__=doc,
         __cls_kwargs__={"tag": tag},
-        content=(str, ...),
+        content=(t.Annotated[type_, BeforeValidator(lambda x: x.strip() if isinstance(x, str) else x)], ...),
         __validators__={"content_validator": field_validator("content")(_validate)} if validator else {},  # type: ignore
     )
 
