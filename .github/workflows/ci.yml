@@ -40,11 +40,25 @@ jobs:
     - name: Install dependencies
       run: poetry install --all-extras
 
+    - name: Verify version match
+      run: |
+        toml_version=$(grep -oP '(?<=version = ")[^"]+' pyproject.toml | head -1)
+        package_version=$(python -c "import rigging; print(rigging.__version__)")
+        
+        if [ "$toml_version" != "$package_version" ]; then
+          echo "Version mismatch detected!"
+          echo "Version in pyproject.toml: $toml_version"
+          echo "Version in package: $package_version"
+          exit 1
+        else
+          echo "Versions match: $toml_version"
+        fi
+
     - name: Linting
-      run: poetry run ruff -v rigging/
+      run: poetry run ruff rigging/
 
     - name: Typecheck
-      run: poetry run mypy -v rigging/
+      run: poetry run mypy rigging/
 
     - name: Tests
-      run: poetry run pytest -v
+      run: poetry run pytest

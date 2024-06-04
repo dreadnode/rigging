@@ -36,9 +36,12 @@ def chats_to_df(chats: Chat | t.Sequence[Chat]) -> pd.DataFrame:
     data: list[dict[t.Any, t.Any]] = []
     for chat in chats:
         generator_id = chat.generator_id
-        metadata = json.dumps(chat.metadata)
-        usage = json.dumps(chat.usage)
-        extra = json.dumps(chat.extra)
+
+        # We let pydantic do the heavy lifting here
+        chat_json = chat.model_dump(include={"metadata", "usage", "extra"})
+        metadata = chat_json.pop("metadata")
+        usage = chat_json.pop("usage")
+        extra = chat_json.pop("extra")
 
         generated = False
         for messages in [chat.messages, chat.generated]:
@@ -55,7 +58,7 @@ def chats_to_df(chats: Chat | t.Sequence[Chat]) -> pd.DataFrame:
                         "chat_usage": usage,
                         "chat_extra": extra,
                         "generated": generated,
-                        "message_id": str(message.uuid),
+                        "message_id": message.uuid,
                         **message_dict,
                         "parts": message_parts_json,
                     }
