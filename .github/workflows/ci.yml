@@ -43,7 +43,7 @@ jobs:
     - name: Verify version match
       run: |
         toml_version=$(grep -oP '(?<=version = ")[^"]+' pyproject.toml | head -1)
-        package_version=$(python -c "import rigging; print(rigging.__version__)")
+        package_version=$(grep -oP '(?<=__version__ = ")[^"]+' rigging/__init__.py)
         
         if [ "$toml_version" != "$package_version" ]; then
           echo "Version mismatch detected!"
