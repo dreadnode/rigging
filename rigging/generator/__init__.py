@@ -17,15 +17,33 @@ from rigging.generator.base import (
 )
 from rigging.generator.litellm_ import LiteLLMGenerator
 
-try:
-    from rigging.generator.vllm_ import VLLMGenerator  # noqa: F401
-except ImportError:
-    pass
+register_generator("litellm", LiteLLMGenerator)
 
-try:
-    from rigging.generator.transformers_ import TransformersGenerator  # noqa: F401
-except ImportError:
-    pass
+
+def get_vllm_lazy() -> type[Generator]:
+    try:
+        from rigging.generator.vllm_ import VLLMGenerator
+
+        return VLLMGenerator
+    except ImportError as e:
+        raise ImportError("VLLMGenerator is not available. Please install `vllm` or use `rigging[extra]`.") from e
+
+
+register_generator("vllm", get_vllm_lazy)
+
+
+def get_transformers_lazy() -> type[Generator]:
+    try:
+        from rigging.generator.transformers_ import TransformersGenerator
+
+        return TransformersGenerator
+    except ImportError as e:
+        raise ImportError(
+            "TransformersGenerator is not available. Please install `transformers` or use `rigging[extra]`."
+        ) from e
+
+
+register_generator("transformers", get_transformers_lazy)
 
 __all__ = [
     "get_generator",
@@ -41,6 +59,5 @@ __all__ = [
     "register_generator",
     "get_identifier",
     "LiteLLMGenerator",
-    "VLLMGenerator",
-    "TransformersGenerator",
+    # TODO: We can't add VLLM and Transformers here because they are lazy loaded
 ]

@@ -175,3 +175,69 @@ will scale either the generate parameters or the input messages if either is a s
     Japan and is known for its incredible natural scenery, such as the
     nearby Sendai Bay and Zuihoden mausoleum.
     ```
+
+## Iterating over Models
+
+The [`.run_over`][rigging.chat.PendingChat.run_over] and [`.arun_over`][rigging.chat.PendingChat.arun_over] functions
+allow you to process a pending chat over a set of generators. This is a helper for iterating manually over models
+and calling `.chat()` on them individually.
+
+Generators can be passed as string identifiers or full instances of [Generator][rigging.generator.Generator].
+In the case of async, operations occur in parallel across the models.
+By default the original generator associated with the [`PendingChat`][rigging.chat.PendingChat] is included in the
+iteration, configurable with the `include_original` parameter. Much like the [`run_many`][rigging.chat.PendingChat.run_many]
+and [`run_batch`][rigging.chat.PendingChat.run_batch] functions, you can control the handling of failures with either
+`skip_failed` or `include_failed`.
+
+=== "Run Over Code"
+
+    ```py
+    import rigging as rg
+    from rigging.model import Answer
+
+    QUESTION = "What is the capital of France?"
+    ANSWER = "paris"
+
+    async def score_output(chats: list[rg.Chat]) -> list[rg.Chat]:
+        return [
+            chat.meta(correct=chat.last.parse(Answer).content.lower() == ANSWER)
+            for chat in chats
+        ]
+
+    chats = await (
+        rg.get_generator("openai/gpt-3.5-turbo")
+        .chat([
+            {"role": "system", "content": f"Always respond in one word between {Answer.xml_tags()} tags."},
+            {"role": "user", "content": QUESTION}
+        ])
+        .until_parsed_as(Answer, max_rounds=3)
+        .map(score_output)
+        .arun_over("gpt-4-turbo", "claude-3-haiku-20240307,temperature=0.5", "claude-3-sonnet-20240229")
+    )
+
+    for chat in chats:
+        print("Model:", chat.generator.model)
+        print("Msg:  ", chat.last.content)
+        print("Meta: ", chat.metadata)
+        print()
+    ```
+
+=== "Outputs"
+
+    ```
+    Model: gpt-4-turbo
+    Msg:   <answer>Paris</answer>
+    Meta:  {'correct': True}
+
+    Model: claude-3-haiku-20240307
+    Msg:   <answer>Paris</answer>
+    Meta:  {'correct': True}
+
+    Model: claude-3-sonnet-20240229
+    Msg:   <answer>Paris</answer>
+    Meta:  {'correct': True}
+
+    Model: openai/gpt-3.5-turbo
+    Msg:   <answer>Paris</answer>
+    Meta:  {'correct': True}
+    ```

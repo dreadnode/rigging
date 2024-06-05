@@ -328,6 +328,52 @@ class Chat(BaseModel):
         return await chats_to_elastic(self, index, client, op_type=op_type, create_index=create_index, **kwargs)
 
 
+# List Helper Type
+
+
+class ChatList(list[Chat]):
+    """
+    Represents a list of chat objects.
+
+    Inherits from the built-in `list` class and is specialized for storing `Chat` objects.
+    """
+
+    def to_df(self) -> t.Any:
+        """
+        Converts the chat list to a Pandas DataFrame.
+
+        See [rigging.data.chats_to_df][] for more information.
+
+        Returns:
+            The chat list as a DataFrame.
+        """
+        # Late import for circular
+        from rigging.data import chats_to_df
+
+        return chats_to_df(self)
+
+    async def to_elastic(
+        self,
+        index: str,
+        client: AsyncElasticsearch,
+        *,
+        op_type: ElasticOpType = "index",
+        create_index: bool = True,
+        **kwargs: t.Any,
+    ) -> int:
+        """
+        Converts the chat list to Elasticsearch format and indexes it.
+
+        See [rigging.data.chats_to_elastic][] for more information.
+
+        Returns:
+            The number of chats indexed.
+        """
+        from rigging.data import chats_to_elastic
+
+        return chats_to_elastic(self, index, client, op_type=op_type, create_index=create_index, **kwargs)
+
+
 # Callbacks
 
 
@@ -527,6 +573,8 @@ class ChatPipeline:
             new.inject_tool_prompt = self.inject_tool_prompt
             new.force_tool = self.force_tool
             new.metadata = deepcopy(self.metadata)
+            new.then_chat_callbacks = self.then_chat_callbacks.copy()
+            new.map_chat_callbacks = self.map_chat_callbacks.copy()
         return new
 
     def meta(self, **kwargs: t.Any) -> ChatPipeline:
@@ -859,7 +907,7 @@ class ChatPipeline:
         coros = [callback(chats) for callback in self.watch_callbacks]
         await asyncio.gather(*coros)
 
-    async def _post_run(self, chats: list[Chat]) -> list[Chat]:
+    async def _post_run(self, chats: list[Chat]) -> ChatList:
         # These have to be sequenced to support the concept of
         # a pipeline where future then/map calls can depend on
         # previous calls being ran.
@@ -872,7 +920,7 @@ class ChatPipeline:
             new_chats = await asyncio.gather(*coros)
             chats = [new or chat for new, chat in zip(new_chats, chats)]
 
-        return chats
+        return ChatList(chats)
 
     def _pre_run(self) -> None:
         if self.until_tools:
@@ -939,7 +987,7 @@ class ChatPipeline:
         params: t.Sequence[t.Optional[GenerateParams]] | None = None,
         skip_failed: bool = False,
         include_failed: bool = False,
-    ) -> list[Chat]:
+    ) -> ChatList:
         """
         Executes the generation process multiple times with the same inputs.
 
@@ -1024,7 +1072,7 @@ class ChatPipeline:
         size: int | None = None,
         skip_failed: bool = False,
         include_failed: bool = False,
-    ) -> list[Chat]:
+    ) -> ChatList:
         """
         Executes the generation process accross multiple input messages.
 
