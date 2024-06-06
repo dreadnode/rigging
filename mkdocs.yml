@@ -11,6 +11,7 @@ nav:
     - Models: topics/models.md
     - Generators: topics/generators.md
     - Chats and Messages: topics/chats-and-messages.md
+    - Prompt Functions: topics/prompt-functions.md
     - Completions: topics/completions.md
     - Callbacks and Mapping: topics/callbacks-and-mapping.md
     - Async and Batching: topics/async-and-batching.md
@@ -26,6 +27,7 @@ nav:
     - rigging.generator: api/generator.md
     - rigging.model: api/model.md
     - rigging.message: api/message.md
+    - rigging.prompt: api/prompt.md
     - rigging.tool: api/tool.md
     - rigging.data: api/data.md
     - rigging.parsing: api/parsing.md

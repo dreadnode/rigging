@@ -117,7 +117,6 @@ class Completion(BaseModel):
             generator: The generator to use for the restarted completion. Otherwise
                 the generator from the original CompletionPipeline will be used.
             include_all: Whether to include the generation before the next round.
-
         Returns:
             The restarted completion.
 
@@ -153,6 +152,11 @@ class Completion(BaseModel):
         new = Completion(self.text, self.generated, self.generator)
         if not only_messages:
             new.metadata = deepcopy(self.metadata)
+            new.stop_reason = self.stop_reason
+            new.usage = self.usage.model_copy() if self.usage is not None else self.usage
+            new.extra = deepcopy(self.extra)
+            new.params = self.params.model_copy() if self.params is not None else self.params
+            new.failed = self.failed
         return new
 
     def meta(self, **kwargs: t.Any) -> Completion:
@@ -388,12 +392,18 @@ class CompletionPipeline:
         Returns:
             A new instance of `CompletionPipeline` that is a clone of the current instance.
         """
-        new = CompletionPipeline(self.generator, self.text, params=self.params, watch_callbacks=self.watch_callbacks)
+        new = CompletionPipeline(
+            self.generator,
+            self.text,
+            params=self.params.model_copy() if self.params is not None else None,
+            watch_callbacks=self.watch_callbacks,
+        )
         if not only_text:
             new.until_callbacks = self.until_callbacks.copy()
             new.until_types = self.until_types.copy()
             new.metadata = deepcopy(self.metadata)
             new.then_callbacks = self.then_callbacks.copy()
+            new.map_callbacks = self.map_callbacks.copy()
         return new
 
     def meta(self, **kwargs: t.Any) -> CompletionPipeline:

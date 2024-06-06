@@ -8,6 +8,7 @@ import re
 import typing as t
 from xml.etree import ElementTree as ET
 
+import xmltodict  # type: ignore
 from pydantic import (
     BeforeValidator,
     SerializationInfo,
@@ -16,7 +17,6 @@ from pydantic import (
     field_serializer,
     field_validator,
 )
-from pydantic.alias_generators import to_snake
 from pydantic_xml import BaseXmlModel
 from pydantic_xml import attr as attr
 from pydantic_xml import element as element
@@ -24,6 +24,7 @@ from pydantic_xml import wrapped as wrapped
 from pydantic_xml.typedefs import EntityLocation, NsMap
 
 from rigging.error import MissingModelError
+from rigging.util import escape_xml, to_xml_tag, unescape_xml
 
 if t.TYPE_CHECKING:
     from pydantic_xml.element import SearchMode  # type: ignore [attr-defined]
@@ -40,25 +41,6 @@ ModelT = t.TypeVar("ModelT", bound="Model")
 # custom for our use case that supports JSON, YAML, and XML
 
 BASIC_TYPES = [int, str, float, bool]
-
-
-def escape_xml(xml_string: str) -> str:
-    prepared = re.sub(r"&(?!(?:amp|lt|gt|apos|quot);)", "&amp;", xml_string)
-
-    return prepared
-
-
-def unescape_xml(xml_string: str) -> str:
-    # We only expect to use this in our "simple"
-    # models, but I'd like a better long-term solution
-
-    unescaped = re.sub(r"&amp;", "&", xml_string)
-    unescaped = re.sub(r"&lt;", "<", unescaped)
-    unescaped = re.sub(r"&gt;", ">", unescaped)
-    unescaped = re.sub(r"&apos;", "'", unescaped)
-    unescaped = re.sub(r"&quot;", '"', unescaped)
-
-    return unescaped
 
 
 class XmlTagDescriptor:
@@ -79,7 +61,7 @@ class XmlTagDescriptor:
         if "[" in cls.__name__:
             return t.cast(str, parent.__xml_tag__)
 
-        return to_snake(cls.__name__).replace("_", "-")
+        return to_xml_tag(cls.__name__)
 
 
 class Model(BaseXmlModel):
@@ -118,6 +100,8 @@ class Model(BaseXmlModel):
         pretty_encoded_xml = ET.tostring(tree, short_empty_elements=False).decode()
 
         if self.__class__.is_simple():
+            # We only expect to use this in our "simple"
+            # models, but I'd like a better long-term solution
             return unescape_xml(pretty_encoded_xml)
         else:
             return pretty_encoded_xml
@@ -167,12 +151,18 @@ class Model(BaseXmlModel):
 
         Models should typically override this method to provide a more complex example.
 
-        By default, this method just returns the XML tags for the class.
+        By default, this method returns a hollow XML scaffold one layer deep.
 
         Returns:
             A string containing the XML representation of the class.
         """
-        return cls.xml_tags()
+        schema = cls.model_json_schema()
+        properties = schema["properties"]
+        structure = {cls.__xml_tag__: {field: None for field in properties}}
+        xml_string = xmltodict.unparse(
+            structure, pretty=True, full_document=False, indent="  ", short_empty_elements=True
+        )
+        return t.cast(str, xml_string)  # Bad type hints in xmltodict
 
     @classmethod
     def ensure_valid(cls) -> None:
@@ -299,7 +289,7 @@ class Primitive(Model, t.Generic[PrimitiveT]):
 
 def make_primitive(
     name: str,
-    type_: PrimitiveT = str,
+    type_: type[PrimitiveT] = str,  # type: ignore [assignment]
     *,
     tag: str | None = None,
     doc: str | None = None,
@@ -328,7 +318,7 @@ def make_primitive(
 
     return create_model(
         name,
-        __base__=Primitive[type_],
+        __base__=Primitive[type_],  # type: ignore
         __doc__=doc,
         __cls_kwargs__={"tag": tag},
         content=(t.Annotated[type_, BeforeValidator(lambda x: x.strip() if isinstance(x, str) else x)], ...),

@@ -133,7 +133,7 @@ class Message(BaseModel):
 
     def _add_part(self, part: ParsedMessagePart) -> None:
         for existing in self.parts:
-            if part.slice_ == existing.slice_ and isinstance(part.model, type(existing.model)):
+            if part.slice_ == existing.slice_ and part.model.xml_tags() == existing.model.xml_tags():
                 return  # We clearly already have this part defined
             if max(part.slice_.start, existing.slice_.start) < min(part.slice_.stop, existing.slice_.stop):
                 raise ValueError("Incoming part overlaps with an existing part")
@@ -368,7 +368,7 @@ class Message(BaseModel):
         """Helper function to convert various common types to a Message object."""
         if isinstance(message, str):
             return cls(role="user", content=message)
-        return cls(**message) if isinstance(message, dict) else message
+        return cls(**message) if isinstance(message, dict) else message.model_copy()
 
     @classmethod
     def apply_to_list(cls, messages: t.Sequence[Message], **kwargs: str) -> list[Message]:

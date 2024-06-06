@@ -28,6 +28,8 @@ if t.TYPE_CHECKING:
     from elasticsearch import AsyncElasticsearch
 
     from rigging.data import ElasticOpType
+    from rigging.prompt import Prompt
+    from rigging.util import P, R
 
 DEFAULT_MAX_ROUNDS = 5
 """Maximum number of internal callback rounds to attempt during generation before giving up."""
@@ -203,7 +205,16 @@ class Chat(BaseModel):
         return self.fork(messages, include_all=True)
 
     def clone(self, *, only_messages: bool = False) -> Chat:
-        """Creates a deep copy of the chat."""
+        """
+        Creates a deep copy of the chat.
+
+        Args:
+            only_messages: If True, only the messages will be cloned.
+                If False (default), the entire chat object will be cloned.
+
+        Returns:
+            A new instance of Chat.
+        """
         new = Chat(
             [m.model_copy() for m in self.messages],
             [m.model_copy() for m in self.generated],
@@ -211,6 +222,11 @@ class Chat(BaseModel):
         )
         if not only_messages:
             new.metadata = deepcopy(self.metadata)
+            new.params = self.params.model_copy() if self.params is not None else None
+            new.stop_reason = self.stop_reason
+            new.usage = self.usage.model_copy() if self.usage is not None else None
+            new.extra = deepcopy(self.extra)
+            new.failed = self.failed
         return new
 
     def apply(self, **kwargs: str) -> Chat:
@@ -371,7 +387,7 @@ class ChatList(list[Chat]):
         """
         from rigging.data import chats_to_elastic
 
-        return chats_to_elastic(self, index, client, op_type=op_type, create_index=create_index, **kwargs)
+        return await chats_to_elastic(self, index, client, op_type=op_type, create_index=create_index, **kwargs)
 
 
 # Callbacks
@@ -564,7 +580,12 @@ class ChatPipeline:
         Returns:
             A new instance of `ChatPipeline` that is a clone of the current instance.
         """
-        new = ChatPipeline(self.generator, [], params=self.params, watch_callbacks=self.watch_callbacks)
+        new = ChatPipeline(
+            self.generator,
+            [],
+            params=self.params.model_copy() if self.params is not None else None,
+            watch_callbacks=self.watch_callbacks,
+        )
         new.chat = self.chat.clone()
         if not only_messages:
             new.until_callbacks = self.until_callbacks.copy()
@@ -573,8 +594,8 @@ class ChatPipeline:
             new.inject_tool_prompt = self.inject_tool_prompt
             new.force_tool = self.force_tool
             new.metadata = deepcopy(self.metadata)
-            new.then_chat_callbacks = self.then_chat_callbacks.copy()
-            new.map_chat_callbacks = self.map_chat_callbacks.copy()
+            new.then_callbacks = self.then_callbacks.copy()
+            new.map_callbacks = self.map_callbacks.copy()
         return new
 
     def meta(self, **kwargs: t.Any) -> ChatPipeline:
@@ -1157,3 +1178,72 @@ class ChatPipeline:
             chats = [s.chat for s in states if s.chat is not None]
 
         return await self._post_run(chats)
+
+    # Generator iteration
+
+    async def arun_over(
+        self,
+        *generators: Generator | str,
+        include_original: bool = True,
+        skip_failed: bool = False,
+        include_failed: bool = False,
+    ) -> ChatList:
+        """
+        Executes the generation process across multiple generators.
+
+        For each generator, this pending chat is cloned and the generator is replaced
+        before the run call. All callbacks and parameters are preserved.
+
+        Parameters:
+            *generators: A sequence of generators to be used for the generation process.
+            include_original: Whether to include the original generator in the list of runs.
+            skip_failed: Enable to ignore any max rounds errors and return only successful chats.
+            include_failed: Enable to ignore max rounds errors and return both
+                successful and failed chats.
+
+        Returns:
+            A list of generatated Chats.
+        """
+        if skip_failed and include_failed:
+            raise ValueError("Cannot use both skip_failed and include_failed")
+
+        _generators: list[Generator] = [g if isinstance(g, Generator) else get_generator(g) for g in generators]
+        if include_original:
+            _generators.append(self.generator)
+
+        coros: list[t.Coroutine[t.Any, t.Any, Chat]] = []
+        for generator in _generators:
+            sub = self.clone()
+            sub.generator = generator
+            coros.append(sub.run(allow_failed=skip_failed or include_failed))
+
+        chats = await asyncio.gather(*coros)
+
+        if skip_failed:
+            chats = [c for c in chats if not c.failed]
+
+        return ChatList(chats)
+
+    # Prompt functions
+
+    def prompt(self, func: t.Callable[P, t.Coroutine[None, None, R]]) -> Prompt[P, R]:
+        """
+        Decorator to convert a function into a prompt bound to this pipeline.
+
+        See [rigging.prompt.prompt][] for more information.
+
+        Args:
+            func: The function to be converted into a prompt.
+
+        Returns:
+            The prompt.
+        """
+        from rigging.prompt import prompt
+
+        return prompt(func, pipeline=self)
+
+    async def run_prompt(self, prompt: Prompt[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
+        return await prompt.run(*args, pipeline=self, **kwargs)
+
+    async def run_prompt_many(self, prompt: Prompt[P, R], count: int, *args: P.args, **kwargs: P.kwargs) -> list[R]:
+        return await prompt.run_many(count, *args, pipeline=self, **kwargs)

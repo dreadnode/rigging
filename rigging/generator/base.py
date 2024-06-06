@@ -13,6 +13,8 @@ from rigging.message import Message, MessageDict
 if t.TYPE_CHECKING:
     from rigging.chat import ChatPipeline, WatchChatCallback
     from rigging.completion import CompletionPipeline, WatchCompletionCallback
+    from rigging.prompt import Prompt
+    from rigging.util import P, R
 
     WatchCallbacks = t.Union[WatchChatCallback, WatchCompletionCallback]
 
@@ -28,13 +30,11 @@ class LazyGenerator(t.Protocol):
 g_providers: dict[str, type[Generator] | LazyGenerator] = {}
 
 
-# TODO: Ideally we flex this to support arbitrary
-# generator params, but we'll limit things
-# for now until we understand the use cases
-#
 # TODO: We also would like to support N-style
 # parallel generation eventually -> need to
 # update our interfaces to support that
+
+
 class GenerateParams(BaseModel):
     """
     Parameters for generating text using a language model.
@@ -252,7 +252,7 @@ class Generator(BaseModel):
             allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
 
         ```
-        def log(chats: list[Chat]) -> None:
+        async def log(chats: list[Chat]) -> None:
             ...
 
         pipeline.watch(log).run()
@@ -397,6 +397,22 @@ class Generator(BaseModel):
         completion_watch_callbacks = [cb for cb in self._watch_callbacks if isinstance(cb, (WatchCompletionCallback))]
 
         return CompletionPipeline(self, text, params=params, watch_callbacks=completion_watch_callbacks)
+
+    def prompt(self, func: t.Callable[P, t.Coroutine[None, None, R]]) -> Prompt[P, R]:
+        """
+        Decorator to convert a function into a prompt bound to this generator.
+
+        See [rigging.prompt.prompt][] for more information.
+
+        Args:
+            func: The function to be converted into a prompt.
+
+        Returns:
+            The prompt.
+        """
+        from rigging.prompt import prompt
+
+        return prompt(func, generator=self)
 
 
 @t.overload

@@ -22,6 +22,7 @@ from rigging.generator import (
 )
 from rigging.message import Message, MessageDict, Messages
 from rigging.model import Model, attr, element, make_primitive, wrapped
+from rigging.prompt import Ctx, Prompt, prompt
 from rigging.tool import Tool
 
 __version__ = "1.3.0"
@@ -56,6 +57,9 @@ __all__ = [
     "chats_to_elastic_data",
     "flatten_chats",
     "unflatten_chats",
+    "prompt",
+    "Prompt",
+    "Ctx",
 ]
 
 from loguru import logger
