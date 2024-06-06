@@ -402,7 +402,7 @@ class Prompt(t.Generic[P, R]):
 
     inputs: list[Input] = dataclasses.field(default_factory=list)
     """The structured input handlers for the prompt."""
-    output: Output = ChatOutput(id="chat", context=Ctx())
+    output: Output = dataclasses.field(default_factory=lambda: ChatOutput(id="chat", context=Ctx()))
     """The structured output handler for the prompt."""
 
     watch_callbacks: list[WatchChatCallback] = dataclasses.field(default_factory=list)
