@@ -5223,10 +5223,10 @@ doc = ["furo", "jaraco.packaging (>=9.3)", "jaraco.tidelift (>=1.4)", "rst.linke
 test = ["big-O", "importlib-resources", "jaraco.functools", "jaraco.itertools", "jaraco.test", "more-itertools", "pytest (>=6,!=8.1.*)", "pytest-checkdocs (>=2.4)", "pytest-cov", "pytest-enabler (>=2.2)", "pytest-ignore-flaky", "pytest-mypy", "pytest-ruff (>=0.2.1)"]
 
 [extras]
-all = ["accelerate", "asyncssh", "transformers", "types-requests", "vllm"]
+all = ["accelerate", "asyncssh", "click", "httpx", "transformers", "types-requests", "vllm"]
 examples = ["asyncssh", "click", "httpx", "types-requests"]
 
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "ae7b6a6d55016cb538d0e75132c8d7d60e05b87e8c98d36af16b7867d1be47aa"
+content-hash = "08570ebbbfa4717fd6cf4e42ff105d27472ed32ff3b111f04f690ea2aeab5a4f"
