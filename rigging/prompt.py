@@ -73,7 +73,7 @@ def get_undeclared_variables(template: str) -> set[str]:
 
 
 def make_parameter(
-    annotation: t.Any, *, name: str = "", kind: inspect._ParameterKind = inspect.Parameter.VAR_KEYWORD
+    annotation: t.Any, *, name: str = "nested", kind: inspect._ParameterKind = inspect.Parameter.VAR_KEYWORD
 ) -> inspect.Parameter:
     return inspect.Parameter(name=name, kind=kind, annotation=annotation)
 
