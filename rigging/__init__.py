@@ -15,8 +15,9 @@ from rigging.message import Message, MessageDict, Messages
 from rigging.model import Model, attr, element, wrapped
 from rigging.prompt import Ctx, Prompt, prompt
 from rigging.tool import Tool
+from rigging.util import await_
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 
 __all__ = [
     "get_generator",
@@ -47,6 +48,7 @@ __all__ = [
     "model",
     "error",
     "parsing",
+    "await_",
 ]
 
 from loguru import logger

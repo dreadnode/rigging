@@ -29,19 +29,45 @@ by default. Wrapping any entrypoint with `asyncio.run(...)` is a simple way to m
 in a more unique scenario, check out the [greenback](https://github.com/oremanj/greenback) to allow stepping in/out
 of async code in a larger system.
 
-```py
-import asyncio
-import rigging as rg
+We also provide a helper [`await_`][rigging.util.await_] function which can be used in place
+of standard `await` in synchronous code. Underneath rigging will manage an event loop for you
+in a separate thread and pass coroutines into it for resolution.
 
-async def main():
-    generator = rg.get_generator(...)
-    pipeline = generatore.chat(...)
 
-    chat = await pipeline.run()
+=== "rg.await_()"
 
-if __name__ == "__main__":
-    asyncio.run(main())
-```
+    ```py
+    import rigging as rg
+
+    def main():
+        generator = rg.get_generator(...)
+        pipeline = generator.chat(...)
+
+        chat = rg.await_(pipeline.run()) # (1)!
+    
+    if __name__ == "__main__":
+        main()
+    ```
+
+    1. You can pass a single coroutine or a positional list of coroutines to [`await_`][rigging.util.await_].
+
+
+=== "asyncio.run()"
+
+    ```py
+    import asyncio
+    import rigging as rg
+
+    async def main():
+        generator = rg.get_generator(...)
+        pipeline = generatore.chat(...)
+
+        chat = await pipeline.run()
+
+    if __name__ == "__main__":
+        asyncio.run(main())
+    ```
+
 
 ### "Pending" -> "Pipeline"
 

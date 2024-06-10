@@ -405,7 +405,7 @@ class Prompt(t.Generic[P, R]):
     passing inputs into a ChatPipeline and parsing outputs.
     """
 
-    func: t.Callable[P, t.Coroutine[None, None, R]]
+    func: t.Callable[P, t.Coroutine[t.Any, t.Any, R]]
     """The function that the prompt wraps. This function should be a coroutine."""
 
     attempt_recovery: bool = True
@@ -632,7 +632,7 @@ class Prompt(t.Generic[P, R]):
 
     def bind_for_run_many(
         self, pipeline: ChatPipeline
-    ) -> t.Callable[Concatenate[int, P], t.Coroutine[None, None, list[R]]]:
+    ) -> t.Callable[Concatenate[int, P], t.Coroutine[t.Any, t.Any, list[R]]]:
         if pipeline.on_failed == "include" and not isinstance(self.output, ChatOutput):
             raise NotImplementedError("pipeline.on_failed='include' cannot be used with prompts that process outputs")
 
@@ -659,7 +659,7 @@ class Prompt(t.Generic[P, R]):
 
     def bind_for_run_over(
         self, pipeline: ChatPipeline | None = None
-    ) -> t.Callable[Concatenate[t.Sequence[Generator | str], P], t.Coroutine[None, None, list[R]]]:
+    ) -> t.Callable[Concatenate[t.Sequence[Generator | str], P], t.Coroutine[t.Any, t.Any, list[R]]]:
         include_original = pipeline is not None
         pipeline = pipeline or get_generator("base!base").chat().catch(on_failed="skip")  # TODO: Clean this up
 
@@ -753,13 +753,25 @@ def prompt(
     pipeline: ChatPipeline | None = None,
     generator: Generator | None = None,
     generator_id: str | None = None,
-) -> t.Callable[[t.Callable[P, t.Coroutine[None, None, R]] | t.Callable[P, R]], Prompt[P, R]]:
+) -> t.Callable[[t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R]], Prompt[P, R]]:
     ...
 
 
 @t.overload
 def prompt(
-    func: t.Callable[P, t.Coroutine[None, None, R]] | t.Callable[P, R],
+    func: t.Callable[P, t.Coroutine[t.Any, t.Any, R]],
+    /,
+    *,
+    pipeline: ChatPipeline | None = None,
+    generator: Generator | None = None,
+    generator_id: str | None = None,
+) -> Prompt[P, R]:
+    ...
+
+
+@t.overload
+def prompt(
+    func: t.Callable[P, R],
     /,
     *,
     pipeline: ChatPipeline | None = None,
@@ -770,13 +782,13 @@ def prompt(
 
 
 def prompt(
-    func: t.Callable[P, t.Coroutine[None, None, R]] | t.Callable[P, R] | None = None,
+    func: t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R] | None = None,
     /,
     *,
     pipeline: ChatPipeline | None = None,
     generator: Generator | None = None,
     generator_id: str | None = None,
-) -> t.Callable[[t.Callable[P, t.Coroutine[None, None, R]] | t.Callable[P, R]], Prompt[P, R]] | Prompt[P, R]:
+) -> t.Callable[[t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R]], Prompt[P, R]] | Prompt[P, R]:
     """
     Convert a hollow function into a Prompt, which can be called directly or passed a
     chat pipeline to execute the function and parse the outputs.
@@ -838,7 +850,7 @@ def prompt(
     if sum(arg is not None for arg in (pipeline, generator, generator_id)) > 1:
         raise ValueError("Only one of pipeline, generator, or generator_id can be provided")
 
-    def make_prompt(func: t.Callable[P, t.Coroutine[None, None, R]] | t.Callable[P, R]) -> Prompt[P, R]:
+    def make_prompt(func: t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R]) -> Prompt[P, R]:
         return Prompt[P, R](
             func=func,  # type: ignore
             _generator_id=generator_id,
