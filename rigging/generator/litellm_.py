@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import typing as t
 
-import litellm  # type: ignore
+import litellm
 
 from rigging.generator.base import (
     GeneratedMessage,
@@ -65,11 +65,13 @@ class LiteLLMGenerator(Generator):
 
     def _parse_model_response(self, response: litellm.utils.ModelResponse) -> GeneratedMessage:
         choice = response.choices[-1]
-        usage = response.usage.model_dump()
-        usage["input_tokens"] = usage.pop("prompt_tokens")
-        usage["output_tokens"] = usage.pop("completion_tokens")
+        usage = None
+        if getattr(response, "usage", None) is not None:
+            usage = response.usage.model_dump()  # type: ignore
+            usage["input_tokens"] = usage.pop("prompt_tokens")
+            usage["output_tokens"] = usage.pop("completion_tokens")
         return GeneratedMessage(
-            message=Message(role="assistant", content=choice.message.content),
+            message=Message(role="assistant", content=choice.message.content),  # type: ignore
             stop_reason=choice.finish_reason,
             usage=usage,
             extra={"response_id": response.id},
@@ -77,9 +79,11 @@ class LiteLLMGenerator(Generator):
 
     def _parse_text_completion_response(self, response: litellm.utils.TextCompletionResponse) -> GeneratedText:
         choice = response.choices[-1]
-        usage = response.usage.model_dump()
-        usage["input_tokens"] = usage.pop("prompt_tokens")
-        usage["output_tokens"] = usage.pop("completion_tokens")
+        usage = None
+        if response.usage is not None:
+            usage = response.usage.model_dump()
+            usage["input_tokens"] = usage.pop("prompt_tokens")
+            usage["output_tokens"] = usage.pop("completion_tokens")
         return GeneratedText(
             text=choice["text"],
             stop_reason=choice.finish_reason,

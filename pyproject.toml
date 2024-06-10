@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "rigging"
-version = "1.3.0"
+version = "2.0.0"
 description = "LLM Interaction Framework"
 authors = ["Nick Landers <monoxgas@gmail.com>"]
 license = "MIT"
@@ -12,10 +12,10 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.9"
-pydantic = "2.6.1"
+pydantic = "2.7.3"
 pydantic-xml = "2.11.0"
 loguru = "^0.7.2"
-litellm = "1.35.21"
+litellm = "1.40.7"
 pandas = "^2.2.2"
 eval-type-backport = "^0.2.0" # For 3.9 future annotations
 elasticsearch = "^8.13.2"
@@ -32,7 +32,7 @@ xmltodict = "^0.13.0"
 
 [tool.poetry.extras]
 examples = ["asyncssh", "types-requests", "click", "httpx"]
-all = ["vllm", "transformers", "accelerate", "asyncssh", "types-requests"]
+all = ["vllm", "transformers", "accelerate", "asyncssh", "types-requests", "click", "httpx"]
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.27.1"
