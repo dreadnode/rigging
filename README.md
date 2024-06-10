@@ -100,7 +100,7 @@ pipeline = generator.chat([
 ])
 
 # 3 - Run the pipeline
-chat = pipeline.run()
+chat = await pipeline.run()
 print(chat.conversation)
 
 # [system]: Talk like a pirate.
