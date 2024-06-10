@@ -31,7 +31,7 @@ We publish every version to Pypi:
 pip install rigging
 ```
 
-If you want all the extras (vLLM), just specify the `all` extra:
+If you want all the extras (vLLM, transformers, examples), just specify the `all` extra:
 ```bash
 pip install rigging[all]
 ```
@@ -42,13 +42,13 @@ cd rigging/
 poetry install
 ```
 
-## Migrations
+## Migration Guides
 
 - **[Migrating from v1.x to v2.x](topics/migrations.md#migrating-from-v1x-to-v2x)**
 
 ## Getting Started
 
-Rigging is a flexible library built on top of other very flexible libraries. As such it might take a bit to warm
+Rigging is a flexible library built on other flexible libraries. As such it might take a bit to warm
 up to it's interfaces provided the many ways you can accomplish your goals. However, the code is well documented
 and topic pages and source are a great places to step in/out of as you explore.
 
@@ -102,7 +102,7 @@ print(chat.all)
    is the provider. We just default to that generator and you don't have to be explicit. You
    can find more information about this in the [generators](topics/generators.md) docs.
 3. From version 2 onwards, Rigging is fully async. You can use `await` to trigger generation
-   and get your results.
+   and get your results, or use [`await_`][rigging.util.await_].
 
 
 Generators have an easy [`chat()`][rigging.generator.Generator.chat] method which you'll
@@ -146,7 +146,7 @@ print(chat.all)
     - [rigging.chat.ChatPipeline.run_over][]
 
 In this case, we have nothing additional we want to add to our chat pipeline, and we are only interested
-in generating exactly one response message. We simply call [`.run()`][rigging.chat.ChatPipeline.chat] to
+in generating exactly one response message. We simply call [`.run()`][rigging.chat.ChatPipeline.run] to
 execute the generation process and collect our final [`Chat`][rigging.chat.Chat] object.
 
 ```py hl_lines="10-11"

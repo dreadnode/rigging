@@ -16,6 +16,7 @@ directly affect the generation process. Register them with any of the following:
 
 - [`Generator.watch()`][rigging.generator.Generator.watch]
 - [`ChatPipeline.watch()`][rigging.chat.ChatPipeline.watch]
+- [`CompletionPipeline.watch()`][rigging.completion.CompletionPipeline.watch]
 - [`Prompt.watch()`][rigging.prompt.Prompt.watch]
 
 We also provide various helpers in the `rigging.watch` module for writing to
