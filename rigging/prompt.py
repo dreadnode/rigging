@@ -9,11 +9,10 @@ import dataclasses
 import inspect
 import re
 import typing as t
-from typing import Concatenate
 
 from jinja2 import Environment, StrictUndefined, meta
 from pydantic import ValidationError
-from typing_extensions import ParamSpec
+from typing_extensions import Concatenate, ParamSpec  # noqa: UP035
 
 from rigging.chat import Chat
 from rigging.generator.base import GenerateParams, Generator, get_generator
