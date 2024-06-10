@@ -217,6 +217,39 @@ def test_prompt_render_with_chat_return() -> None:
     )
 
 
+def test_prompt_render_ctx_in_dataclass() -> None:
+    @dataclass
+    class User:
+        username: str
+        email: Annotated[str, rg.Ctx(prefix="The user email:", example="[test@email.com]")]
+        age: Annotated[int, rg.Ctx(tag="override")]
+
+    @rg.prompt
+    async def register_user(username: str, email: str, age: int) -> User:
+        """Register a new user: {{ username }}."""
+        ...
+
+    rendered = register_user.render("johndoe", "john@email.com", 30)
+    assert rendered == dedent(
+        """\
+    Register a new user: johndoe.
+
+    <email>john@email.com</email>
+
+    <age>30</age>
+
+    Produce the following outputs:
+
+    <username></username>
+
+    The user email:
+    <email>[test@email.com]</email>
+
+    <override></override>
+    """
+    )
+
+
 def test_prompt_parse_fail_nested_input() -> None:
     async def foo(arg: list[list[str]]) -> Chat:
         ...

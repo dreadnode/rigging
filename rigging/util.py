@@ -1,11 +1,6 @@
 import re
-import typing as t
 
 from pydantic import alias_generators
-from typing_extensions import ParamSpec
-
-P = ParamSpec("P")
-R = t.TypeVar("R")
 
 
 def escape_xml(xml_string: str) -> str:
@@ -25,7 +20,7 @@ def unescape_xml(xml_string: str) -> str:
 
 
 def to_snake(text: str) -> str:
-    return alias_generators.to_snake(text)
+    return alias_generators.to_snake(text).replace("-", "_")
 
 
 def to_xml_tag(text: str) -> str:

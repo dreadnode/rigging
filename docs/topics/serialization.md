@@ -22,11 +22,14 @@ Let's build a joke pipeline and serialize the final chat into JSON.
     class Joke(rg.Model):
         content: str
 
-    chat = rg.get_generator("gpt-3.5-turbo") \
-        .chat(f"Provide 3 jokes each between {Joke.xml_tags()} tags.") \
-        .meta(tags=['joke']) \
-        .with_(temperature=1.25) \
+    chat = (
+        await
+        rg.get_generator("gpt-3.5-turbo")
+        .chat(f"Provide 3 jokes each between {Joke.xml_tags()} tags.")
+        .meta(tags=['joke'])
+        .with_(temperature=1.25)
         .run()
+    )
 
     chat.last.parse_set(Joke)
 
@@ -131,12 +134,15 @@ the messages are flattened and stored with a `chat_id` column for grouping.
 import rigging as rg
 
 chats = (
+    await
     rg.get_generator("claude-3-haiku-20240307")
     .chat("Write me a haiku.")
     .run_many(3)
 )
 
-df = rg.chats_to_df(chats)
+df = rg.data.chats_to_df(chats)
+# or
+df = chats.to_df()
 
 print(df.info())
 
@@ -159,7 +165,7 @@ df.content.apply(lambda x: len(x)).mean()
 
 # 60.166666666666664
 
-back = rg.df_to_chats(df)
+back = rg.data.df_to_chats(df)
 print(back[0].conversation)
 
 # [user]: Write me a haiku.

@@ -34,10 +34,11 @@ of your tool class to the [`ChatPipeline.using()`][rigging.chat.ChatPipeline.usi
 
 ```py
 chat = (
-    rg.get_generator("gpt-3.5-turbo")
-    .chat("What is the weather in London?")
-    .using(WeatherTool(), force=True) # (1)!
-    .run()
+   await
+   rg.get_generator("gpt-3.5-turbo")
+   .chat("What is the weather in London?")
+   .using(WeatherTool(), force=True) # (1)!
+   .run()
 )
 
 print(chat.last.content)

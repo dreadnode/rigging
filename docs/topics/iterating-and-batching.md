@@ -1,28 +1,32 @@
-# Async and Batching
+# Iterating and Batching
 
-Rigging has good support for handling async generation and large batching of requests. How efficiently
-these mechanisms operates is dependent on the underlying generator that's being used, but Rigging has
-been developed with scale in mind.
+Rigging has good support for iterating over messages, params, and generators, as well as 
+large batching of requests. How efficiently these mechanisms operates is dependent on the
+underlying generator that's being used, but Rigging has been developed with scale in mind.
 
 ## Multiple Generations
 
-The [`.run_many`][rigging.chat.ChatPipeline.run_many] and [`.arun_many`][rigging.chat.ChatPipeline.arun_many] functions
-let you take the same inputs and generation parameters, and simply run the generation multiple times.
+The `run_many` functions let you scale out generation N times with the same inputs:
+
+- [`ChatPipeline.run_many()`][rigging.chat.ChatPipeline.run_many]
+- [`CompletionPipeline.run_many()`][rigging.completion.CompletionPipeline.run_many]
+- [`Prompt.run_many()`][rigging.prompt.Prompt.run_many]
 
 === "Run Many Code"
 
     ```py
     import rigging as rg
 
-    def check_animal(chats: list[rg.Chat]) -> list[rg.Chat]:
+    async def check_animal(chats: list[rg.Chat]) -> list[rg.Chat]:
         return [
-            chat.continue_(f"Why did you pick that animal?").meta(questioned=True).run()
+            await chat.continue_(f"Why did you pick that animal?").meta(questioned=True).run()
             if any(a in chat.last.content.lower() for a in ["cat", "dog", "cow", "mouse"])
             else chat
             for chat in chats
         ]
 
     chats = (
+        await
         rg.get_generator("gpt-3.5-turbo")
         .chat("Tell me a joke about an animal.")
         .map(check_animal)
@@ -65,10 +69,14 @@ let you take the same inputs and generation parameters, and simply run the gener
 
 ## Batching Inputs
 
-You can use the [`.run_batch`][rigging.chat.ChatPipeline.run_batch] and [`.arun_batch`][rigging.chat.ChatPipeline.arun_batch]
-functions to batch accross a set of inputs and collect all the chats. As processing proceeds with things like
-[`.then`][rigging.chat.ChatPipeline.then] or [`.until_parsed_as`][rigging.chat.ChatPipeline.until_parsed_as], that chats
-will resolve individually and collapse into the final results.
+The `run_batch` functions let you batch accross a set of inputs:
+
+- [`ChatPipeline.run_batch()`][rigging.chat.ChatPipeline.run_batch]
+- [`CompletionPipeline.run_batch()`][rigging.completion.CompletionPipeline.run_batch]
+ 
+As processing proceeds with things like [`.then`][rigging.chat.ChatPipeline.then] or
+[`.map`][rigging.chat.ChatPipeline.map], that chats will resolve individually and
+collapse into the final results.
 
 === "Batching Inputs Code"
 
@@ -76,8 +84,8 @@ will resolve individually and collapse into the final results.
     import rigging as rg
     from rigging.model import CommaDelimitedAnswer
 
-    pending = (
-        rg.get_generator('gpt-3.5-turbo')
+    pipeline = (
+        rg.get_generator('gpt-4-turbo')
         .chat({
             "role": "system",
             "content": f"Always respond with {CommaDelimitedAnswer.xml_tags()} tags."}
@@ -87,7 +95,7 @@ will resolve individually and collapse into the final results.
 
     many = [f"Give me 3 famous {thing}" for thing in ["authors", "painters", "musicians", "hackers"]]
 
-    chats = await pending.arun_batch(many, skip_failed=True)
+    chats = await pipeline.run_batch(many, on_failed='skip')
 
     for i, chat in enumerate(chats):
         print(f"--- Chat {i+1} ({len(chat)}) ---")
@@ -102,12 +110,13 @@ will resolve individually and collapse into the final results.
     ['Leonardo da Vinci', 'Vincent van Gogh', 'Pablo Picasso']
 
     --- Chat 2 (2) ---
-    ['Michael Jackson', 'Beyonc&#233;', 'The Beatles']
+    ['Michael Jackson', 'Beyonce', 'The Beatles']
     ```
 
 !!! tip "Skipping failed results"
 
-    Passing `skip_failed=True` to [`.run_batch`][rigging.chat.ChatPipeline.run_batch] will cause the function to
+    Passing `on_failed='skip'` to [`.run_batch`][rigging.chat.ChatPipeline.run_batch], or configuring
+    a pipeline with [`.catch(..., on_failed='skip')`][rigging.chat.ChatPipeline.catch] will cause the function to
     ignore any parsing errors like [`ExhaustedMaxRoundsError`][rigging.error.ExhaustedMaxRoundsError] and only
     return the chats that were successful.
 
@@ -116,7 +125,7 @@ will resolve individually and collapse into the final results.
 
 In addition to batching against input messages or strings, you can fix a single input
 and build a batch accross a set of generation parameters. The inputs to
-[`.run_batch`][rigging.chat.ChatPipeline.run_batch] and [`.arun_batch`][rigging.chat.ChatPipeline.arun_batch]
+[`.run_batch`][rigging.chat.ChatPipeline.run_batch]
 will scale either the generate parameters or the input messages if either is a single item.
 
 === "Batching Code"
@@ -124,9 +133,9 @@ will scale either the generate parameters or the input messages if either is a s
     ```py
     import rigging as rg
 
-    pending = rg.get_generator("gpt-3.5-turbo").chat()
+    pipeline = rg.get_generator("gpt-3.5-turbo").chat()
 
-    chats = await pending.arun_batch(
+    chats = await pipeline.run_batch(
         ["Tell me a short fact about an japanese city."],
         [rg.GenerateParams(temperature=t) for t in [0.6, 0.9, 1.2, 1.5, 1.8]]
     )
@@ -178,16 +187,21 @@ will scale either the generate parameters or the input messages if either is a s
 
 ## Iterating over Models
 
-The [`.run_over`][rigging.chat.PendingChat.run_over] and [`.arun_over`][rigging.chat.PendingChat.arun_over] functions
-allow you to process a pending chat over a set of generators. This is a helper for iterating manually over models
-and calling `.chat()` on them individually.
+The `run_over` functions let you execute generation over a set of generators:
 
-Generators can be passed as string identifiers or full instances of [Generator][rigging.generator.Generator].
-In the case of async, operations occur in parallel across the models.
-By default the original generator associated with the [`PendingChat`][rigging.chat.PendingChat] is included in the
-iteration, configurable with the `include_original` parameter. Much like the [`run_many`][rigging.chat.PendingChat.run_many]
-and [`run_batch`][rigging.chat.PendingChat.run_batch] functions, you can control the handling of failures with either
-`skip_failed` or `include_failed`.
+- [`ChatPipeline.run_over()`][rigging.chat.ChatPipeline.run_over]
+- [`CompletionPipeline.run_over()`][rigging.completion.CompletionPipeline.run_over]
+- [`Prompt.run_over()`][rigging.prompt.Prompt.run_over]
+
+Generators can be passed as string identifiers or full instances of 
+[Generator][rigging.generator.Generator].
+
+By default the original generator associated with the [`ChatPipeline`][rigging.chat.ChatPipeline]
+is included in the iteration, configurable with the `include_original` parameter.
+
+Much like the [`run_many`][rigging.chat.ChatPipeline.run_many]
+and [`run_batch`][rigging.chat.ChatPipeline.run_batch] functions, you can control the
+handling of failures with the `on_failed` parameter.
 
 === "Run Over Code"
 
@@ -204,21 +218,22 @@ and [`run_batch`][rigging.chat.PendingChat.run_batch] functions, you can control
             for chat in chats
         ]
 
-    chats = await (
-        rg.get_generator("openai/gpt-3.5-turbo")
+    chats = (
+        await
+        rg.get_generator("gpt-3.5-turbo")
         .chat([
             {"role": "system", "content": f"Always respond in one word between {Answer.xml_tags()} tags."},
             {"role": "user", "content": QUESTION}
         ])
         .until_parsed_as(Answer, max_rounds=3)
         .map(score_output)
-        .arun_over("gpt-4-turbo", "claude-3-haiku-20240307,temperature=0.5", "claude-3-sonnet-20240229")
+        .run_over("gpt-4-turbo", "claude-3-haiku-20240307,temperature=0.5", "claude-3-sonnet-20240229")
     )
 
     for chat in chats:
-        print("Model:", chat.generator.model)
-        print("Msg:  ", chat.last.content)
-        print("Meta: ", chat.metadata)
+        print("Model: ", chat.generator.model)
+        print("Msg:   ", chat.last.content)
+        print("Meta:  ", chat.metadata)
         print()
     ```
 

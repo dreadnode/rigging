@@ -1,9 +1,10 @@
 # Chats and Messages
 
-[`Chat`][rigging.chat.Chat] objects hold a sequence of [`Message`][rigging.message.Message] objects pre and post generation. This
-is the most common way that we interact with LLMs, and the interface of both these and [`ChatPipeline`][rigging.chat.ChatPipeline]'s are
-very flexible objects that let you tune the generation process, gather structured outputs, validate parsing, perform text replacements,
-serialize and deserialize, fork conversations, etc.
+[`Chat`][rigging.chat.Chat] objects hold a sequence of [`Message`][rigging.message.Message]
+objects pre and post generation. This is the most common way that we interact with LLMs, 
+and the interface of both these and [`ChatPipeline`][rigging.chat.ChatPipeline]'s are
+very flexible objects that let you tune the generation process, gather structured outputs,
+validate parsing, perform text replacements, serialize and deserialize, fork conversations, etc.
 
 ## Basic Usage
 
@@ -11,7 +12,7 @@ serialize and deserialize, fork conversations, etc.
 import rigging as rg
 
 generator = rg.get_generator("claude-2.1")
-chat = generator.chat(
+chat = await generator.chat(
     [
         {"role": "system", "content": "You're a helpful assistant."},
         {"role": "user", "content": "Say hello!"},
@@ -55,12 +56,14 @@ This functionality uses [string.Template.safe_substitute](https://docs.python.or
 ```py
 import rigging as rg
 
-template = rg.get_generator("gpt-4").chat([
-    {"role": "user", "content": "What is the capitol of $country?"},
-])
+template = (
+    rg.get_generator("gpt-4")
+    .chat("What is the capitol of $country?")
+)
 
 for country in ["France", "Germany"]:
-    print(template.apply(country=country).run().last)
+    chat = await template.apply(country=country).run()
+    print(chat.last)
 
 # The capital of France is Paris.
 # The capital of Germany is Berlin.
@@ -125,13 +128,15 @@ import rigging as rg
 class Reasoning(rg.Model):
     content: str
 
-meaning = rg.get_generator("claude-2.1").chat([
-    {
-        "role": "user",
-        "content": "What is the meaning of life in one sentence? "
+meaning = (
+    await
+    rg.get_generator("claude-2.1")
+    .chat(
+        "What is the meaning of life in one sentence? "
         f"Document your reasoning between {Reasoning.xml_tags()} tags.",
-    },
-]).run()
+    )
+    .run()
+)
 
 # Gracefully handle missing models
 reasoning = meaning.last.try_parse(Reasoning)
@@ -143,7 +148,7 @@ if reasoning:
 without_reasons = meaning.strip(Reasoning)
 print("Meaning of life:", without_reasons.last.content)
 
-follow_up = without_reasons.continue_(...).run()
+follow_up = await without_reasons.continue_(...).run()
 ```
 
 ## Metadata
@@ -160,8 +165,13 @@ metadata is also maintained in the [serialization process](serialization.md).
 ```py
 import rigging as rg
 
-pending = rg.get_generator("claude-2.1").chat("Hello!").meta(prompt_version=1)
-chat = pending.run().meta(user="Will")
+chat = (
+    await
+    rg.get_generator("claude-2.1")
+    .chat("Hello!")
+    .meta(prompt_version=1)
+    .run()
+).meta(user="Will")
 
 print(chat.metadata)
 # {
@@ -189,19 +199,19 @@ often find deep information about the generation process in the [`Chat.extra`][r
 ```py
 import rigging as rg
 
-pending = (
+pipeline = (
     rg.get_generator("gpt-4")
     .chat("What is the 4th form of water?")
 )
 
-chat = pending.with_(stop=["water"]).run()
+chat = await pipeline.with_(stop=["water"]).run()
 
 print(chat.last.content) # "The fourth form of"
 print(chat.stop_reason)  # stop
 print(chat.usage)        # input_tokens=17 output_tokens=5 total_tokens=22
 print(chat.extra)        # {'response_id': 'chatcmpl-9UgcwYrdaVrqUXoNrMGvgxGQqS04V'}
 
-chat = pending.with_(stop=[], max_tokens=10).run()
+chat = await pipeline.with_(stop=[], max_tokens=10).run()
 
 print(chat.last.content) # "The fourth form of water is often referred to as"
 print(chat.stop_reason)  # length

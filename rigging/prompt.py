@@ -1,3 +1,7 @@
+"""
+Treat empty function signatures as prompts for structured chat interfaces.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,12 +12,13 @@ import typing as t
 
 from jinja2 import Environment, StrictUndefined, meta
 from pydantic import ValidationError
+from typing_extensions import ParamSpec
 
 from rigging.chat import Chat
 from rigging.generator.base import GenerateParams, Generator, get_generator
 from rigging.message import Message
 from rigging.model import Model, SystemErrorModel, ValidationErrorModel, make_primitive
-from rigging.util import P, R, escape_xml, to_snake, to_xml_tag
+from rigging.util import escape_xml, to_snake, to_xml_tag
 
 if t.TYPE_CHECKING:
     from rigging.chat import ChatPipeline, WatchChatCallback
@@ -23,6 +28,10 @@ DEFAULT_DOC = "Convert the following inputs to outputs ({func_name})."
 
 DEFAULT_MAX_ROUNDS = 3
 """Default maximum number of rounds for a prompt to run until outputs are parsed."""
+
+
+P = ParamSpec("P")
+R = t.TypeVar("R")
 
 # Annotation
 
@@ -41,7 +50,7 @@ class Ctx:
 
     tag: str | None = None
     prefix: str | None = None
-    example: str | None = None
+    example: str | Model | None = None
 
 
 # Utilities
@@ -206,6 +215,7 @@ class Output:
 
     def to_format(self) -> str:
         tag = self.context.tag or self.tag
+        assert not isinstance(self.context.example, Model)
         return self._prefix(f"<{tag}>{escape_xml(self.context.example or '')}</{tag}>")
 
     def from_chat(self, chat: Chat) -> t.Any:
@@ -242,6 +252,8 @@ class ModelOutput(Output):
     type_: type[Model]
 
     def to_format(self) -> str:
+        if isinstance(self.context.example, Model):
+            return self.context.example.to_pretty_xml()
         return self.type_.xml_example()
 
     def from_chat(self, chat: Chat) -> t.Any:
@@ -351,9 +363,12 @@ def parse_output(annotation: t.Any, error_name: str, *, allow_nested: bool = Tru
         interior_annotations: list[t.Any] = []
         for field in dataclasses.fields(annotation):
             field_annotation, field_context = unwrap_annotated(field.type)
-            if field_context is None:
-                field_annotation = t.Annotated[field_annotation, Ctx(tag=to_xml_tag(field.name))]
-            interior_annotations.append(field_annotation)
+
+            ctx_dict = dataclasses.asdict(field_context) if field_context else {}
+            if ctx_dict.get("tag") is None:
+                ctx_dict["tag"] = to_xml_tag(field.name)
+
+            interior_annotations.append(t.Annotated[field_annotation, Ctx(**ctx_dict)])
 
         dataclass_interiors: list[Output] = []
         for field, field_annotation in zip(dataclasses.fields(annotation), interior_annotations):
@@ -415,6 +430,9 @@ class Prompt(t.Generic[P, R]):
     _pipeline: ChatPipeline | None = None
 
     def __post_init__(self) -> None:
+        # if not inspect.iscoroutinefunction(self.func):
+        #     raise TypeError("Prompts must wrap an async function")
+
         signature = inspect.signature(self.func)
         undeclared = get_undeclared_variables(self.docstring)
 
@@ -526,25 +544,14 @@ class Prompt(t.Generic[P, R]):
         """
         Assign specific generation parameter overloads for this prompt.
 
-        Note:
-            This will trigger a `clone` if overload params have already been set.
-
         Args:
             params: The parameters to set for the underlying chat pipeline.
             **kwargs: An alternative way to pass parameters as keyword arguments.
 
         Returns:
-            Prompt with the updated params.
+            Self
         """
-        if params is None:
-            params = GenerateParams(**kwargs)
-
-        if self.params is not None:
-            new = self.clone()
-            new.params = self.params.merge_with(params)
-            return new
-
-        self.params = params
+        self.params = params if params is not None else GenerateParams(**kwargs)
         return self
 
     # We could put these params into the decorator, but it makes it
@@ -563,7 +570,7 @@ class Prompt(t.Generic[P, R]):
             max_rounds: The maximum number of rounds the prompt should try to reparse outputs.
 
         Returns:
-            The current instance of the chat.
+            Self
         """
         self.attempt_recovery = attempt_recovery or self.attempt_recovery
         self.drop_dialog = drop_dialog or self.drop_dialog
@@ -581,15 +588,15 @@ class Prompt(t.Generic[P, R]):
         async def log(chats: list[Chat]) -> None:
             ...
 
-        @rg.prompt().watch(log)
+        @rg.prompt()
         async def summarize(text: str) -> str:
             ...
 
-        summarize(...)
+        summarize.watch(log)(...)
         ```
 
         Returns:
-            The current instance of the chat.
+            Self
         """
         for callback in callbacks:
             if callback not in self.watch_callbacks:
@@ -623,60 +630,116 @@ class Prompt(t.Generic[P, R]):
         """
         return self.output.from_chat(chat)  # type: ignore
 
-    async def run(self, *args: P.args, pipeline: ChatPipeline | None = None, **kwargs: P.kwargs) -> R:
-        """
-        Use the prompt to run the function with the provided arguments and return the output.
+    def bind_for_run_many(
+        self, pipeline: ChatPipeline
+    ) -> t.Callable[t.Concatenate[int, P], t.Coroutine[None, None, list[R]]]:
+        if pipeline.on_failed == "include" and not isinstance(self.output, ChatOutput):
+            raise NotImplementedError("pipeline.on_failed='include' cannot be used with prompts that process outputs")
 
-        Args:
-            *args: The positional arguments for the prompt function.
-            pipeline: An optional pipeline to use for the prompt.
-            **kwargs: The keyword arguments for the prompt function.
+        async def run_many(count: int, /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
+            content = self.render(*args, **kwargs)
+            _pipeline = (
+                pipeline.fork(content)
+                .until(
+                    self._until_parsed,
+                    attempt_recovery=self.attempt_recovery,
+                    drop_dialog=self.drop_dialog,
+                    max_rounds=self.max_rounds,
+                )
+                .with_(self.params)
+            )
+            chats = await _pipeline.run_many(count)
 
-        Returns:
-            The output of the prompt function.
-        """
-        return (await self.run_many(1, *args, pipeline=pipeline, **kwargs))[0]
+            coros = [watch(chats) for watch in self.watch_callbacks if watch not in pipeline.watch_callbacks]
+            await asyncio.gather(*coros)
 
-    async def run_many(
-        self, count: int, *args: P.args, pipeline: ChatPipeline | None = None, **kwargs: P.kwargs
-    ) -> list[R]:
+            return [self.process(chat) for chat in chats]
+
+        return run_many
+
+    def bind_for_run_over(
+        self, pipeline: ChatPipeline | None = None
+    ) -> t.Callable[t.Concatenate[t.Sequence[Generator | str], P], t.Coroutine[None, None, list[R]]]:
+        include_original = pipeline is not None
+        pipeline = pipeline or get_generator("base!base").chat().catch(on_failed="skip")  # TODO: Clean this up
+
+        if pipeline.on_failed == "include" and not isinstance(self.output, ChatOutput):
+            raise NotImplementedError("pipeline.on_failed='include' cannot be used with prompts that process outputs")
+
+        async def run_over(generators: t.Sequence[Generator | str], /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
+            content = self.render(*args, **kwargs)
+            _pipeline = (
+                pipeline.fork(content)
+                .until(
+                    self._until_parsed,
+                    attempt_recovery=self.attempt_recovery,
+                    drop_dialog=self.drop_dialog,
+                    max_rounds=self.max_rounds,
+                )
+                .with_(self.params)
+            )
+            chats = await _pipeline.run_over(*generators, include_original=include_original)
+
+            coros = [watch(chats) for watch in self.watch_callbacks if watch not in pipeline.watch_callbacks]
+            await asyncio.gather(*coros)
+
+            return [self.process(chat) for chat in chats]
+
+        return run_over
+
+    async def run_many(self, count: int, /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
         """
         Use the prompt to run the function multiple times with the provided arguments and return the output.
 
         Args:
             count: The number of times to run the prompt.
             *args: The positional arguments for the prompt function.
-            pipeline: An optional pipeline to use for the prompt.
             **kwargs: The keyword arguments for the prompt function.
 
         Returns:
             The outputs of the prompt function.
         """
-        pipeline = pipeline or self.pipeline
-        if pipeline is None:
+        if self.pipeline is None:
             raise RuntimeError(
                 "Prompt cannot be executed as a standalone function without being assigned a pipeline or generator"
             )
+        return await self.bind_for_run_many(self.pipeline)(count, *args, **kwargs)
 
-        content = self.render(*args, **kwargs)
-        pipeline = (
-            pipeline.fork(content)
-            .until(
-                self._until_parsed,
-                attempt_recovery=self.attempt_recovery,
-                drop_dialog=self.drop_dialog,
-                max_rounds=self.max_rounds,
-            )
-            .with_(self.params)
-        )
-        chats = await pipeline.run_many(count)
+    async def run(self, *args: P.args, **kwargs: P.kwargs) -> R:
+        """
+        Use the prompt to run the function with the provided arguments and return the output.
 
-        coros = [watch(chats) for watch in set(self.watch_callbacks + pipeline.watch_callbacks)]
-        await asyncio.gather(*coros)
+        Args:
+            *args: The positional arguments for the prompt function.
+            **kwargs: The keyword arguments for the prompt function.
 
-        return [self.process(chat) for chat in chats]
+        Returns:
+            The output of the prompt function.
+        """
+        return (await self.run_many(1, *args, **kwargs))[0]
 
     __call__ = run
+
+    async def run_over(self, generators: t.Sequence[Generator | str], /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
+        """
+        Executes the prompt process across multiple generators.
+
+        For each generator, a pipeline is created and the generator is replaced
+        before the run call. All callbacks and parameters are preserved.
+
+        If this prompt has a pipeline assigned, it will be included in the run.
+
+        Warning:
+            The implementation currently skips any failed chats and only
+            processes successful chats. This may change in the future.
+
+        Parameters:
+            generators: A sequence of generators to be used for the generation process.
+
+        Returns:
+            A list of generatated Chats.
+        """
+        return await self.bind_for_run_over(self.pipeline)(generators, *args, **kwargs)
 
 
 # Decorator
@@ -690,13 +753,13 @@ def prompt(
     pipeline: ChatPipeline | None = None,
     generator: Generator | None = None,
     generator_id: str | None = None,
-) -> t.Callable[[t.Callable[P, t.Coroutine[None, None, R]]], Prompt[P, R]]:
+) -> t.Callable[[t.Callable[P, t.Coroutine[None, None, R]] | t.Callable[P, R]], Prompt[P, R]]:
     ...
 
 
 @t.overload
 def prompt(
-    func: t.Callable[P, t.Coroutine[None, None, R]],
+    func: t.Callable[P, t.Coroutine[None, None, R]] | t.Callable[P, R],
     /,
     *,
     pipeline: ChatPipeline | None = None,
@@ -707,13 +770,13 @@ def prompt(
 
 
 def prompt(
-    func: t.Callable[P, t.Coroutine[None, None, R]] | None = None,
+    func: t.Callable[P, t.Coroutine[None, None, R]] | t.Callable[P, R] | None = None,
     /,
     *,
     pipeline: ChatPipeline | None = None,
     generator: Generator | None = None,
     generator_id: str | None = None,
-) -> t.Callable[[t.Callable[P, t.Coroutine[None, None, R]]], Prompt[P, R]] | Prompt[P, R]:
+) -> t.Callable[[t.Callable[P, t.Coroutine[None, None, R]] | t.Callable[P, R]], Prompt[P, R]] | Prompt[P, R]:
     """
     Convert a hollow function into a Prompt, which can be called directly or passed a
     chat pipeline to execute the function and parse the outputs.
@@ -775,9 +838,9 @@ def prompt(
     if sum(arg is not None for arg in (pipeline, generator, generator_id)) > 1:
         raise ValueError("Only one of pipeline, generator, or generator_id can be provided")
 
-    def make_prompt(func: t.Callable[P, t.Coroutine[None, None, R]]) -> Prompt[P, R]:
+    def make_prompt(func: t.Callable[P, t.Coroutine[None, None, R]] | t.Callable[P, R]) -> Prompt[P, R]:
         return Prompt[P, R](
-            func=func,
+            func=func,  # type: ignore
             _generator_id=generator_id,
             _pipeline=pipeline,
             _generator=generator,

@@ -28,11 +28,19 @@ if t.TYPE_CHECKING:
     from elasticsearch import AsyncElasticsearch
 
     from rigging.data import ElasticOpType
-    from rigging.prompt import Prompt
-    from rigging.util import P, R
+    from rigging.prompt import P, Prompt, R
 
 DEFAULT_MAX_ROUNDS = 5
 """Maximum number of internal callback rounds to attempt during generation before giving up."""
+
+FailMode = t.Literal["raise", "skip", "include"]
+"""
+How to handle failures in pipelines.
+
+- raise: Raise an exception when a failure is encountered.
+- skip: Ignore the error and do not include the failed chat in the final output.
+- include: Mark the message as failed and include it in the final output.
+"""
 
 
 class Chat(BaseModel):
@@ -65,7 +73,9 @@ class Chat(BaseModel):
     params: t.Optional[GenerateParams] = Field(None, exclude=True, repr=False)
     """Any additional generation params used for this chat."""
 
-    failed: bool = Field(False, exclude=True, repr=False)
+    error: t.Optional[Exception] = Field(None, exclude=True, repr=False)
+    """Holds any exception that was caught during the generation pipeline."""
+    failed: bool = Field(False, exclude=False, repr=False)
     """
     Indicates whether conditions during generation were not met.
     This is typically used for graceful error handling when parsing.
@@ -108,7 +118,7 @@ class Chat(BaseModel):
         )
 
     def __len__(self) -> int:
-        return len(self.messages) + len(self.generated)
+        return len(self.all)
 
     @property
     def all(self) -> list[Message]:
@@ -127,8 +137,8 @@ class Chat(BaseModel):
 
     @property
     def last(self) -> Message:
-        """Alias for .generated[-1]"""
-        return self.generated[-1]
+        """Alias for .all[-1]"""
+        return self.all[-1]
 
     @property
     def conversation(self) -> str:
@@ -227,6 +237,7 @@ class Chat(BaseModel):
             new.usage = self.usage.model_copy() if self.usage is not None else None
             new.extra = deepcopy(self.extra)
             new.failed = self.failed
+            new.error = self.error
         return new
 
     def apply(self, **kwargs: str) -> Chat:
@@ -389,6 +400,12 @@ class ChatList(list[Chat]):
 
         return await chats_to_elastic(self, index, client, op_type=op_type, create_index=create_index, **kwargs)
 
+    def to_json(self) -> list[dict[str, t.Any]]:
+        """
+        Helper to convert the chat list to a list of dictionaries.
+        """
+        return [chat.model_dump() for chat in self]
+
 
 # Callbacks
 
@@ -465,6 +482,14 @@ class ChatPipeline:
         """The parameters for generating messages."""
         self.metadata: dict[str, t.Any] = {}
         """Additional metadata associated with the chat."""
+        self.errors_to_fail_on: set[type[Exception]] = set()
+        """
+        The list of exceptions to catch during generation if you are including or skipping failures.
+
+        ExhuastedMaxRounds is implicitly included.
+        """
+        self.on_failed: FailMode = "raise"
+        """How to handle failures in the pipeline unless overriden in calls."""
 
         # (callback, attempt_recovery, drop_dialog, max_rounds)
         self.until_callbacks: list[tuple[UntilMessageCallback, bool, bool, int]] = []
@@ -504,6 +529,21 @@ class ChatPipeline:
         self.params = params
         return self
 
+    def catch(self, *errors: type[Exception], on_failed: FailMode | None = None) -> ChatPipeline:
+        """
+        Adds exceptions to catch during generation when including or skipping failures.
+
+        Args:
+            *errors: The exception types to catch.
+            on_failed: How to handle failures in the pipeline unless overriden in calls.
+
+        Returns:
+            The updated ChatPipeline object.
+        """
+        self.errors_to_fail_on.update(errors)
+        self.on_failed = on_failed or self.on_failed
+        return self
+
     def watch(self, *callbacks: WatchChatCallback, allow_duplicates: bool = False) -> ChatPipeline:
         """
         Registers a callback to monitor any chats produced.
@@ -516,7 +556,7 @@ class ChatPipeline:
         async def log(chats: list[Chat]) -> None:
             ...
 
-        pipeline.watch(log).run()
+        await pipeline.watch(log).run()
         ```
 
         Returns:
@@ -596,6 +636,8 @@ class ChatPipeline:
             new.metadata = deepcopy(self.metadata)
             new.then_callbacks = self.then_callbacks.copy()
             new.map_callbacks = self.map_callbacks.copy()
+            new.on_failed = self.on_failed
+            new.errors_to_fail_on = self.errors_to_fail_on.copy()
         return new
 
     def meta(self, **kwargs: t.Any) -> ChatPipeline:
@@ -624,7 +666,7 @@ class ChatPipeline:
         async def process(chat: Chat) -> Chat | None:
             ...
 
-        pipeline.then(process).run()
+        await pipeline.then(process).run()
         ```
 
         Args:
@@ -633,6 +675,9 @@ class ChatPipeline:
         Returns:
             The current instance of the chat.
         """
+        if not asyncio.iscoroutinefunction(callback):
+            raise TypeError(f"Callback '{callback.__name__}' must be an async function")  # type: ignore
+
         self.then_callbacks.append(callback)
         return self
 
@@ -649,7 +694,7 @@ class ChatPipeline:
         async def process(chats: list[Chat]) -> list[Chat]:
             ...
 
-        pipeline.map(process).run()
+        await pipeline.map(process).run()
         ```
 
         Args:
@@ -658,6 +703,9 @@ class ChatPipeline:
         Returns:
             The current instance of the chat.
         """
+        if not asyncio.iscoroutinefunction(callback):
+            raise TypeError(f"Callback '{callback.__name__}' must be an async function")  # type: ignore
+
         self.map_callbacks.append(callback)
         return self
 
@@ -710,7 +758,7 @@ class ChatPipeline:
             else:
                 return (True, [message, ...])
 
-        pipeline.until(callback).run()
+        await pipeline.until(callback).run()
         ```
 
         Note:
@@ -988,13 +1036,13 @@ class ChatPipeline:
         Execute the generation process to produce the final chat.
 
         Parameters:
-            allow_failed: Ignore max rounds errors and a chat
-                potentially in a failed state.
+            allow_failed: Ignore any errors and potentially
+                return the chat in a failed state.
 
         Returns:
             The generated Chat.
         """
-        chats = await self.run_many(1, include_failed=allow_failed)
+        chats = await self.run_many(1, on_failed="include" if allow_failed else "raise")
         return chats[0]
 
     __call__ = run
@@ -1006,8 +1054,7 @@ class ChatPipeline:
         count: int,
         *,
         params: t.Sequence[t.Optional[GenerateParams]] | None = None,
-        skip_failed: bool = False,
-        include_failed: bool = False,
+        on_failed: FailMode | None = None,
     ) -> ChatList:
         """
         Executes the generation process multiple times with the same inputs.
@@ -1015,16 +1062,12 @@ class ChatPipeline:
         Parameters:
             count: The number of times to execute the generation process.
             params: A sequence of parameters to be used for each execution.
-            skip_failed: Enable to ignore max rounds errors and return only successful chats.
-            include_failed: Enable to ignore max rounds errors and return both
-                successful and failed chats.
+            on_failed: The behavior when a message fails to generate.
 
         Returns:
             A list of generatated Chats.
         """
-        if skip_failed and include_failed:
-            raise ValueError("Cannot use both skip_failed and include_failed")
-
+        on_failed = on_failed or self.on_failed
         states: list[RunState] = [RunState([], [], p, self._process()) for p in self._fit_params(count, params)]
         _ = [next(state.processor) for state in states]
 
@@ -1035,33 +1078,39 @@ class ChatPipeline:
             )
 
             for inbound, state in zip(inbounds, pending_states):
+                outputs: list[Message] = []
+                failed: bool = False
+                error: Exception | None = None
+
                 try:
                     state.messages = state.processor.send(inbound.message)
+                    continue
                 except StopIteration as stop:
-                    state.chat = Chat(
-                        self.chat.all,
-                        t.cast(list[Message], stop.value),
-                        generator=self.generator,
-                        metadata=self.metadata,
-                        params=state.params,
-                        stop_reason=inbound.stop_reason,
-                        usage=inbound.usage,
-                        extra=inbound.extra,
-                    )
+                    outputs = t.cast(list[Message], stop.value)
                 except MessagesExhaustedMaxRoundsError as exhausted:
-                    if not skip_failed and not include_failed:
+                    if on_failed == "raise":
                         raise
-                    state.chat = Chat(
-                        self.chat.all,
-                        exhausted.messages,
-                        generator=self.generator,
-                        metadata=self.metadata,
-                        params=state.params,
-                        stop_reason=inbound.stop_reason,
-                        usage=inbound.usage,
-                        extra=inbound.extra,
-                        failed=True,
-                    )
+                    failed = True
+                    outputs = exhausted.messages
+                    error = exhausted
+                except Exception as e:
+                    if on_failed == "raise" or not any(isinstance(e, t) for t in self.errors_to_fail_on):
+                        raise
+                    failed = True
+                    error = e
+
+                state.chat = Chat(
+                    self.chat.all,
+                    outputs,
+                    generator=self.generator,
+                    metadata=self.metadata,
+                    params=state.params,
+                    stop_reason=inbound.stop_reason,
+                    usage=inbound.usage,
+                    extra=inbound.extra,
+                    failed=failed,
+                    error=error,
+                )
 
             pending_states = [s for s in pending_states if s.chat is None]
             to_watch_states = [s for s in states if s.chat is not None and not s.watched]
@@ -1071,7 +1120,7 @@ class ChatPipeline:
             for state in to_watch_states:
                 state.watched = True
 
-        if skip_failed:
+        if on_failed == "skip":
             chats = [s.chat for s in states if s.chat is not None and not s.chat.failed]
         else:
             chats = [s.chat for s in states if s.chat is not None]
@@ -1090,30 +1139,23 @@ class ChatPipeline:
         | str,
         params: t.Sequence[t.Optional[GenerateParams]] | None = None,
         *,
-        size: int | None = None,
-        skip_failed: bool = False,
-        include_failed: bool = False,
+        on_failed: FailMode | None = None,
     ) -> ChatList:
         """
         Executes the generation process accross multiple input messages.
 
         Note:
-            Anything already in this chat pipeline will be used as the `prefix` parameter
-            to [rigging.generator.Generator.generate_messages][].
+            Anything already in this chat pipeline will be prepended to the input messages.
 
         Parameters:
             many: A sequence of sequences of messages to be generated.
             params: A sequence of parameters to be used for each set of messages.
-            size: The max chunk size of messages to execute generation at once.
-            skip_failed: Enable to ignore any max rounds errors and return only successful chats.
-            include_failed: Enable to ignore max rounds errors and return both
-                successful and failed chats.
+            on_failed: The behavior when a message fails to generate.
 
         Returns:
             A list of generatated Chats.
         """
-        if skip_failed and include_failed:
-            raise ValueError("Cannot use both skip_failed and include_failed")
+        on_failed = on_failed or self.on_failed
 
         if isinstance(many, dict) or isinstance(many, str):  # Some strange typechecking here
             many = t.cast(t.Union[t.Sequence[str], t.Sequence[MessageDict]], [many])
@@ -1125,44 +1167,47 @@ class ChatPipeline:
         states: list[RunState] = [RunState(self.chat.all + m, [], p, self._process()) for m, p in zip(many, params)]
         _ = [next(state.processor) for state in states]
 
-        size = size or len(states)
-
         pending_states = states
         while pending_states:
-            for chunk in [pending_states[i : i + size] for i in range(0, len(pending_states), size)]:
-                inbounds = await self.generator.generate_messages(
-                    [s.inputs + s.messages for s in chunk],
-                    [s.params for s in chunk],
-                )
+            inbounds = await self.generator.generate_messages(
+                [s.inputs + s.messages for s in pending_states],
+                [s.params for s in pending_states],
+            )
 
-                for inbound, state in zip(inbounds, chunk):
-                    try:
-                        state.messages = state.processor.send(inbound.message)
-                    except StopIteration as stop:
-                        state.chat = Chat(
-                            state.inputs,
-                            t.cast(list[Message], stop.value),
-                            generator=self.generator,
-                            metadata=self.metadata,
-                            params=state.params,
-                            stop_reason=inbound.stop_reason,
-                            usage=inbound.usage,
-                            extra=inbound.extra,
-                        )
-                    except MessagesExhaustedMaxRoundsError as exhausted:
-                        if not skip_failed and not include_failed:
-                            raise
-                        state.chat = Chat(
-                            state.inputs,
-                            exhausted.messages,
-                            generator=self.generator,
-                            metadata=self.metadata,
-                            params=state.params,
-                            stop_reason=inbound.stop_reason,
-                            usage=inbound.usage,
-                            extra=inbound.extra,
-                            failed=True,
-                        )
+            for inbound, state in zip(inbounds, pending_states):
+                outputs: list[Message] = []
+                failed: bool = False
+                error: Exception | None = None
+
+                try:
+                    state.messages = state.processor.send(inbound.message)
+                    continue
+                except StopIteration as stop:
+                    outputs = t.cast(list[Message], stop.value)
+                except MessagesExhaustedMaxRoundsError as exhausted:
+                    if on_failed == "raise":
+                        raise
+                    failed = True
+                    outputs = exhausted.messages
+                    error = exhausted
+                except Exception as e:
+                    if on_failed == "raise" or not any(isinstance(e, t) for t in self.errors_to_fail_on):
+                        raise
+                    failed = True
+                    error = e
+
+                state.chat = Chat(
+                    state.inputs,
+                    outputs,
+                    generator=self.generator,
+                    metadata=self.metadata,
+                    params=state.params,
+                    stop_reason=inbound.stop_reason,
+                    usage=inbound.usage,
+                    extra=inbound.extra,
+                    failed=failed,
+                    error=error,
+                )
 
             pending_states = [s for s in pending_states if s.chat is None]
             to_watch_states = [s for s in states if s.chat is not None and not s.watched]
@@ -1172,7 +1217,7 @@ class ChatPipeline:
             for state in to_watch_states:
                 state.watched = True
 
-        if skip_failed:
+        if on_failed == "skip":
             chats = [s.chat for s in states if s.chat is not None and not s.chat.failed]
         else:
             chats = [s.chat for s in states if s.chat is not None]
@@ -1181,31 +1226,24 @@ class ChatPipeline:
 
     # Generator iteration
 
-    async def arun_over(
-        self,
-        *generators: Generator | str,
-        include_original: bool = True,
-        skip_failed: bool = False,
-        include_failed: bool = False,
+    async def run_over(
+        self, *generators: Generator | str, include_original: bool = True, on_failed: FailMode | None = None
     ) -> ChatList:
         """
         Executes the generation process across multiple generators.
 
-        For each generator, this pending chat is cloned and the generator is replaced
+        For each generator, this pipeline is cloned and the generator is replaced
         before the run call. All callbacks and parameters are preserved.
 
         Parameters:
             *generators: A sequence of generators to be used for the generation process.
             include_original: Whether to include the original generator in the list of runs.
-            skip_failed: Enable to ignore any max rounds errors and return only successful chats.
-            include_failed: Enable to ignore max rounds errors and return both
-                successful and failed chats.
+            on_failed: The behavior when a message fails to generate.
 
         Returns:
             A list of generatated Chats.
         """
-        if skip_failed and include_failed:
-            raise ValueError("Cannot use both skip_failed and include_failed")
+        on_failed = on_failed or self.on_failed
 
         _generators: list[Generator] = [g if isinstance(g, Generator) else get_generator(g) for g in generators]
         if include_original:
@@ -1215,11 +1253,11 @@ class ChatPipeline:
         for generator in _generators:
             sub = self.clone()
             sub.generator = generator
-            coros.append(sub.run(allow_failed=skip_failed or include_failed))
+            coros.append(sub.run(allow_failed=(on_failed != "raise")))
 
         chats = await asyncio.gather(*coros)
 
-        if skip_failed:
+        if on_failed == "skip":
             chats = [c for c in chats if not c.failed]
 
         return ChatList(chats)
@@ -1242,8 +1280,16 @@ class ChatPipeline:
 
         return prompt(func, pipeline=self)
 
-    async def run_prompt(self, prompt: Prompt[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
-        return await prompt.run(*args, pipeline=self, **kwargs)
+    async def run_prompt(self, prompt: Prompt[P, R], /, *args: P.args, **kwargs: P.kwargs) -> R:
+        """Calls [rigging.prompt.Prompt.run][] with this pipeline."""
+        return (await self.run_prompt_many(prompt, 1, *args, **kwargs))[0]
 
-    async def run_prompt_many(self, prompt: Prompt[P, R], count: int, *args: P.args, **kwargs: P.kwargs) -> list[R]:
-        return await prompt.run_many(count, *args, pipeline=self, **kwargs)
+    async def run_prompt_many(self, prompt: Prompt[P, R], count: int, /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
+        """Calls [rigging.prompt.Prompt.run_many][] with this pipeline."""
+        return await prompt.bind_for_run_many(self)(count, *args, **kwargs)
+
+    async def run_prompt_over(
+        self, prompt: Prompt[P, R], generators: t.Sequence[Generator | str], /, *args: P.args, **kwargs: P.kwargs
+    ) -> list[R]:
+        """Calls [rigging.prompt.Prompt.run_over][] with this pipeline."""
+        return await prompt.bind_for_run_over(self)(generators, *args, **kwargs)

@@ -2,12 +2,12 @@
 
 1. Get a [`Generator`][rigging.generator.Generator] object - usually with [`get_generator()`][rigging.generator.get_generator].
 2. Call [`generator.chat()`][rigging.generator.Generator.chat] to produce a [`ChatPipeline`][rigging.chat.ChatPipeline] and ready it for generation.
-3. Call [`pending.run()`][rigging.chat.ChatPipeline.run] to kick off generation and get your final [`Chat`][rigging.chat.Chat] object.
+3. Call [`pipeline.run()`][rigging.chat.ChatPipeline.run] to kick off generation and get your final [`Chat`][rigging.chat.Chat] object.
 
 [`ChatPipeline`][rigging.chat.ChatPipeline] objects hold any messages waiting to be delivered to an LLM in exchange
 for a new response message. These objects are also where most of the power in rigging comes from. You'll build a
-generation pipeline with options, parsing, callbacks, etc. After prep this pending chat is converted into a 
-final [`Chat`][rigging.chat.Chat] which holds all messages prior to generation ([`.prev`][rigging.chat.Chat.prev]) 
+generation pipeline with options, parsing, callbacks, etc. After prep this pipeline is used to make a 
+final [`Chat`][rigging.chat.Chat] which holding all messages prior to generation ([`.prev`][rigging.chat.Chat.prev]) 
 and after generation ([`.next`][rigging.chat.Chat.next]).
 
 You should think of [`ChatPipeline`][rigging.chat.ChatPipeline] objects like the configurable pre-generation step
@@ -28,6 +28,7 @@ utility functions return the object back to you.
 
 ```go
 chat = (
+    await
     generator.chat(...)
     .using(...)
     .until(...)

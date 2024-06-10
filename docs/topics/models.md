@@ -77,6 +77,24 @@ class FunFact(rg.Model, tag="a-super-fun-fact")
     ...
 ```
 
+### Dynamic Primitive Models
+
+If you'd like to define a primitive model functionally, we support an experimental
+[make_primitive()][rigging.model.make_primitive] utility. The interior field will always
+be named `.content` and typed depending on the argument passed.
+
+```py
+import rigging as rg
+
+FunFact = rg.model.make_primitive("FunFact", str) # (1)!
+
+FunFact(content="Rigging is pretty easy to use").to_pretty_xml()
+
+# <fun-fact>Rigging is pretty easy to use</fun-fact>
+```
+
+1. You can apply most basic types here like `bool`, `int`, and `float`.
+
 ## Typing and Validation
 
 Even if models are primitive, we can still use type hinting and pydantic validation to ensure

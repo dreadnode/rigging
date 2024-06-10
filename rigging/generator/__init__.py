@@ -18,6 +18,7 @@ from rigging.generator.base import (
 from rigging.generator.litellm_ import LiteLLMGenerator
 
 register_generator("litellm", LiteLLMGenerator)
+register_generator("base", Generator)  # TODO: Helper while we sort out generators being required so many places.
 
 
 def get_vllm_lazy() -> type[Generator]:

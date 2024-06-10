@@ -1,5 +1,5 @@
 """
-Common watcher callbacks for use with generators, chats, and completions.
+Common watcher callback makers for use with generators, chats, and completions.
 """
 
 from __future__ import annotations
@@ -7,20 +7,19 @@ from __future__ import annotations
 import json
 import os
 import typing as t
+from pathlib import Path
 
 from rigging.data import chats_to_elastic, flatten_chats
 
 if t.TYPE_CHECKING:
-    from pathlib import Path
-
     from elasticsearch import AsyncElasticsearch
 
     from rigging.chat import Chat, WatchChatCallback
 
 
-def write_chats_to_jsonl(file: Path, *, replace: bool = False) -> WatchChatCallback:
+def write_chats_to_jsonl(file: str | Path, *, replace: bool = False) -> WatchChatCallback:
     """
-    Write each chat as a single JSON line appended to a file.
+    Create a watcher to write each chat as a single JSON line appended to a file.
 
     Args:
         file: The file to write to.
@@ -35,6 +34,7 @@ def write_chats_to_jsonl(file: Path, *, replace: bool = False) -> WatchChatCallb
     # want to produce a side effect of simply creating the
     # callback.
 
+    file = Path(file)
     replaced: bool = False
 
     async def _write_chats_to_jsonl(chats: list[Chat]) -> None:
@@ -51,9 +51,9 @@ def write_chats_to_jsonl(file: Path, *, replace: bool = False) -> WatchChatCallb
     return _write_chats_to_jsonl
 
 
-def write_messages_to_jsonl(file: Path, *, replace: bool = False) -> WatchChatCallback:
+def write_messages_to_jsonl(file: str | Path, *, replace: bool = False) -> WatchChatCallback:
     """
-    Flatten chats to individual messages (like Dataframes) and append to a file.
+    Create a watcher to flatten chats to individual messages (like Dataframes) and append to a file.
 
     Args:
         file: The file to write to.
@@ -63,7 +63,7 @@ def write_messages_to_jsonl(file: Path, *, replace: bool = False) -> WatchChatCa
         A callback to use in [rigging.chat.ChatPipeline.watch][]
         or [rigging.generator.Generator.watch][].
     """
-
+    file = Path(file)
     replaced: bool = False
 
     async def _write_messages_to_jsonl(chats: list[Chat]) -> None:
@@ -84,7 +84,7 @@ def write_chats_to_elastic(
     client: AsyncElasticsearch, index: str, *, create_index: bool = True, **kwargs: t.Any
 ) -> WatchChatCallback:
     """
-    Write each chat to an ElasticSearch index.
+    Create a watcher to write each chat to an ElasticSearch index.
 
     Args:
         client: The AsyncElasticSearch client to use.

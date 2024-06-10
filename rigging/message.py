@@ -19,6 +19,7 @@ from pydantic import (
     computed_field,
     field_serializer,
     field_validator,
+    model_validator,
 )
 
 from rigging.error import MissingModelError
@@ -93,6 +94,9 @@ class Message(BaseModel):
     def __str__(self) -> str:
         return f"[{self.role}]: {self.content}"
 
+    def __len__(self) -> int:
+        return len(self.content)
+
     @computed_field  # type: ignore[misc]
     @property
     def content(self) -> str:
@@ -110,6 +114,20 @@ class Message(BaseModel):
         # when content is changed.
         self.parts = []
         self._content = dedent(value)
+
+    @model_validator(mode="after")
+    def validate_parts(self) -> Message:
+        from rigging.model import Model
+
+        # TODO: For now, we don't want to keep parts
+        # under a generic Model class. This can result
+        # from deserialization and will break our
+        # overlapping part check later.
+
+        for part in self.parts:
+            if part.model.__class__ == Model:
+                self._remove_part(part)
+        return self
 
     # TODO: In general the add/remove/sync_part methods are
     # overly complicated. We should probably just update content,
@@ -368,7 +386,7 @@ class Message(BaseModel):
         """Helper function to convert various common types to a Message object."""
         if isinstance(message, str):
             return cls(role="user", content=message)
-        return cls(**message) if isinstance(message, dict) else message.model_copy()
+        return cls(**message) if isinstance(message, dict) else message.model_copy(deep=True)
 
     @classmethod
     def apply_to_list(cls, messages: t.Sequence[Message], **kwargs: str) -> list[Message]:

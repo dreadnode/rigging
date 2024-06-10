@@ -150,7 +150,7 @@ class Tool:
         def hit(self, target: Annotated[str, "Target of the hit") -> str:
             return f"Hit {target} with a hammer."
 
-    chat = generator.chat(...).using(Hammer()).run()
+    chat = await generator.chat(...).using(Hammer()).run()
     ```
 
     Note:

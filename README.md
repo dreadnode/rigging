@@ -19,6 +19,7 @@ Rigging is a lightweight LLM framework built on Pydantic XML. The goal is to mak
 
 - **Structured Pydantic models** can be used interchangably with unstructured text output.
 - LiteLLM as the default generator giving you **instant access to a huge array of models**.
+- Define prompts as python functions with **type hints and docstrings**.
 - Simple **tool calling** abilities for models which don't natively support it.
 - Store different models and configs as **simple connection strings** just like databases.
 - Chat templating, forking, continuations, generation parameter overloads, stripping segments, etc.
@@ -28,17 +29,14 @@ Rigging is a lightweight LLM framework built on Pydantic XML. The goal is to mak
 
 ```py
 import rigging as rg
-from rigging.model import CommaDelimitedAnswer as Answer
 
-chat = rg.get_generator('gpt-4') \
-    .chat(f"Give me 3 famous authors between {Answer.xml_tags()} tags.") \
-    .until_parsed_as(Answer) \
-    .run()
+@rg.prompt(generator_id="gpt-4")
+async def get_authors(count: int = 3) -> list[str]:
+    """Provide famous authors."""
 
-answer = chat.last.parse(Answer)
-print(answer.items)
+print(await get_authors())
 
-# ['J. R. R. Tolkien', 'Stephen King', 'George Orwell']
+# ['William Shakespeare', 'J.K. Rowling', 'Jane Austen']
 ```
 
 Rigging is built by [**dreadnode**](https://dreadnode.io) where we use it daily.
@@ -96,13 +94,13 @@ import rigging as rg
 generator = rg.get_generator("claude-3-sonnet-20240229")
 
 # 2 - Build a chat pipeline
-pending = generator.chat([
+pipeline = generator.chat([
     {"role": "system", "content": "Talk like a pirate."},
     {"role": "user", "content": "Say hello!"},
 ])
 
 # 3 - Run the pipeline
-chat = pending.run()
+chat = pipeline.run()
 print(chat.conversation)
 
 # [system]: Talk like a pirate.

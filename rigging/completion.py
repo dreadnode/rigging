@@ -22,6 +22,7 @@ from rigging.generator.base import StopReason, Usage  # noqa: TCH001
 from rigging.parsing import parse_many
 
 if t.TYPE_CHECKING:
+    from rigging.chat import FailMode
     from rigging.model import Model, ModelT
 
 DEFAULT_MAX_ROUNDS = 5
@@ -60,7 +61,9 @@ class Completion(BaseModel):
     params: t.Optional[GenerateParams] = Field(None, exclude=True, repr=False)
     """Any additional generation params used for this completion."""
 
-    failed: bool = Field(default=False, repr=False)
+    error: t.Optional[Exception] = Field(None, exclude=True, repr=False)
+    """Holds any exception that was caught during the generation pipeline."""
+    failed: bool = Field(False, exclude=False, repr=False)
     """
     Indicates whether conditions during generation were not met.
     This is typically used for graceful error handling when parsing.
@@ -246,6 +249,14 @@ class CompletionPipeline:
         """The parameters for generating the completion."""
         self.metadata: dict[str, t.Any] = {}
         """Additional metadata associated with the completion."""
+        self.errors_to_fail_on: set[type[Exception]] = set()
+        """
+        The list of exceptions to catch during generation if you are including or skipping failures.
+
+        ExhuastedMaxRounds is implicitly included.
+        """
+        self.on_failed: FailMode = "raise"
+        """How to handle failures in the pipeline unless overriden in calls."""
 
         # (callback, all_text, max_rounds)
         self.until_callbacks: list[tuple[UntilCompletionCallback, bool, int]] = []
@@ -282,6 +293,21 @@ class CompletionPipeline:
         self.params = params
         return self
 
+    def catch(self, *errors: type[Exception], on_failed: FailMode | None = None) -> CompletionPipeline:
+        """
+        Adds exceptions to catch during generation when including or skipping failures.
+
+        Args:
+            *errors: The exception types to catch.
+            on_failed: How to handle failures in the pipeline unless overriden in calls.
+
+        Returns:
+            The updated ChatPipeline object.
+        """
+        self.errors_to_fail_on.update(errors)
+        self.on_failed = on_failed or self.on_failed
+        return self
+
     def watch(self, *callbacks: WatchCompletionCallback, allow_duplicates: bool = False) -> CompletionPipeline:
         """
         Registers a callback to monitor any completions produced.
@@ -294,7 +320,7 @@ class CompletionPipeline:
         async def log(completions: list[Completion]) -> None:
             ...
 
-        pipeline.watch(log).run()
+        await pipeline.watch(log).run()
         ```
 
         Returns:
@@ -317,7 +343,7 @@ class CompletionPipeline:
         async def process(completion: Completion) -> Completion | None:
             ...
 
-        pipeline.then(process).run()
+        await pipeline.then(process).run()
         ```
 
         Args:
@@ -341,7 +367,7 @@ class CompletionPipeline:
         async def process(completions: list[Completion]) -> list[Completion]:
             ...
 
-        pipeline.map(process).run()
+        await pipeline.map(process).run()
         ```
 
         Args:
@@ -456,7 +482,7 @@ class CompletionPipeline:
             else:
                 return True
 
-        pipeline.until(callback).run()
+        await pipeline.until(callback).run()
         ```
 
         Args:
@@ -567,8 +593,8 @@ class CompletionPipeline:
         Returns:
             The generated Completion.
         """
-        chats = await self.run_many(1, include_failed=allow_failed)
-        return chats[0]
+        completions = await self.run_many(1, on_failed="include" if allow_failed else "raise")
+        return completions[0]
 
     __call__ = run
 
@@ -579,8 +605,7 @@ class CompletionPipeline:
         count: int,
         *,
         params: t.Sequence[t.Optional[GenerateParams]] | None = None,
-        skip_failed: bool = False,
-        include_failed: bool = False,
+        on_failed: FailMode | None = None,
     ) -> list[Completion]:
         """
         Executes the generation process multiple times with the same inputs.
@@ -588,14 +613,12 @@ class CompletionPipeline:
         Parameters:
             count: The number of times to execute the generation process.
             params: A sequence of parameters to be used for each execution.
-            skip_failed: Enable to ignore any max rounds errors and return only successful completions.
+            on_failed: How to handle failures in the pipeline unless overriden in calls.
 
         Returns:
             A list of generatated Completions.
         """
-        if skip_failed and include_failed:
-            raise ValueError("Cannot use both skip_failed and include_failed")
-
+        on_failed = on_failed or self.on_failed
         states: list[RunState] = [RunState(self.text, p, self._process()) for p in self._fit_params(count, params)]
         _ = [next(state.processor) for state in states]
 
@@ -606,33 +629,39 @@ class CompletionPipeline:
             )
 
             for inbound, state in zip(inbounds, pending_states):
+                output: str = ""
+                failed: bool = False
+                error: Exception | None = None
+
                 try:
                     state.processor.send(inbound.text)
+                    continue
                 except StopIteration as stop:
-                    state.completion = Completion(
-                        self.text,
-                        t.cast(str, stop.value),
-                        generator=self.generator,
-                        params=state.params,
-                        metadata=self.metadata,
-                        stop_reason=inbound.stop_reason,
-                        usage=inbound.usage,
-                        extra=inbound.extra,
-                    )
+                    output = t.cast(str, stop.value)
                 except CompletionExhaustedMaxRoundsError as exhausted:
-                    if not skip_failed and not include_failed:
+                    if on_failed == "raise":
                         raise
-                    state.completion = Completion(
-                        self.text,
-                        exhausted.completion,
-                        generator=self.generator,
-                        params=state.params,
-                        metadata=self.metadata,
-                        stop_reason=inbound.stop_reason,
-                        usage=inbound.usage,
-                        extra=inbound.extra,
-                        failed=True,
-                    )
+                    output = exhausted.completion
+                    failed = True
+                    error = exhausted
+                except Exception as e:
+                    if on_failed == "raise" or not any(isinstance(e, t) for t in self.errors_to_fail_on):
+                        raise
+                    failed = True
+                    error = e
+
+                state.completion = Completion(
+                    self.text,
+                    output,
+                    generator=self.generator,
+                    params=state.params,
+                    metadata=self.metadata,
+                    stop_reason=inbound.stop_reason,
+                    usage=inbound.usage,
+                    extra=inbound.extra,
+                    failed=failed,
+                    error=error,
+                )
 
             pending_states = [s for s in pending_states if s.completion is None]
             to_watch_states = [s for s in states if s.completion is not None and not s.watched]
@@ -642,7 +671,7 @@ class CompletionPipeline:
             for state in to_watch_states:
                 state.watched = True
 
-        if skip_failed:
+        if on_failed == "skip":
             completions = [s.completion for s in states if s.completion is not None and not s.completion.failed]
         else:
             completions = [s.completion for s in states if s.completion is not None]
@@ -656,27 +685,23 @@ class CompletionPipeline:
         many: t.Sequence[str],
         params: t.Sequence[t.Optional[GenerateParams]] | None = None,
         *,
-        skip_failed: bool = False,
-        include_failed: bool = False,
+        on_failed: FailMode = "raise",
     ) -> list[Completion]:
         """
         Executes the generation process accross multiple input messages.
 
         Note:
-            Anything already in this pending completion will be used as the `prefix` parameter
-            to [rigging.generator.Generator.generate_messages][].
+            Anything already in this pending completion will be prepended to the text.
 
         Parameters:
             many: A sequence of texts to generate with.
             params: A sequence of parameters to be used for each text.
-            skip_failed: Enable to ignore any max rounds errors and return only successful completions.
+            on_failed: How to handle failures in the pipeline unless overriden in calls.
 
         Returns:
             A list of generatated Completions.
         """
-        if skip_failed and include_failed:
-            raise ValueError("Cannot use both skip_failed and include_failed")
-
+        on_failed = on_failed or self.on_failed
         params = self._fit_params(len(many), params)
         states: list[RunState] = [RunState(m, p, self._process()) for m, p in zip(many, params)]
         _ = [next(state.processor) for state in states]
@@ -689,33 +714,39 @@ class CompletionPipeline:
             )
 
             for inbound, state in zip(inbounds, pending_states):
+                output: str = ""
+                failed: bool = False
+                error: Exception | None = None
+
                 try:
                     state.processor.send(inbound.text)
+                    continue
                 except StopIteration as stop:
-                    state.completion = Completion(
-                        self.text,
-                        t.cast(str, stop.value),
-                        generator=self.generator,
-                        params=state.params,
-                        metadata=self.metadata,
-                        stop_reason=inbound.stop_reason,
-                        usage=inbound.usage,
-                        extra=inbound.extra,
-                    )
+                    output = t.cast(str, stop.value)
                 except CompletionExhaustedMaxRoundsError as exhausted:
-                    if not skip_failed and not include_failed:
+                    if on_failed == "raise":
                         raise
-                    state.completion = Completion(
-                        self.text,
-                        exhausted.completion,
-                        generator=self.generator,
-                        params=state.params,
-                        metadata=self.metadata,
-                        stop_reason=inbound.stop_reason,
-                        usage=inbound.usage,
-                        extra=inbound.extra,
-                        failed=True,
-                    )
+                    output = exhausted.completion
+                    failed = True
+                    error = exhausted
+                except Exception as e:
+                    if on_failed == "raise" or not any(isinstance(e, t) for t in self.errors_to_fail_on):
+                        raise
+                    failed = True
+                    error = e
+
+                state.completion = Completion(
+                    self.text,
+                    output,
+                    generator=self.generator,
+                    params=state.params,
+                    metadata=self.metadata,
+                    stop_reason=inbound.stop_reason,
+                    usage=inbound.usage,
+                    extra=inbound.extra,
+                    failed=failed,
+                    error=error,
+                )
 
             pending_states = [s for s in pending_states if s.completion is None]
             to_watch_states = [s for s in states if s.completion is not None and not s.watched]
@@ -725,9 +756,47 @@ class CompletionPipeline:
             for state in to_watch_states:
                 state.watched = True
 
-        if skip_failed:
+        if on_failed == "skip":
             completions = [s.completion for s in states if s.completion is not None and not s.completion.failed]
         else:
             completions = [s.completion for s in states if s.completion is not None]
 
         return await self._post_run(completions)
+
+    # Generator iteration
+
+    async def run_over(
+        self, *generators: Generator | str, include_original: bool = True, on_failed: FailMode | None = None
+    ) -> list[Completion]:
+        """
+        Executes the generation process across multiple generators.
+
+        For each generator, this pipeline is cloned and the generator is replaced
+        before the run call. All callbacks and parameters are preserved.
+
+        Parameters:
+            *generators: A sequence of generators to be used for the generation process.
+            include_original: Whether to include the original generator in the list of runs.
+            on_failed: The behavior when a message fails to generate.
+
+        Returns:
+            A list of generatated Chats.
+        """
+        on_failed = on_failed or self.on_failed
+
+        _generators: list[Generator] = [g if isinstance(g, Generator) else get_generator(g) for g in generators]
+        if include_original:
+            _generators.append(self.generator)
+
+        coros: list[t.Coroutine[t.Any, t.Any, Completion]] = []
+        for generator in _generators:
+            sub = self.clone()
+            sub.generator = generator
+            coros.append(sub.run(allow_failed=(on_failed != "raise")))
+
+        completions = await asyncio.gather(*coros)
+
+        if on_failed == "skip":
+            completions = [c for c in completions if not c.failed]
+
+        return completions

@@ -13,8 +13,7 @@ from rigging.message import Message, MessageDict
 if t.TYPE_CHECKING:
     from rigging.chat import ChatPipeline, WatchChatCallback
     from rigging.completion import CompletionPipeline, WatchCompletionCallback
-    from rigging.prompt import Prompt
-    from rigging.util import P, R
+    from rigging.prompt import P, Prompt, R
 
     WatchCallbacks = t.Union[WatchChatCallback, WatchCompletionCallback]
 
@@ -245,7 +244,7 @@ class Generator(BaseModel):
     def watch(self, *callbacks: WatchCallbacks, allow_duplicates: bool = False) -> Generator:
         """
         Registers watch callbacks to be passed to any created
-        [rigging.chat.ChatPipeline][] or [rigging.chat.CompletionPipeline][].
+        [rigging.chat.ChatPipeline][] or [rigging.completion.CompletionPipeline][].
 
         Args:
             *callbacks: The callback functions to be executed.
@@ -255,7 +254,7 @@ class Generator(BaseModel):
         async def log(chats: list[Chat]) -> None:
             ...
 
-        pipeline.watch(log).run()
+        await pipeline.watch(log).run()
         ```
 
         Returns:

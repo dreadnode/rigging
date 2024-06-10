@@ -66,7 +66,7 @@ def unflatten_chats(messages: t.Sequence[dict[t.Any, t.Any]]) -> list[Chat]:
     Unflatten a list of messages into a list of Chat objects.
 
     Args:
-        messages: A list of flat Message objects in the format from [rigging.data.flatten_messages][].
+        messages: A list of flat Message objects in the format from [rigging.data.flatten_chats][].
 
     Returns:
         A list of Chat objects.

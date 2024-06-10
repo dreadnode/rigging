@@ -54,7 +54,7 @@ translator = (
 text = "Could you please tell me where the nearest train station is?"
 
 for language in ["spanish", "french", "german"]:
-    completion = translator.apply(
+    completion = await translator.apply(
         language=language,
         input=text
     ).run()

@@ -1,15 +1,6 @@
+from rigging import data, error, model, parsing, watchers
 from rigging.chat import Chat, ChatPipeline
 from rigging.completion import Completion, CompletionPipeline
-from rigging.data import (
-    chats_to_df,
-    chats_to_elastic,
-    chats_to_elastic_data,
-    df_to_chats,
-    elastic_data_to_chats,
-    elastic_to_chats,
-    flatten_chats,
-    unflatten_chats,
-)
 from rigging.generator import (
     GeneratedMessage,
     GeneratedText,
@@ -21,7 +12,7 @@ from rigging.generator import (
     register_generator,
 )
 from rigging.message import Message, MessageDict, Messages
-from rigging.model import Model, attr, element, make_primitive, wrapped
+from rigging.model import Model, attr, element, wrapped
 from rigging.prompt import Ctx, Prompt, prompt
 from rigging.tool import Tool
 
@@ -48,18 +39,14 @@ __all__ = [
     "Completion",
     "CompletionPipeline",
     "register_generator",
-    "chats_to_df",
-    "df_to_chats",
-    "make_primitive",
-    "chats_to_elastic",
-    "elastic_to_chats",
-    "elastic_data_to_chats",
-    "chats_to_elastic_data",
-    "flatten_chats",
-    "unflatten_chats",
     "prompt",
     "Prompt",
     "Ctx",
+    "data",
+    "watchers",
+    "model",
+    "error",
+    "parsing",
 ]
 
 from loguru import logger

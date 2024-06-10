@@ -1,14 +1,17 @@
 # Generators
 
 Underlying LLMs (or any function which completes text) is represented as a generator in Rigging.
-They are typically instantiated using identifier strings and the [`get_generator`][rigging.generator.get_generator] function.
-The base interface is flexible, and designed to support optimizations should the underlying mechanisms support it (batching
-async, K/V cache, etc.)
+They are typically instantiated using identifier strings and the 
+[`get_generator`][rigging.generator.get_generator] function.
+
+The base interface is flexible, and designed to support optimizations should the
+underlying mechanisms support it (batching async, K/V cache, etc.)
 
 ## Identifiers
 
-Much like database connection strings, Rigging generators can be represented as strings which define what provider, model, 
-API key, generation params, etc. should be used. They are formatted as follows:
+Much like database connection strings, Rigging generators can be represented as
+strings which define what provider, model,  API key, generation params, etc.
+should be used. They are formatted as follows:
 
 ```
 <provider>!<model>,<**kwargs>
@@ -19,11 +22,13 @@ API key, generation params, etc. should be used. They are formatted as follows:
 - `kwargs` are used to carry:
     1. Serialized [`GenerateParams`][rigging.generator.GenerateParams] fields like like temp, stop tokens, etc.
     2. Additional provider-specific attributes to set on the constructed generator class. For instance, you
-       can set the [`LiteLLMGenerator.max_requests`][rigging.generator.litellm_.LiteLLMGenerator] property
-       by passing `,max_requests=` in the identifier string.
+       can set the [`LiteLLMGenerator.max_connections`][rigging.generator.litellm_.LiteLLMGenerator] property
+       by passing `,max_connections=` in the identifier string.
 
-The provider is optional and Rigging will fallback to [`litellm`](https://github.com/BerriAI/litellm)/[`LiteLLMGenerator`][rigging.generator.LiteLLMGenerator]
-by default. You can view the [LiteLLM docs](https://docs.litellm.ai/docs/) for more information about supported model providers and parameters.
+The provider is optional and Rigging will fallback to 
+[`litellm`](https://github.com/BerriAI/litellm)/[`LiteLLMGenerator`][rigging.generator.LiteLLMGenerator]
+by default. You can view the [LiteLLM docs](https://docs.litellm.ai/docs/) for more
+information about supported model providers and parameters.
 
 Here are some examples of valid identifiers:
 
@@ -121,20 +126,22 @@ See more about them below:
 
 ## Overload Generation Params
 
-When working with both [`CompletionPipeline`][rigging.completion.CompletionPipeline] and [`ChatPipeline`][rigging.chat.ChatPipeline], you
-can overload and update any generation params by using the associated [`.with_()`][rigging.chat.ChatPipeline.with_] function. 
+When working with both [`CompletionPipeline`][rigging.completion.CompletionPipeline] and 
+[`ChatPipeline`][rigging.chat.ChatPipeline], you can overload and update any generation
+params by using the associated [`.with_()`][rigging.chat.ChatPipeline.with_] function. 
 
 === "with_() as keyword arguments"
 
     ```py
     import rigging as rg
 
-    pending = rg.get_generator("gpt-3.5-turbo,max_tokens=50").chat([
+    pipeline = rg.get_generator("gpt-3.5-turbo,max_tokens=50").chat([
         {"role": "user", "content": "Say a haiku about boats"},
     ])
 
     for temp in [0.1, 0.5, 1.0]:
-        print(pending.with_(temperature=temp).run().last.content)
+        chat = await pipeline.with_(temperature=temp).run()
+        print(chat.last.content)
     ```
 
 === "with_() as `GenerateParams`"
@@ -142,27 +149,26 @@ can overload and update any generation params by using the associated [`.with_()
     ```py
     import rigging as rg
 
-    pending = rg.get_generator("gpt-3.5-turbo,max_tokens=50").chat([
+    pipeline = rg.get_generator("gpt-3.5-turbo,max_tokens=50").chat([
         {"role": "user", "content": "Say a haiku about boats"},
     ])
 
     for temp in [0.1, 0.5, 1.0]:
-        print(pending.with_(rg.GenerateParams(temperature=temp)).run().last.content)
+        chat = await pipeline.with_(rg.GenerateParams(temperature=temp)).run()
+        print(chat.last.content)
     ```
 
 ## Writing a Generator
 
 All generators should inherit from the [`Generator`][rigging.generator.Generator] base class, and
-can elect to implement a series of messages, text, and async methods:
+can elect to implement handlers for messages and/or texts:
 
-- [`def generate_messages(...)`][rigging.generator.Generator.generate_messages] - Used for [`ChatPipeline.run`][rigging.chat.ChatPipeline.run] variants.
-- [`async def agenerate_messages(...)`][rigging.generator.Generator.agenerate_messages] - Used for [`ChatPipeline.arun`][rigging.chat.ChatPipeline.arun] variants.
-- [`def generate_texts(...)`][rigging.generator.Generator.generate_texts] - Used for [`CompletionPipeline.run`][rigging.completion.CompletionPipeline.run] variants.
-- [`async def agenerate_texts(...)`][rigging.generator.Generator.agenerate_texts] - Used for [`CompletionPipeline.arun`][rigging.completion.CompletionPipeline.arun] variants.
+- [`async def generate_messages(...)`][rigging.generator.Generator.generate_messages] - Used for [`ChatPipeline.run`][rigging.chat.ChatPipeline.run] variants.
+- [`async def generate_texts(...)`][rigging.generator.Generator.generate_texts] - Used for [`CompletionPipeline.run`][rigging.completion.CompletionPipeline.run] variants.
 
 !!! note "Optional Implementation"
 
-    If your generator doesn't implement a particular method like async or text completions, Rigging
+    If your generator doesn't implement a particular method like text completions, Rigging
     will simply raise a `NotImplementedError` for you. It's currently undecided whether generators
     should prefer to provide weak overloads for compatibility, or whether they should ignore methods
     which can't be used optimally to help provide clarity to the user about capability. You'll find
@@ -189,7 +195,7 @@ class Custom(Generator):
     
     custom_field: bool
 
-    def generate_messages(
+    async def generate_messages(
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],

@@ -10,7 +10,6 @@ from xml.etree import ElementTree as ET
 
 import xmltodict  # type: ignore
 from pydantic import (
-    BeforeValidator,
     SerializationInfo,
     ValidationError,
     create_model,
@@ -125,7 +124,14 @@ class Model(BaseXmlModel):
             True if the model is simple, False otherwise.
         """
         field_values = list(cls.model_fields.values())
-        return len(field_values) == 1 and field_values[0].annotation in BASIC_TYPES
+        if len(field_values) != 1:
+            return False
+
+        annotation = field_values[0].annotation
+        if t.get_origin(annotation) == t.Annotated:
+            annotation = t.get_args(annotation)[0]
+
+        return annotation in BASIC_TYPES
 
     @classmethod
     def xml_start_tag(cls) -> str:
@@ -238,7 +244,7 @@ class Model(BaseXmlModel):
 
             try:
                 model = (
-                    cls(**{next(iter(cls.model_fields)): inner})
+                    cls(**{next(iter(cls.model_fields)): unescape_xml(inner)})
                     if cls.is_simple()
                     else cls.from_xml(escape_xml(full_text))
                 )
@@ -284,7 +290,7 @@ PrimitiveT = t.TypeVar("PrimitiveT", int, str, float, bool)
 
 
 class Primitive(Model, t.Generic[PrimitiveT]):
-    content: t.Annotated[PrimitiveT, BeforeValidator(lambda x: x.strip() if isinstance(x, str) else x)]
+    content: PrimitiveT
 
 
 def make_primitive(
@@ -321,7 +327,7 @@ def make_primitive(
         __base__=Primitive[type_],  # type: ignore
         __doc__=doc,
         __cls_kwargs__={"tag": tag},
-        content=(t.Annotated[type_, BeforeValidator(lambda x: x.strip() if isinstance(x, str) else x)], ...),
+        content=(type_, ...),
         __validators__={"content_validator": field_validator("content")(_validate)} if validator else {},  # type: ignore
     )
 
@@ -424,6 +430,11 @@ class NewlineDelimitedAnswer(DelimitedAnswer):
     "Newline delimited answer (\n)"
 
     _delimiters = ["\n"]
+
+
+# TODO: We can update this to just use the bool type with
+# some string stripping - pydantic has fairly robust
+# boolean parsing logic.
 
 
 class YesNoAnswer(Model):

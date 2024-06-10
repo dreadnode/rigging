@@ -14,12 +14,11 @@ nav:
     - Prompt Functions: topics/prompt-functions.md
     - Completions: topics/completions.md
     - Callbacks and Mapping: topics/callbacks-and-mapping.md
-    - Async and Batching: topics/async-and-batching.md
+    - Iterating and Batching: topics/iterating-and-batching.md
     - Tools: topics/tools.md
-    - Agents: topics/agents.md
     - Serialization: topics/serialization.md
     - Logging: topics/logging.md
-    - Cheat Sheet: topics/cheatsheet.md
+    - Migrations: topics/migrations.md
     - Principles: topics/principles.md
   - API:
     - rigging.chat: api/chat.md
@@ -30,6 +29,7 @@ nav:
     - rigging.prompt: api/prompt.md
     - rigging.tool: api/tool.md
     - rigging.data: api/data.md
+    - rigging.watchers: api/watchers.md
     - rigging.parsing: api/parsing.md
     - rigging.logging: api/logging.md
     - rigging.error: api/error.md

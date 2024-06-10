@@ -5,6 +5,7 @@ import typing as t
 import pytest
 
 from rigging import Message
+from rigging.error import ExhaustedMaxRoundsError
 from rigging.generator import GenerateParams, Generator
 from rigging.generator.base import GeneratedMessage, GeneratedText
 from rigging.model import YesNoAnswer
@@ -136,7 +137,7 @@ async def test_completion_until_parsed_as_with_reset() -> None:
 
 @pytest.mark.parametrize("attempt_recovery", [True, False])
 @pytest.mark.asyncio
-async def test_chat_run_include_failed(attempt_recovery: bool) -> None:
+async def test_chat_run_allowed_failed(attempt_recovery: bool) -> None:
     generator = EchoGenerator(model="callback", params=GenerateParams())
     max_rounds = 3
 
@@ -147,6 +148,7 @@ async def test_chat_run_include_failed(attempt_recovery: bool) -> None:
     )
 
     assert chat.failed is True
+    assert isinstance(chat.error, ExhaustedMaxRoundsError)
     assert len(chat) == ((max_rounds * 2) + 2 if attempt_recovery else 2)
     assert chat.last.role == "assistant"
 
@@ -159,7 +161,7 @@ async def test_chat_run_many_include_failed(text: str) -> None:
     chats = (
         await generator.chat([{"role": "user", "content": "test"}])
         .until_parsed_as(YesNoAnswer)
-        .run_many(3, include_failed=True)
+        .run_many(3, on_failed="include")
     )
 
     assert len(chats) == 3
@@ -176,10 +178,7 @@ async def test_chat_run_batch_include_failed() -> None:
     chats = (
         await generator.chat()
         .until_parsed_as(YesNoAnswer)
-        .run_batch(
-            [[Message(role="user", content=f"test-{i}")] for i in range(3)],
-            include_failed=True,
-        )
+        .run_batch([[Message(role="user", content=f"test-{i}")] for i in range(3)], on_failed="include")
     )
 
     assert len(chats) == 3

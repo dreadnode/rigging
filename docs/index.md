@@ -2,6 +2,7 @@ Rigging is a lightweight LLM framework built on Pydantic XML. The goal is to mak
 
 - **Structured Pydantic models** can be used interchangably with unstructured text output.
 - LiteLLM as the default generator giving you **instant access to a huge array of models**.
+- Define prompts as python functions with **type hints and docstrings**.
 - Simple **tool calling** abilities for models which don't natively support it.
 - Store different models and configs as **simple connection strings** just like databases.
 - Chat templating, forking, continuations, generation parameter overloads, stripping segments, etc.
@@ -11,17 +12,14 @@ Rigging is a lightweight LLM framework built on Pydantic XML. The goal is to mak
 
 ```py
 import rigging as rg
-from rigging.model import CommaDelimitedAnswer as Answer
 
-chat = rg.get_generator('gpt-4') \
-    .chat(f"Give me 3 famous authors between {Answer.xml_tags()} tags.") \
-    .until_parsed_as(Answer) \
-    .run()
+@rg.prompt(generator_id="gpt-4")
+async def get_authors(count: int = 3) -> list[str]:
+    """Provide famous authors."""
 
-answer = chat.last.parse(Answer)
-print(answer.items)
+print(await get_authors())
 
-# ['J. R. R. Tolkien', 'Stephen King', 'George Orwell']
+# ['William Shakespeare', 'J.K. Rowling', 'Jane Austen']
 ```
 
 Rigging is built by [**dreadnode**](https://dreadnode.io) where we use it daily.
@@ -44,6 +42,10 @@ cd rigging/
 poetry install
 ```
 
+## Migrations
+
+- **[Migrating from v1.x to v2.x](topics/migrations.md#migrating-from-v1x-to-v2x)**
+
 ## Getting Started
 
 Rigging is a flexible library built on top of other very flexible libraries. As such it might take a bit to warm
@@ -55,7 +57,7 @@ and topic pages and source are a great places to step in/out of as you explore.
     Rigging has been built with full type support which provides clear guidance on what
     methods return what types, and when they return those types. It's recommended that you
     operate in a development environment which can take advantage of this information.
-    You're use of Rigging will almost "fall" into place and you won't be guessing about
+    Rigging will almost "fall" into place and you won't be guessing about
     objects as you work.
 
 ### Basic Chats
@@ -80,13 +82,13 @@ to the underlying generator class object.
 import rigging as rg # (1)!
 
 generator = rg.get_generator("claude-3-sonnet-20240229") # (2)!
-pending = generator.chat(
+pipeline = generator.chat(
     [
         {"role": "system", "content": "You are a wizard harry."},
         {"role": "user", "content": "Say hello!"},
     ]
 )
-chat = pending.run()
+chat = await pipeline.run() # (3)!
 print(chat.all)
 # [
 #   Message(role='system', parts=[], content='You are a wizard harry.'),
@@ -99,6 +101,8 @@ print(chat.all)
 2. This is actually shorthand for `litellm!anthropic/claude-3-sonnet-20240229`, where `litellm`
    is the provider. We just default to that generator and you don't have to be explicit. You
    can find more information about this in the [generators](topics/generators.md) docs.
+3. From version 2 onwards, Rigging is fully async. You can use `await` to trigger generation
+   and get your results.
 
 
 Generators have an easy [`chat()`][rigging.generator.Generator.chat] method which you'll
@@ -110,13 +114,13 @@ which will be converted to a user message.
 import rigging as rg
 
 generator = rg.get_generator("claude-3-sonnet-20240229")
-pending = generator.chat( # (1)!
+pipeline = generator.chat( # (1)!
     [
         {"role": "system", "content": "You are a wizard harry."},
         {"role": "user", "content": "Say hello!"},
     ]
 )
-chat = pending.run()
+chat = await pipeline.run()
 print(chat.all)
 # [
 #   Message(role='system', parts=[], content='You are a wizard harry.'),
@@ -130,17 +134,18 @@ print(chat.all)
 
 ??? note "ChatPipeline vs Chat"
 
-    You'll notice we name the result of `chat()` as `pending`. The naming might be confusing,
-    but chats go through 2 phases. We first stage them into a pending state, where we operate
-    and prepare them in a "pipeline" of sorts before we actually trigger generation with `run()`.
+    You'll notice we name the result of `chat()` as `pipeline`. The naming might be confusing,
+    but chats go through 2 phases. We first stage them into a pipeline, where we operate
+    and prepare them before we actually trigger generation with `run()`.
 
     Calling `.chat()` doesn't trigger any generation, but calling any of these run methods will:
 
     - [rigging.chat.ChatPipeline.run][]
     - [rigging.chat.ChatPipeline.run_many][]
     - [rigging.chat.ChatPipeline.run_batch][]
+    - [rigging.chat.ChatPipeline.run_over][]
 
-In this case, we have nothing additional we want to add to our pending chat, and we are only interested
+In this case, we have nothing additional we want to add to our chat pipeline, and we are only interested
 in generating exactly one response message. We simply call [`.run()`][rigging.chat.ChatPipeline.chat] to
 execute the generation process and collect our final [`Chat`][rigging.chat.Chat] object.
 
@@ -148,13 +153,13 @@ execute the generation process and collect our final [`Chat`][rigging.chat.Chat]
 import rigging as rg
 
 generator = rg.get_generator("claude-3-sonnet-20240229")
-pending = generator.chat(
+pipeline = generator.chat(
     [
         {"role": "system", "content": "You are a wizard harry."},
         {"role": "user", "content": "Say hello!"},
     ]
 )
-chat = pending.run()
+chat = await pipeline.run()
 print(chat.all)
 # [
 #   Message(role='system', parts=[], content='You are a wizard harry.'),
@@ -163,17 +168,71 @@ print(chat.all)
 # ]
 ```
 
-View more about Chat objects and their properties [over here.][rigging.chat.Chat]. In general, chats
+View more about Chat objects and their properties [over here][rigging.chat.Chat]. In general, chats
 give you access to exactly what messages were passed into a model, and what came out the other side.
 
-### Conversation
+### Prompts
+
+Operating chat pipelines manually is very flexible, but can feel a bit verbose. Rigging supports
+the concept of "prompt functions" where you to define the interaction with an LLM as a python function
+signature, and convert that to a callable object which abstracts the pipeline away from you.
+
+=== "From ID"
+
+    ```py
+    import rigging as rg
+
+    @rg.prompt(generator_id="claude-3-sonnet-20240229")
+    async def say_hello(name: str) -> rg.Chat:
+        """Say hello to {{ name }}"""
+
+    chat = await say_hello("Harry")
+    ```
+
+=== "From Generator"
+
+    ```py
+    import rigging as rg
+
+    generator = rg.get_generator("claude-3-sonnet-20240229")
+
+    @generator.prompt
+    async def say_hello(name: str) -> rg.Chat:
+        """Say hello to {{ name }}"""
+
+    chat = await say_hello("Harry")
+    ```
+
+=== "From Pipeline"
+
+    ```py
+    import rigging as rg
+
+    generator = rg.get_generator("claude-3-sonnet-20240229")
+    pipeline = generator.chat([
+        {"role": "system", "content": "Talk like a pirate."}
+    ])
+
+    @pipeline.prompt
+    async def say_hello(name: str) -> rg.Chat:
+        """Say hello to {{ name }}"""
+
+    chat = await say_hello("Harry")
+    ```
+
+Prompts are very powerful. You can take control over any of the inputs in your docstring, gather
+outputs as structured objects, lists, dataclasses, and collect the underlying Chat object, etc.
+
+Check out [Prompt Functions](topics/prompt-functions.md) for more information.
+
+### Conversations
 
 Both [`ChatPipeline`][rigging.chat.ChatPipeline] and [`Chat`][rigging.chat.Chat] objects provide freedom
 for forking off the current state of messages, or continuing a stream of messages after generation has occured.
 
 In general:
 
-- [`ChatPipeline.fork`][rigging.chat.ChatPipeline.fork] will clone the current pending chat and let you maintain
+- [`ChatPipeline.fork`][rigging.chat.ChatPipeline.fork] will clone the current chat pipeline and let you maintain
   both the new and original object for continued processing.
 - [`Chat.fork`][rigging.chat.Chat.fork] will produce a fresh `ChatPipeline` from all the messages prior to the
   previous generation (useful for "going back" in time).
@@ -187,24 +246,22 @@ In other words, the abstraction of going back and forth in a "conversation" woul
 import rigging as rg
 
 generator = rg.get_generator("gpt-3.5-turbo")
-chat = generator.chat([
-        {"role": "user", "content": "Hello, how are you?"},
-])
+chat = generator.chat("Hello, how are you?")
 
 # We can fork before generation has occured
-specific = chat.fork("Be specific please.").run()
-poetic = chat.fork("Be as poetic as possible").with_(temperature=1.5).run() # (1)!
+specific = await chat.fork("Be specific please.").run()
+poetic = await chat.fork("Be as poetic as possible").with_(temperature=1.5).run() # (1)!
 
 # We can also continue after generation
-next_chat = poetic.continue_(
-    {"role": "user", "content": "That's good, tell me a joke"}
-)
+next_chat = poetic.continue_("That's good, tell me a joke") # (2)!
 
-update = next_chat.run()
+update = await next_chat.run()
 ```
 
 1. In this case the temperature change will only be applied to the poetic path because `fork` has
-   created a clone of our pending chat. 
+   created a clone of our chat pipeline. 
+2. For convience, we can usually just pass `str` objects in place of full messages, which underneath
+   will be converted to a [`Message`][rigging.message.Message] object with the `user` role.
 
 ### Basic Parsing
 
@@ -236,7 +293,7 @@ import rigging as rg
 class FunFact(rg.Model):
     fact: str # (1)!
 
-chat = rg.get_generator('gpt-3.5-turbo').chat(
+chat = await rg.get_generator('gpt-3.5-turbo').chat(
     f"Provide a fun fact between {FunFact.xml_example()} tags."
 ).run()
 
@@ -279,7 +336,7 @@ import rigging as rg
 class FunFact(rg.Model):
     fact: str
 
-chat = rg.get_generator('gpt-3.5-turbo').chat(
+chat = await rg.get_generator('gpt-3.5-turbo').chat(
     f"Provide a fun fact between {FunFact.xml_example()} tags."
 ).run()
 
@@ -302,16 +359,18 @@ desired output structure. If the last message content is invalid in some way, ou
 will result in an exception from rigging. Rigging is designed at it's core to manage this process, 
 and we have a few options:
 
-1. We can extend our pending chat with [`.until_parsed_as()`][rigging.chat.ChatPipeline] which will cause the
-   `run()` function to internally check if parsing is succeeding before returning the chat back to you.
+1. We can extend our chat pipeline with [`.until_parsed_as()`][rigging.chat.ChatPipeline] which will cause the
+   [`run()`][rigging.chat.ChatPipeline.run] function to internally check if parsing is succeeding
+   before returning the chat back to you.
 2. We can make the parsing optional by switching to [`.try_parse()`][rigging.message.Message.try_parse]. The type
    of the return value with automatically switch to `#!python FunFact | None` and you can handle cases
    where parsing failed.
 
 === "Option 1 - Until Parsed As"
 
-    ```py hl_lines="4"
+    ```py hl_lines="5"
     chat = (
+        await
         rg.get_generator('gpt-3.5-turbo')
         .chat(f"Provide a fun fact between {FunFact.xml_example()} tags.")
         .until_parsed_as(FunFact)
@@ -336,7 +395,7 @@ and we have a few options:
 
     !!! note "Max Rounds Concept"
 
-        When control is passed into a pending chat with [`.until_parsed_as()`][rigging.chat.ChatPipeline.until_parsed_as],
+        When control is passed into a chat pipeline with [`.until_parsed_as()`][rigging.chat.ChatPipeline.until_parsed_as],
         a callback is registered internally to operate during generation. When model output is received, the
         callback will attempt to parse, and if it fails, it will re-trigger generation with or without context depending
         on the [`attempt_recovery`][rigging.chat.ChatPipeline.until_parsed_as] parameter. This process will repeat
@@ -347,15 +406,15 @@ and we have a few options:
         complexity in your model is too high. You have a few options for gracefull handling these situations:
         
         1. You can adjust the `max_rounds` as needed and try using `attempt_recovery`.
-        2. Pass `allow_failed`/`include_failed` to your [`run()`][rigging.chat.ChatPipeline.run] 
-            methods and check the [`.failed`][rigging.chat.Chat.failed] property after generation
+        2. Pass `allow_failed` to your [`run()`][rigging.chat.ChatPipeline.run] 
+            method and check the [`.failed`][rigging.chat.Chat.failed] property after generation
         3. Use an external callback like [`.then()`][rigging.chat.ChatPipeline.then] to 
             get more external control over the process.
 
 === "Option 2 - Try Parse"
 
     ```py hl_lines="5"
-    chat = rg.get_generator('gpt-3.5-turbo').chat(
+    chat = await rg.get_generator('gpt-3.5-turbo').chat(
         f"Provide a fun fact between {FunFact.xml_example()} tags."
     ).run()
 
@@ -364,7 +423,7 @@ and we have a few options:
     print(fun_fact or "Failed to get fact")
     ```
 
-### Parsing Many Models
+### Parsing Multiple Models
 
 Assuming we wanted to extend our example to produce a set of interesting facts, we have a couple of options:
 
@@ -374,7 +433,7 @@ Assuming we wanted to extend our example to produce a set of interesting facts, 
 === "Option 1 - Multiple Generations"
 
     ```py
-    chats = rg.get_generator('gpt-3.5-turbo').chat(
+    chats = await rg.get_generator('gpt-3.5-turbo').chat(
         f"Provide a fun fact between {FunFact.xml_example()} tags."
     ).run_many(3)
 
@@ -385,12 +444,47 @@ Assuming we wanted to extend our example to produce a set of interesting facts, 
 === "Option 2 - Inline Set"
 
     ```py
-    chat = rg.get_generator('gpt-3.5-turbo').chat(
+    chat = await rg.get_generator('gpt-3.5-turbo').chat(
         f"Provide a 3 fun facts each between {FunFact.xml_example()} tags."
     ).run()
 
     for fun_fact in chat.last.parse_set(FunFact):
         print(fun_fact.fact)
+    ```
+
+### Parsing with Prompts
+
+The use of [`Prompt`][rigging.prompt.Prompt] functions can make parsing even easier. We can refactor
+our previous example and have rigging parse out FunFacts directly for us:
+
+=== "Multiple Generations"
+
+    ```py
+    import rigging as rg
+
+    class FunFact(rg.Model):
+        fact: str
+
+    @rg.prompt(generator_id="gpt-3.5-turbo")
+    def get_fun_fact() -> FunFact:
+        """Provide a fun fact."""
+
+    fun_facts = await get_fun_facts.run_many(3)
+    ```
+
+=== "Inline Set"
+
+    ```py
+    import rigging as rg
+
+    class FunFact(rg.Model):
+        fact: str
+
+    @rg.prompt(generator_id="gpt-3.5-turbo")
+    def get_fun_facts(count: int = 3) -> list[FunFact]:
+        """Provide fun facts."""
+
+    fun_facts = await get_fun_facts()
     ```
 
 ### Keep Going

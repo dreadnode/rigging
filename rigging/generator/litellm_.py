@@ -36,15 +36,15 @@ class LiteLLMGenerator(Generator):
         implementation due to it's brittle requirements.
 
     Tip:
-        Consider setting [`max_requests`][rigging.generator.litellm_.LiteLLMGenerator.max_requests]
+        Consider setting [`max_connections`][rigging.generator.litellm_.LiteLLMGenerator.max_connections]
         to a lower value if you run into API limits. You can pass this directly in the generator id:
 
         ```py
-        get_generator("litellm!openai/gpt-4o,max_requests=5")
+        get_generator("litellm!openai/gpt-4o,max_connections=5")
         ```
     """
 
-    max_requests: int = 4
+    max_connections: int = 4
     """
     How many simultaneous requests to pool at one time.
     This is useful to set when you run into API limits at a provider.
@@ -110,21 +110,25 @@ class LiteLLMGenerator(Generator):
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[GeneratedMessage]:
         generated: list[GeneratedMessage] = []
-        max_requests = self.max_requests if self.max_requests > 0 else len(messages)
-        for i in range(0, len(messages), max_requests):
-            chunk_messages = messages[i : i + max_requests]
-            chunk_params = params[i : i + max_requests]
-            chunk_generated = await asyncio.gather(
-                *[
-                    self._generate_message(_messages, _params)
-                    for _messages, _params in zip(chunk_messages, chunk_params)
-                ]
-            )
-            generated.extend(chunk_generated)
+        max_connections = self.max_connections if self.max_connections > 0 else len(messages)
+        queue: asyncio.Queue[None] = asyncio.Queue(maxsize=max_connections)
 
-            for j, (_messages, _generated) in enumerate(zip(chunk_messages, chunk_generated)):
-                trace_messages(_messages, f"Messages {i+j+1}/{len(messages)}")
-                trace_messages([_generated], f"Response {i+j+1}/{len(messages)}")
+        async def worker(i: int, _messages: t.Sequence[Message], _params: GenerateParams) -> None:
+            _generated = await self._generate_message(_messages, _params)
+            generated.append(_generated)
+            trace_messages(_messages, f"Messages {i+1}/{len(messages)}")
+            trace_messages([_generated], f"Response {i+1}/{len(messages)}")
+            queue.get_nowait()
+            queue.task_done()
+
+        tasks: list[asyncio.Task[None]] = []
+        for i, (_messages, _params) in enumerate(zip(messages, params)):
+            await queue.put(None)
+            task = asyncio.create_task(worker(i, _messages, _params))
+            tasks.append(task)
+
+        await queue.join()
+        await asyncio.gather(*tasks)
 
         return generated
 
@@ -134,10 +138,10 @@ class LiteLLMGenerator(Generator):
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[GeneratedText]:
         generated: list[GeneratedText] = []
-        max_requests = self.max_requests if self.max_requests > 0 else len(texts)
-        for i in range(0, len(texts), max_requests):
-            chunk_texts = texts[i : i + max_requests]
-            chunk_params = params[i : i + max_requests]
+        max_connections = self.max_connections if self.max_connections > 0 else len(texts)
+        for i in range(0, len(texts), max_connections):
+            chunk_texts = texts[i : i + max_connections]
+            chunk_params = params[i : i + max_connections]
             chunk_generated = await asyncio.gather(
                 *[self._generate_text(text, _params) for text, _params in zip(chunk_texts, chunk_params)]
             )
