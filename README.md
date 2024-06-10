@@ -115,7 +115,7 @@ Want more?
 - Give the LLM [access to tools](https://rigging.dreadnode.io/topics/tools/)
 - Play with [generation params](https://rigging.dreadnode.io/topics/generators/#overload-generation-params)
 - Use [callbacks in the pipeline](https://rigging.dreadnode.io/topics/callbacks-and-mapping/)
-- Scale up with [async and batching](https://rigging.dreadnode.io/topics/async-and-batching/)
+- Scale up with [iterating and batching](https://rigging.dreadnode.io/topics/iterating-and-batching/)
 - Save your work with [serialization](https://rigging.dreadnode.io/topics/serialization/)
 
 ## Examples
