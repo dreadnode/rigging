@@ -9,6 +9,7 @@ import dataclasses
 import inspect
 import re
 import typing as t
+from typing import Concatenate
 
 from jinja2 import Environment, StrictUndefined, meta
 from pydantic import ValidationError
@@ -632,7 +633,7 @@ class Prompt(t.Generic[P, R]):
 
     def bind_for_run_many(
         self, pipeline: ChatPipeline
-    ) -> t.Callable[t.Concatenate[int, P], t.Coroutine[None, None, list[R]]]:
+    ) -> t.Callable[Concatenate[int, P], t.Coroutine[None, None, list[R]]]:
         if pipeline.on_failed == "include" and not isinstance(self.output, ChatOutput):
             raise NotImplementedError("pipeline.on_failed='include' cannot be used with prompts that process outputs")
 
@@ -659,7 +660,7 @@ class Prompt(t.Generic[P, R]):
 
     def bind_for_run_over(
         self, pipeline: ChatPipeline | None = None
-    ) -> t.Callable[t.Concatenate[t.Sequence[Generator | str], P], t.Coroutine[None, None, list[R]]]:
+    ) -> t.Callable[Concatenate[t.Sequence[Generator | str], P], t.Coroutine[None, None, list[R]]]:
         include_original = pipeline is not None
         pipeline = pipeline or get_generator("base!base").chat().catch(on_failed="skip")  # TODO: Clean this up
 
