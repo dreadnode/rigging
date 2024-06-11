@@ -14,14 +14,14 @@ from jinja2 import Environment, StrictUndefined, meta
 from pydantic import ValidationError
 from typing_extensions import Concatenate, ParamSpec  # noqa: UP035
 
-from rigging.chat import Chat
+from rigging.chat import Chat, ChatPipeline
 from rigging.generator.base import GenerateParams, Generator, get_generator
 from rigging.message import Message
 from rigging.model import Model, SystemErrorModel, ValidationErrorModel, make_primitive
 from rigging.util import escape_xml, to_snake, to_xml_tag
 
 if t.TYPE_CHECKING:
-    from rigging.chat import ChatPipeline, WatchChatCallback
+    from rigging.chat import WatchChatCallback
 
 DEFAULT_DOC = "Convert the following inputs to outputs ({func_name})."
 """Default docstring if none is provided to a prompt function."""
@@ -488,6 +488,17 @@ class Prompt(t.Generic[P, R]):
 
         return None
 
+    def _resolve_to_pipeline(self, other: ChatPipeline | Generator | Chat | str) -> ChatPipeline:
+        if isinstance(other, ChatPipeline):
+            return other
+        if isinstance(other, Generator):
+            return other.chat()
+        if isinstance(other, Chat):
+            return other.restart(include_all=True)
+        if isinstance(other, str):
+            return get_generator(other).chat()
+        raise ValueError(f"Invalid type for binding: {type(other)}")
+
     def _until_parsed(self, message: Message) -> tuple[bool, list[Message]]:
         should_continue: bool = False
         generated: list[Message] = [message]
@@ -594,6 +605,16 @@ class Prompt(t.Generic[P, R]):
 
         summarize.watch(log)(...)
         ```
+        or
+        ```
+        async def log(chats: list[Chat]) -> None:
+            ...
+
+        async def _summarize(text: str) -> str:
+            ...
+
+        summarize = rg.prompt(_summarize).watch(log)
+        ```
 
         Returns:
             Self
@@ -630,9 +651,57 @@ class Prompt(t.Generic[P, R]):
         """
         return self.output.from_chat(chat)  # type: ignore
 
-    def bind_for_run_many(
-        self, pipeline: ChatPipeline
+    def bind(self, other: ChatPipeline | Generator | Chat | str) -> t.Callable[P, t.Coroutine[t.Any, t.Any, R]]:
+        """
+        Binds the prompt to a pipeline, generator, or chat and returns a scoped run callable.
+
+        ```
+        @rg.prompt
+        def say_hello(name: str) -> str:
+            \"""Say hello to {{ name }}\"""
+
+        await say_hello.bind("gpt-3.5-turbo")("the world")
+        ```
+
+        Args:
+            other: The pipeline, generator, generator id, or chat to bind to.
+
+        Returns:
+            A callable for executing this prompt
+        """
+        pipeline = self._resolve_to_pipeline(other)
+        if pipeline.on_failed == "skip":
+            raise NotImplementedError(
+                "pipeline.on_failed='skip' cannot be used for prompt methods that return one object"
+            )
+
+        async def run(*args: P.args, **kwargs: P.kwargs) -> R:
+            results = await self.bind_many(pipeline)(1, *args, **kwargs)
+            return results[0]
+
+        return run
+
+    def bind_many(
+        self, other: ChatPipeline | Generator | Chat | str
     ) -> t.Callable[Concatenate[int, P], t.Coroutine[t.Any, t.Any, list[R]]]:
+        """
+        Binds the prompt to a pipeline, generator, or chat and returns a scoped run_many callable.
+
+        ```
+        @rg.prompt
+        def say_hello(name: str) -> str:
+            \"""Say hello to {{ name }}\"""
+
+        await say_hello.bind("gpt-3.5-turbo")(5, "the world")
+        ```
+
+        Args:
+            other: The pipeline, generator, generator id, or chat to bind to.
+
+        Returns:
+            A callable for executing this prompt.
+        """
+        pipeline = self._resolve_to_pipeline(other)
         if pipeline.on_failed == "include" and not isinstance(self.output, ChatOutput):
             raise NotImplementedError("pipeline.on_failed='include' cannot be used with prompts that process outputs")
 
@@ -657,11 +726,32 @@ class Prompt(t.Generic[P, R]):
 
         return run_many
 
-    def bind_for_run_over(
-        self, pipeline: ChatPipeline | None = None
+    def bind_over(
+        self, other: ChatPipeline | Generator | Chat | str | None = None
     ) -> t.Callable[Concatenate[t.Sequence[Generator | str], P], t.Coroutine[t.Any, t.Any, list[R]]]:
-        include_original = pipeline is not None
-        pipeline = pipeline or get_generator("base!base").chat().catch(on_failed="skip")  # TODO: Clean this up
+        """
+        Binds the prompt to a pipeline, generator, or chat and returns a scoped run_over callable.
+
+        ```
+        @rg.prompt
+        def say_hello(name: str) -> str:
+            \"""Say hello to {{ name }}\"""
+
+        await say_hello.bind("gpt-3.5-turbo")(["gpt-4o", "gpt-4"], "the world")
+        ```
+
+        Args:
+            other: The pipeline, generator, generator id, or chat to bind to.
+
+        Returns:
+            A callable for executing this prompt.
+        """
+        include_original = other is not None
+
+        if other is None:
+            pipeline = get_generator("base!base").chat().catch(on_failed="skip")  # TODO: Clean this up
+        else:
+            pipeline = self._resolve_to_pipeline(other)
 
         if pipeline.on_failed == "include" and not isinstance(self.output, ChatOutput):
             raise NotImplementedError("pipeline.on_failed='include' cannot be used with prompts that process outputs")
@@ -703,7 +793,7 @@ class Prompt(t.Generic[P, R]):
             raise RuntimeError(
                 "Prompt cannot be executed as a standalone function without being assigned a pipeline or generator"
             )
-        return await self.bind_for_run_many(self.pipeline)(count, *args, **kwargs)
+        return await self.bind_many(self.pipeline)(count, *args, **kwargs)
 
     async def run(self, *args: P.args, **kwargs: P.kwargs) -> R:
         """
@@ -716,7 +806,11 @@ class Prompt(t.Generic[P, R]):
         Returns:
             The output of the prompt function.
         """
-        return (await self.run_many(1, *args, **kwargs))[0]
+        if self.pipeline is None:
+            raise RuntimeError(
+                "Prompt cannot be executed as a standalone function without being assigned a pipeline or generator"
+            )
+        return await self.bind(self.pipeline)(*args, **kwargs)
 
     __call__ = run
 
@@ -739,7 +833,7 @@ class Prompt(t.Generic[P, R]):
         Returns:
             A list of generatated Chats.
         """
-        return await self.bind_for_run_over(self.pipeline)(generators, *args, **kwargs)
+        return await self.bind_over(self.pipeline)(generators, *args, **kwargs)
 
 
 # Decorator

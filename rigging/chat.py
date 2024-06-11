@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import typing as t
+import warnings
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
@@ -1281,15 +1282,44 @@ class ChatPipeline:
         return prompt(func, pipeline=self)
 
     async def run_prompt(self, prompt: Prompt[P, R], /, *args: P.args, **kwargs: P.kwargs) -> R:
-        """Calls [rigging.prompt.Prompt.run][] with this pipeline."""
-        return (await self.run_prompt_many(prompt, 1, *args, **kwargs))[0]
+        """
+        Calls [rigging.prompt.Prompt.run][] with this pipeline.
+
+        Warning:
+            This method is deprecated and will be removed in a future release.
+            Use [Prompt.bind(pipeline)][rigging.prompt.Prompt.bind] instead.
+        """
+        warnings.warn("run_prompt is deprecated, use Prompt.bind(pipeline) instead", DeprecationWarning, stacklevel=2)
+        return await prompt.bind(self)(*args, **kwargs)
 
     async def run_prompt_many(self, prompt: Prompt[P, R], count: int, /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
-        """Calls [rigging.prompt.Prompt.run_many][] with this pipeline."""
-        return await prompt.bind_for_run_many(self)(count, *args, **kwargs)
+        """
+        Calls [rigging.prompt.Prompt.run_many][] with this pipeline.
+
+        Warning:
+            This method is deprecated and will be removed in a future release.
+            Use [Prompt.bind_many(pipeline)][rigging.prompt.Prompt.bind_many] instead.
+        """
+        warnings.warn(
+            "run_prompt_many is deprecated, use Prompt.bind_many(pipeline) instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return await prompt.bind_many(self)(count, *args, **kwargs)
 
     async def run_prompt_over(
         self, prompt: Prompt[P, R], generators: t.Sequence[Generator | str], /, *args: P.args, **kwargs: P.kwargs
     ) -> list[R]:
-        """Calls [rigging.prompt.Prompt.run_over][] with this pipeline."""
-        return await prompt.bind_for_run_over(self)(generators, *args, **kwargs)
+        """
+        Calls [rigging.prompt.Prompt.run_over][] with this pipeline.
+
+        Warning:
+            This method is deprecated and will be removed in a future release.
+            Use [Prompt.bind_over(pipeline)][rigging.prompt.Prompt.bind_over] instead.
+        """
+        warnings.warn(
+            "run_prompt_over is deprecated, use Prompt.bind_over(pipeline) instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return await prompt.bind_over(self)(generators, *args, **kwargs)
