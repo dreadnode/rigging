@@ -147,7 +147,7 @@ class VLLMGenerator(Generator):
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[GeneratedMessage]:
-        message_dicts = [[m.model_dump(include={"role", "content"}) for m in _messages] for _messages in messages]
+        message_dicts = [[m.to_openai_spec() for m in _messages] for _messages in messages]
         texts = self.llm.get_tokenizer().apply_chat_template(message_dicts, add_generation_prompt=True, tokenize=False)
         generated_texts = self._generate(texts, params=params)
         generated = [g.to_generated_message() for g in generated_texts]

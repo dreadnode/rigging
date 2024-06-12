@@ -16,9 +16,10 @@ from pydantic import (
     Field,
     FieldSerializationInfo,
     SerializeAsAny,
-    computed_field,
+    SerializerFunctionWrapHandler,
     field_serializer,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -41,7 +42,7 @@ class MessageDict(t.TypedDict):
 
     role: Role
     """The role of the message."""
-    content: str
+    content: str | list[t.Any]  # TODO: Improve typing here
     """The content of the message."""
 
 
@@ -73,9 +74,35 @@ class ParsedMessagePart(BaseModel):
         return slice(value[0], value[1])
 
 
+class ContentText(BaseModel):
+    type: t.Literal["text"] = "text"
+    text: str
+
+
+class ContentImageUrl(BaseModel):
+    class ImageUrl(BaseModel):
+        url: str
+        detail: t.Literal["auto", "low", "high"] = "auto"
+
+    type: t.Literal["image_url"] = "image_url"
+    image_url: ImageUrl
+
+
+Content = t.Union[ContentText, ContentImageUrl]
+
+
 class Message(BaseModel):
     """
     Represents a message with role, content, and parsed message parts.
+
+    Note:
+        Historically, `content` was a string, but multi-modal LLMs
+        require us to have a more structured content representation.
+
+        For interface stability, `content` will remain a property
+        accessor for the text of a message, but the "real" content
+        is available in `all_content`. During serialization, we rename
+        `all_content` to `content` for compatibility.
     """
 
     uuid: UUID = Field(default_factory=uuid4, repr=False)
@@ -84,12 +111,18 @@ class Message(BaseModel):
     """The role of the message."""
     parts: list[ParsedMessagePart] = Field(default_factory=list)
     """The parsed message parts."""
+    all_content: str | list[Content] = Field("", repr=False)
+    """Interior str content or structured content parts."""
 
-    _content: str = ""
-
-    def __init__(self, role: Role, content: str, parts: t.Sequence[ParsedMessagePart] | None = None, **kwargs: t.Any):
-        super().__init__(role=role, parts=parts or [], **kwargs)
-        self._content = dedent(content)
+    def __init__(
+        self,
+        role: Role,
+        content: str | list[Content],
+        parts: t.Sequence[ParsedMessagePart] | None = None,
+        **kwargs: t.Any,
+    ):
+        content = dedent(content) if isinstance(content, str) else content
+        super().__init__(role=role, all_content=content, parts=parts or [], **kwargs)
 
     def __str__(self) -> str:
         return f"[{self.role}]: {self.content}"
@@ -97,23 +130,53 @@ class Message(BaseModel):
     def __len__(self) -> int:
         return len(self.content)
 
-    @computed_field  # type: ignore[misc]
+    def __repr_args__(self) -> t.Iterable[tuple[str | None, t.Any]]:
+        # We want our content property to be in repr, but we can't
+        # mark as a computed_field and also exclude it from dumps.
+        yield from super().__repr_args__()
+        yield "content", self.content
+
+    @model_serializer(mode="wrap")
+    def rename_content(self, handler: SerializerFunctionWrapHandler) -> t.Any:
+        serialized = handler(self)
+        if "all_content" in serialized:
+            serialized["content"] = serialized.pop("all_content")
+        return serialized
+
     @property
     def content(self) -> str:
-        """The content of the message."""
-        # We used to sync the models and content each time it was accessed,
-        # hence the getter. Now we just return the stored content.
-        return self._content
+        """
+        The content of the message.
+
+        If the interior of the message content is stored as a list of Content objects,
+        this property will return the concatenated text of any ContentText parts.
+        """
+        if isinstance(self.all_content, str):
+            return self.all_content
+        return "\n".join([content.text for content in self.all_content if isinstance(content, ContentText)])
 
     @content.setter
     def content(self, value: str) -> None:
+        """
+        Updates the content of the message.
+
+        Warning:
+            This will remove all parsed parts from the message.
+        """
         # TODO: Maintain any parsed parts which are
         # still in the content - our move to slices for
         # tracking parsed parts makes this more complicated
         # so fow now I've opted to strip all parts
         # when content is changed.
         self.parts = []
-        self._content = dedent(value)
+
+        if isinstance(self.all_content, list):
+            text_parts = [c for c in self.all_content if isinstance(c, ContentText)]
+            if len(text_parts) == 1:
+                text_parts[0].text = value
+                return
+
+        self.all_content = dedent(value)
 
     @model_validator(mode="after")
     def validate_parts(self) -> Message:
@@ -129,6 +192,33 @@ class Message(BaseModel):
                 self._remove_part(part)
         return self
 
+    def to_openai_spec(self, *, only_str: bool = False) -> dict[str, t.Any]:
+        """
+        Converts the message to the OpenAI-compatible JSON format. This should
+        be the primary way to serialize a message for use with APIs.
+
+        Args:
+            only_str: Whether to force content as a str as opposed to allowing
+            structured content parts like images - useful for generators which
+            do not support multi-modal data.
+
+        Returns:
+            The serialized message.
+        """
+        # `all_content` will be moved to `content`
+        return self.model_dump(include={"role", "all_content"})
+
+    def force_str_content(self) -> Message:
+        """
+        Forces the content of the message to be a string by stripping
+        any structured content parts like images.
+
+        Returns:
+            The modified message.
+        """
+        self.all_content = self.content
+        return self
+
     # TODO: In general the add/remove/sync_part methods are
     # overly complicated. We should probably just update content,
     # then reparse all the models to get their fresh slices.
@@ -136,8 +226,11 @@ class Message(BaseModel):
     # I don't like all this manual slice recalculation logic, seems brittle.
 
     def _remove_part(self, part: ParsedMessagePart) -> str:
+        if not isinstance(self.all_content, str):
+            raise NotImplementedError("Managing parsed parts from multi-content messages is not supported")
+
         removed_length = part.slice_.stop - part.slice_.start
-        self._content = self._content[: part.slice_.start] + self._content[part.slice_.stop :]
+        self.all_content = self.all_content[: part.slice_.start] + self.all_content[part.slice_.stop :]
         self.parts.remove(part)
 
         # Update slices of any parts that come after the removed part
@@ -147,7 +240,7 @@ class Message(BaseModel):
                     other_part.slice_.start - removed_length, other_part.slice_.stop - removed_length
                 )
 
-        return self._content
+        return self.all_content
 
     def _add_part(self, part: ParsedMessagePart) -> None:
         for existing in self.parts:
@@ -163,11 +256,14 @@ class Message(BaseModel):
     # of the following parts accordingly. In other words, as A expands, B which
     # follows will have a new start slice and end slice.
     def _sync_parts(self) -> None:
+        if not isinstance(self.all_content, str):
+            raise NotImplementedError("Managing parsed parts from multi-content messages is not supported")
+
         self.parts = sorted(self.parts, key=lambda p: p.slice_.start)
 
         shift = 0
         for part in self.parts:
-            existing = self._content[part.slice_]
+            existing = self.all_content[part.slice_]
 
             # Adjust for any previous shifts
             part.slice_ = slice(part.slice_.start + shift, part.slice_.stop + shift)
@@ -181,7 +277,9 @@ class Message(BaseModel):
             old_length = part.slice_.stop - part.slice_.start
             new_length = len(xml_content)
 
-            self._content = self._content[: part.slice_.start] + xml_content + self._content[part.slice_.stop :]
+            self.all_content = (
+                self.all_content[: part.slice_.start] + xml_content + self.all_content[part.slice_.stop :]
+            )
             part.slice_ = slice(part.slice_.start, part.slice_.start + new_length)
 
             shift += new_length - old_length

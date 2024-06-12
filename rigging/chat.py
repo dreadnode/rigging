@@ -154,7 +154,7 @@ class Chat(BaseModel):
         Returns:
             The MessageDict list
         """
-        return [t.cast(MessageDict, m.model_dump(include={"role", "content"})) for m in self.all]
+        return [t.cast(MessageDict, m.model_dump(include={"role", "all_content"})) for m in self.all]
 
     def meta(self, **kwargs: t.Any) -> Chat:
         """

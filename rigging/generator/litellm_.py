@@ -95,7 +95,7 @@ class LiteLLMGenerator(Generator):
         return self._parse_model_response(
             await litellm.acompletion(
                 self.model,
-                [message.model_dump(include={"role", "content"}) for message in messages],
+                [message.to_openai_spec() for message in messages],
                 api_key=self.api_key,
                 **self.params.merge_with(params).to_dict(),
             )
