@@ -11,7 +11,7 @@ from rigging.generator import (
     get_generator,
     register_generator,
 )
-from rigging.message import Message, MessageDict, Messages
+from rigging.message import ContentImageUrl, ContentText, Message, MessageDict, Messages
 from rigging.model import Model, attr, element, wrapped
 from rigging.prompt import Ctx, Prompt, prompt
 from rigging.tool import Tool
@@ -24,6 +24,8 @@ __all__ = [
     "Message",
     "MessageDict",
     "Messages",
+    "ContentText",
+    "ContentImageUrl",
     "Tool",
     "Model",
     "attr",

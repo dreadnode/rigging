@@ -4,9 +4,12 @@ This module covers core message objects and handling.
 
 from __future__ import annotations
 
+import base64
 import copy
+import mimetypes
 import string
 import typing as t
+from pathlib import Path
 from textwrap import dedent
 from uuid import UUID, uuid4
 
@@ -86,6 +89,23 @@ class ContentImageUrl(BaseModel):
 
     type: t.Literal["image_url"] = "image_url"
     image_url: ImageUrl
+
+    @classmethod
+    def from_file(cls, file: Path | str, *, mimetype: str | None = None) -> ContentImageUrl:
+        file = Path(file)
+        if not file.exists():
+            raise FileNotFoundError(f"File '{file}' does not exist")
+
+        if mimetype is None:
+            mimetype = mimetypes.guess_type(file)[0]
+
+        if mimetype is None:
+            raise ValueError(f"Could not determine mimetype for file '{file}'")
+
+        encoded = base64.b64encode(file.read_bytes()).decode()
+        url = f"data:{mimetype};base64,{encoded}"
+
+        return cls(image_url=cls.ImageUrl(url=url))
 
 
 Content = t.Union[ContentText, ContentImageUrl]
