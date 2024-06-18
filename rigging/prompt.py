@@ -73,7 +73,7 @@ def get_undeclared_variables(template: str) -> set[str]:
 
 
 def make_parameter(
-    annotation: t.Any, *, name: str = "nested", kind: inspect._ParameterKind = inspect.Parameter.VAR_KEYWORD
+    annotation: t.Any, *, name: str = "nested", kind: inspect._ParameterKind = inspect.Parameter.POSITIONAL_OR_KEYWORD
 ) -> inspect.Parameter:
     return inspect.Parameter(name=name, kind=kind, annotation=annotation)
 
@@ -110,7 +110,6 @@ class BasicInput(Input):
     def to_str(self, value: t.Any) -> str:
         if not isinstance(value, (int, float, str, bool)):
             raise ValueError(f"Value must be a basic type, got: {type(value)}")
-
         return str(value)
 
 
@@ -119,7 +118,6 @@ class ModelInput(Input):
     def to_str(self, value: t.Any) -> str:
         if not isinstance(value, Model):
             raise ValueError(f"Value must be a Model instance, got: {type(value)}")
-
         return value.to_pretty_xml()
 
     def to_xml(self, value: t.Any) -> str:
@@ -143,7 +141,6 @@ class DictInput(Input):
             raise ValueError(f"Value must be a dictionary, got: {type(value)}")
         if not all(isinstance(k, str) for k in value.keys()):
             raise ValueError("Dictionary keys must be strings")
-
         return "\n".join(f"<{k}>{self.interior.to_str(v)}</{k}>" for k, v in value.items())
 
 
@@ -152,7 +149,7 @@ def parse_parameter(param: inspect.Parameter, error_name: str) -> Input:
         inspect.Parameter.POSITIONAL_OR_KEYWORD,
         inspect.Parameter.KEYWORD_ONLY,
     ):
-        raise TypeError(f"Parameters must be positional or keyword {error_name}")
+        raise TypeError(f"Parameters must be keyword compatible {error_name}")
 
     if param.annotation in [None, inspect.Parameter.empty]:
         raise TypeError(f"All parameters require type annotations {error_name}")
@@ -161,9 +158,6 @@ def parse_parameter(param: inspect.Parameter, error_name: str) -> Input:
 
     if annotation in [int, float, str, bool]:
         return BasicInput(param.name, context or Ctx())
-
-    if inspect.isclass(annotation) and issubclass(annotation, Model):
-        return ModelInput(param.name, context or Ctx())
 
     if t.get_origin(annotation) is list:
         if not param.name:
@@ -189,6 +183,9 @@ def parse_parameter(param: inspect.Parameter, error_name: str) -> Input:
             raise TypeError(f"Dict param keys must be strings: {error_name}")
 
         return DictInput(param.name, context or Ctx(), parse_parameter(make_parameter(args[1]), error_name))
+
+    if inspect.isclass(annotation) and issubclass(annotation, Model):
+        return ModelInput(param.name, context or Ctx())
 
     raise TypeError(f"Unsupported parameter type: {error_name}")
 
