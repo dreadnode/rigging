@@ -137,11 +137,15 @@ class Message(BaseModel):
     def __init__(
         self,
         role: Role,
-        content: str | list[Content],
+        content: str | list[str | Content],
         parts: t.Sequence[ParsedMessagePart] | None = None,
         **kwargs: t.Any,
     ):
-        content = dedent(content) if isinstance(content, str) else content
+        if isinstance(content, str):
+            content = dedent(content)
+        else:
+            content = [ContentText(text=dedent(part)) if isinstance(part, str) else part for part in content]
+
         super().__init__(role=role, all_content=content, parts=parts or [], **kwargs)
 
     def __str__(self) -> str:

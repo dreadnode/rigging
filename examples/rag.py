@@ -13,7 +13,7 @@ from functools import wraps
 from pathlib import Path
 
 import click
-import litellm  # type: ignore
+import litellm
 from elasticsearch import Elasticsearch
 from elasticsearch import helpers as es_helpers
 from loguru import logger
