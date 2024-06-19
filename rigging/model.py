@@ -10,6 +10,7 @@ from xml.etree import ElementTree as ET
 
 import xmltodict  # type: ignore
 from pydantic import (
+    BeforeValidator,
     SerializationInfo,
     ValidationError,
     create_model,
@@ -150,6 +151,7 @@ class Model(BaseXmlModel):
 
     # This can be overridden to provide a more complex example
     # to a model when it's required.
+
     @classmethod
     def xml_example(cls) -> str:
         """
@@ -219,6 +221,7 @@ class Model(BaseXmlModel):
         # Sort matches_with_tag based on the length of the interior text,
         # longest first. This should help us avoid matching the model
         # supplying hollow tags before the actual data.
+
         sorted_matches = sorted(matches, key=lambda m: len(m.group(4)), reverse=True)
 
         extracted: list[tuple[ModelT, slice]] = []
@@ -290,7 +293,7 @@ PrimitiveT = t.TypeVar("PrimitiveT", int, str, float, bool)
 
 
 class Primitive(Model, t.Generic[PrimitiveT]):
-    content: PrimitiveT
+    content: t.Annotated[PrimitiveT, BeforeValidator(lambda x: x.strip() if isinstance(x, str) else x)]
 
 
 def make_primitive(
@@ -300,6 +303,7 @@ def make_primitive(
     tag: str | None = None,
     doc: str | None = None,
     validator: t.Callable[[str], str | None] | None = None,
+    strip_content: bool = True,
 ) -> type[Primitive[PrimitiveT]]:
     """
     Helper to create a simple primitive model with an optional content validator.
@@ -312,6 +316,7 @@ def make_primitive(
         tag: The XML tag for the model.
         doc: The documentation for the model.
         validator: An optional content validator for the model.
+        strip_content: Whether to strip the content string before pydantic validation.
 
     Returns:
         The primitive model class.
@@ -321,6 +326,9 @@ def make_primitive(
         if validator is not None:
             return validator(value) or value
         return value
+
+    if strip_content:
+        type_ = t.Annotated[type_, BeforeValidator(lambda x: x.strip() if isinstance(x, str) else x)]  # type: ignore
 
     return create_model(
         name,
@@ -446,11 +454,12 @@ class YesNoAnswer(Model):
     @field_validator("boolean", mode="before")
     def parse_str_to_bool(cls, v: t.Any) -> t.Any:
         if isinstance(v, str):
-            if v.strip().lower().startswith("yes"):
+            simple = v.strip().lower()
+            if any(simple.startswith(s) for s in ["yes", "true"]):
                 return True
-            elif v.strip().lower().startswith("no"):
+            elif any(simple.startswith(s) for s in ["no", "false"]):
                 return False
-        return v
+        raise ValueError(f"Cannot parse '{v}' as a boolean")
 
     @field_serializer("boolean")
     def serialize_bool_to_str(self, v: bool, _info: SerializationInfo) -> str:
