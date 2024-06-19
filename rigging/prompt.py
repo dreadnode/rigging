@@ -208,7 +208,7 @@ class Output:
         return xml
 
     def guidance(self) -> str:
-        return "Produce the following output:"
+        return "Produce the following output (use xml tags):"
 
     def to_format(self) -> str:
         tag = self.context.tag or self.tag
@@ -237,7 +237,7 @@ class BasicOutput(Output):
 @dataclasses.dataclass
 class BasicListOutput(BasicOutput):
     def guidance(self) -> str:
-        return "Produce the following output for each item:"
+        return "Produce the following output for each item (use xml tags):"
 
     def from_chat(self, chat: Chat) -> t.Any:
         Model = make_primitive("Model", self.type_, tag=self.context.tag or self.tag)
@@ -260,7 +260,7 @@ class ModelOutput(Output):
 @dataclasses.dataclass
 class ModelListOutput(ModelOutput):
     def guidance(self) -> str:
-        return "Produce the following output for each item:"
+        return "Produce the following output for each item (use xml tags):"
 
     def from_chat(self, chat: Chat) -> t.Any:
         return chat.last.parse_set(self.type_)
@@ -286,7 +286,7 @@ class TupleOutput(Output):
     def guidance(self) -> str:
         if self.wrapped:
             return self.real_interiors[0].guidance()
-        return "Produce the following outputs:"
+        return "Produce the following outputs (use xml tags):"
 
     def to_format(self) -> str:
         if self.wrapped:
