@@ -160,7 +160,7 @@ def parse_parameter(param: inspect.Parameter, error_name: str) -> Input:
         return BasicInput(param.name, context or Ctx())
 
     if t.get_origin(annotation) is list:
-        if not param.name:
+        if param.name == "nested":
             raise TypeError(f"Nested list parameters are not supported: {error_name}")
 
         args = t.get_args(annotation)
@@ -173,7 +173,7 @@ def parse_parameter(param: inspect.Parameter, error_name: str) -> Input:
         )
 
     elif t.get_origin(annotation) is dict:
-        if not param.name:
+        if param.name == "nested":
             raise TypeError(f"Nested dict parameters are not supported: {error_name}")
 
         args = t.get_args(annotation)

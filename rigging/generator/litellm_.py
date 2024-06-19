@@ -52,6 +52,14 @@ class LiteLLMGenerator(Generator):
     Set to 0 to remove the limit.
     """
 
+    _semaphore: asyncio.Semaphore | None = None
+
+    @property
+    def semaphore(self) -> asyncio.Semaphore:
+        if self._semaphore is None:
+            self._semaphore = asyncio.Semaphore(self.max_connections)
+        return self._semaphore
+
     # TODO: Some model providers support using `n` as a batch
     # parameter to generate multiple completions at once. Which
     # could help us optimize run_many calls.
@@ -92,47 +100,35 @@ class LiteLLMGenerator(Generator):
         )
 
     async def _generate_message(self, messages: t.Sequence[Message], params: GenerateParams) -> GeneratedMessage:
-        return self._parse_model_response(
-            await litellm.acompletion(
-                self.model,
-                [message.to_openai_spec() for message in messages],
-                api_key=self.api_key,
-                **self.params.merge_with(params).to_dict(),
+        async with self.semaphore:
+            return self._parse_model_response(
+                await litellm.acompletion(
+                    self.model,
+                    [message.to_openai_spec() for message in messages],
+                    api_key=self.api_key,
+                    **self.params.merge_with(params).to_dict(),
+                )
             )
-        )
 
     async def _generate_text(self, text: str, params: GenerateParams) -> GeneratedText:
-        return self._parse_text_completion_response(
-            await litellm.atext_completion(
-                text, self.model, api_key=self.api_key, **self.params.merge_with(params).to_dict()
+        async with self.semaphore:
+            return self._parse_text_completion_response(
+                await litellm.atext_completion(
+                    text, self.model, api_key=self.api_key, **self.params.merge_with(params).to_dict()
+                )
             )
-        )
 
     async def generate_messages(
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[GeneratedMessage]:
-        generated: list[GeneratedMessage] = []
-        max_connections = self.max_connections if self.max_connections > 0 else len(messages)
-        queue: asyncio.Queue[None] = asyncio.Queue(maxsize=max_connections)
+        coros = [self._generate_message(_messages, _params) for _messages, _params in zip(messages, params)]
+        generated = await asyncio.gather(*coros)
 
-        async def worker(i: int, _messages: t.Sequence[Message], _params: GenerateParams) -> None:
-            _generated = await self._generate_message(_messages, _params)
-            generated.append(_generated)
+        for i, (_messages, response) in enumerate(zip(messages, generated)):
             trace_messages(_messages, f"Messages {i+1}/{len(messages)}")
-            trace_messages([_generated], f"Response {i+1}/{len(messages)}")
-            queue.get_nowait()
-            queue.task_done()
-
-        tasks: list[asyncio.Task[None]] = []
-        for i, (_messages, _params) in enumerate(zip(messages, params)):
-            await queue.put(None)
-            task = asyncio.create_task(worker(i, _messages, _params))
-            tasks.append(task)
-
-        await queue.join()
-        await asyncio.gather(*tasks)
+            trace_messages([response], f"Response {i+1}/{len(messages)}")
 
         return generated
 
