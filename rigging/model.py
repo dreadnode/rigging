@@ -164,6 +164,9 @@ class Model(BaseXmlModel):
         Returns:
             A string containing the XML representation of the class.
         """
+        if cls.is_simple():
+            return cls.xml_tags()
+
         schema = cls.model_json_schema()
         properties = schema["properties"]
         structure = {cls.__xml_tag__: {field: None for field in properties}}
