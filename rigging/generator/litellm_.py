@@ -101,6 +101,8 @@ class LiteLLMGenerator(Generator):
 
     async def _generate_message(self, messages: t.Sequence[Message], params: GenerateParams) -> GeneratedMessage:
         async with self.semaphore:
+            if params.max_tokens is None:
+                params.max_tokens = get_max_tokens_for_model(self.model)
             return self._parse_model_response(
                 await litellm.acompletion(
                     self.model,
@@ -112,6 +114,8 @@ class LiteLLMGenerator(Generator):
 
     async def _generate_text(self, text: str, params: GenerateParams) -> GeneratedText:
         async with self.semaphore:
+            if params.max_tokens is None:
+                params.max_tokens = get_max_tokens_for_model(self.model)
             return self._parse_text_completion_response(
                 await litellm.atext_completion(
                     text, self.model, api_key=self.api_key, **self.params.merge_with(params).to_dict()
@@ -152,3 +156,21 @@ class LiteLLMGenerator(Generator):
                 trace_str(response, f"Generated {i+1}/{len(texts)}")
 
         return generated
+
+
+def get_max_tokens_for_model(model: str) -> int | None:
+    """
+    Try to get the maximum number of tokens for a model from litellm mappings.
+
+    Args:
+        model: The model name.
+
+    Returns:
+        The maximum number of tokens.
+    """
+    while model not in litellm.model_cost:
+        if "/" not in model:
+            return None
+        model = "/".join(model.split("/")[1:])
+
+    return litellm.model_cost[model].get("max_tokens")  # type: ignore
