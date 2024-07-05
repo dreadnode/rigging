@@ -984,10 +984,19 @@ class ChatPipeline:
 
         for map_callback in self.map_callbacks:
             chats = await map_callback(chats)
+            if not all(isinstance(c, Chat) for c in chats):
+                raise ValueError(
+                    f".map() callback must return a Chat object or None ({map_callback.__call__.__name__})"
+                )
 
         for then_callback in self.then_callbacks:
             coros = [then_callback(chat) for chat in chats]
             new_chats = await asyncio.gather(*coros)
+            if not all(isinstance(c, Chat | None) for c in new_chats):
+                raise ValueError(
+                    f".then() callback must return a Chat object or None ({then_callback.__call__.__name__})"
+                )
+
             chats = [new or chat for new, chat in zip(new_chats, chats)]
 
         return ChatList(chats)

@@ -51,7 +51,7 @@ def test_basic_prompt_render() -> None:
 
     <name>Alice</name>
 
-    Produce the following output:
+    Produce the following output (use xml tags):
 
     <str></str>
     """
@@ -69,7 +69,7 @@ def test_prompt_render_with_docstring_variables() -> None:
         """\
     Say 'Hello' to Bob.
 
-    Produce the following output:
+    Produce the following output (use xml tags):
 
     <str></str>
     """
@@ -95,7 +95,7 @@ def test_prompt_render_with_model_output() -> None:
 
     <age>30</age>
 
-    Produce the following output:
+    Produce the following output (use xml tags):
 
     <person>
       <name/>
@@ -118,7 +118,7 @@ def test_prompt_render_with_list_output() -> None:
 
     <count>5</count>
 
-    Produce the following output for each item:
+    Produce the following output for each item (use xml tags):
 
     <int></int>
     """
@@ -138,7 +138,7 @@ def test_prompt_render_with_tuple_output() -> None:
 
     <username>johndoe</username>
 
-    Produce the following outputs:
+    Produce the following outputs (use xml tags):
 
     <str></str>
 
@@ -160,7 +160,7 @@ def test_prompt_render_with_tuple_output_ctx() -> None:
 
     <username>johndoe</username>
 
-    Produce the following outputs:
+    Produce the following outputs (use xml tags):
 
     <id></id>
 
@@ -190,7 +190,7 @@ def test_prompt_render_with_dataclass_output() -> None:
 
     <age>25</age>
 
-    Produce the following outputs:
+    Produce the following outputs (use xml tags):
 
     <username></username>
 
@@ -238,7 +238,7 @@ def test_prompt_render_ctx_in_dataclass() -> None:
 
     <age>30</age>
 
-    Produce the following outputs:
+    Produce the following outputs (use xml tags):
 
     <username></username>
 

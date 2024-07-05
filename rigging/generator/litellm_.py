@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import typing as t
 
 import litellm
+from loguru import logger
 
 from rigging.generator.base import (
     GeneratedMessage,
@@ -52,13 +54,34 @@ class LiteLLMGenerator(Generator):
     Set to 0 to remove the limit.
     """
 
+    min_delay_between_requests: float = 0.0
+    """
+    Minimum milliseconds of time between each request.
+    This is useful to set when you run into API limits at a provider.
+    """
+
     _semaphore: asyncio.Semaphore | None = None
+    _last_request_time: datetime.datetime | None = None
 
     @property
     def semaphore(self) -> asyncio.Semaphore:
         if self._semaphore is None:
-            self._semaphore = asyncio.Semaphore(self.max_connections)
+            # TODO: This is hacky
+            max_connections = self.max_connections if self.max_connections > 0 else 10_000
+            self._semaphore = asyncio.Semaphore(max_connections)
         return self._semaphore
+
+    async def _ensure_delay_between_requests(self) -> None:
+        if self._last_request_time is None:
+            return
+
+        delta = datetime.datetime.now() - self._last_request_time
+        delta_ms = delta.total_seconds() * 1000
+
+        if delta_ms < self.min_delay_between_requests:
+            wait_seconds = (self.min_delay_between_requests - delta_ms) / 1000
+            logger.trace(f"Waiting {wait_seconds} seconds")
+            await asyncio.sleep(wait_seconds)
 
     # TODO: Some model providers support using `n` as a batch
     # parameter to generate multiple completions at once. Which
@@ -101,26 +124,28 @@ class LiteLLMGenerator(Generator):
 
     async def _generate_message(self, messages: t.Sequence[Message], params: GenerateParams) -> GeneratedMessage:
         async with self.semaphore:
-            if params.max_tokens is None:
-                params.max_tokens = get_max_tokens_for_model(self.model)
-            return self._parse_model_response(
-                await litellm.acompletion(
-                    self.model,
-                    [message.to_openai_spec() for message in messages],
-                    api_key=self.api_key,
-                    **self.params.merge_with(params).to_dict(),
-                )
+            # if params.max_tokens is None:
+            #     params.max_tokens = get_max_tokens_for_model(self.model)
+            await self._ensure_delay_between_requests()
+            response = await litellm.acompletion(
+                self.model,
+                [message.to_openai_spec() for message in messages],
+                api_key=self.api_key,
+                **self.params.merge_with(params).to_dict(),
             )
+            self._last_request_time = datetime.datetime.now()
+            return self._parse_model_response(response)
 
     async def _generate_text(self, text: str, params: GenerateParams) -> GeneratedText:
         async with self.semaphore:
-            if params.max_tokens is None:
-                params.max_tokens = get_max_tokens_for_model(self.model)
-            return self._parse_text_completion_response(
-                await litellm.atext_completion(
-                    text, self.model, api_key=self.api_key, **self.params.merge_with(params).to_dict()
-                )
+            # if params.max_tokens is None:
+            #     params.max_tokens = get_max_tokens_for_model(self.model)
+            await self._ensure_delay_between_requests()
+            response = await litellm.atext_completion(
+                prompt=text, model=self.model, api_key=self.api_key, **self.params.merge_with(params).to_dict()
             )
+            self._last_request_time = datetime.datetime.now()
+            return self._parse_text_completion_response(response)
 
     async def generate_messages(
         self,
