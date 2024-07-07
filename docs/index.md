@@ -1,4 +1,4 @@
-Rigging is a lightweight LLM framework built on Pydantic XML. The goal is to make leveraging language models in production code as simple and effictive as possible. Here are the highlights:
+Rigging is a lightweight LLM framework built on Pydantic XML. The goal is to make leveraging language models in production code as simple and effective as possible. Here are the highlights:
 
 - **Structured Pydantic models** can be used interchangably with unstructured text output.
 - LiteLLM as the default generator giving you **instant access to a huge array of models**.
