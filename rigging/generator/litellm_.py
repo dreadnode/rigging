@@ -39,10 +39,11 @@ class LiteLLMGenerator(Generator):
 
     Tip:
         Consider setting [`max_connections`][rigging.generator.litellm_.LiteLLMGenerator.max_connections]
-        to a lower value if you run into API limits. You can pass this directly in the generator id:
+        or [`min_delay_between_requests`][rigging.generator.litellm_.LiteLLMGenerator.min_delay_between_requests
+        if you run into API limits. You can pass this directly in the generator id:
 
         ```py
-        get_generator("litellm!openai/gpt-4o,max_connections=5")
+        get_generator("litellm!openai/gpt-4o,max_connections=2,min_delay_between_requests=1000")
         ```
     """
 
@@ -56,7 +57,7 @@ class LiteLLMGenerator(Generator):
 
     min_delay_between_requests: float = 0.0
     """
-    Minimum milliseconds of time between each request.
+    Minimum time (ms) between each request.
     This is useful to set when you run into API limits at a provider.
     """
 
@@ -128,8 +129,8 @@ class LiteLLMGenerator(Generator):
             #     params.max_tokens = get_max_tokens_for_model(self.model)
             await self._ensure_delay_between_requests()
             response = await litellm.acompletion(
-                self.model,
-                [message.to_openai_spec() for message in messages],
+                model=self.model,
+                messages=[message.to_openai_spec() for message in messages],
                 api_key=self.api_key,
                 **self.params.merge_with(params).to_dict(),
             )
