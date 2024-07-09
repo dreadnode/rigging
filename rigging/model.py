@@ -97,7 +97,7 @@ class Model(BaseXmlModel):
         """
         tree = self.to_xml_tree()
         ET.indent(tree, "  ")
-        pretty_encoded_xml = ET.tostring(tree, short_empty_elements=False).decode()
+        pretty_encoded_xml = ET.tostring(tree, short_empty_elements=False, encoding="utf-8").decode()
 
         if self.__class__.is_simple():
             # We only expect to use this in our "simple"
