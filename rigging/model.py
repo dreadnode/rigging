@@ -104,7 +104,7 @@ class Model(BaseXmlModel):
             # models, but I'd like a better long-term solution
             return unescape_xml(pretty_encoded_xml)
         else:
-            return pretty_encoded_xml
+            return pretty_encoded_xml  # type: ignore [no-any-return]
 
     # XML parsing gets weird when the interior text contains tags like <br>.
     # Essentially it assumes all the text is valid XML first, then parses.
