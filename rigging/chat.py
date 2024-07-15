@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, computed_fie
 
 from rigging.error import MessagesExhaustedMaxRoundsError
 from rigging.generator import GenerateParams, Generator, get_generator
-from rigging.generator.base import StopReason, Usage  # noqa: TCH001
+from rigging.generator.base import GeneratedMessage, StopReason, Usage  # noqa: TCH001
 from rigging.message import Message, MessageDict, Messages
 from rigging.model import Model, ModelT, SystemErrorModel, ValidationErrorModel
 from rigging.tool import Tool, ToolCalls, ToolDescriptionList, ToolResult, ToolResults, system_tool_extension
@@ -977,7 +977,12 @@ class ChatPipeline:
         coros = [callback(chats) for callback in self.watch_callbacks]
         await asyncio.gather(*coros)
 
-    async def _post_run(self, chats: list[Chat]) -> ChatList:
+    # Run helper methods
+
+    async def _post_run(self, chats: list[Chat], on_failed: FailMode) -> ChatList:
+        if on_failed == "skip":
+            chats = [c for c in chats if not c.failed]
+
         # These have to be sequenced to support the concept of
         # a pipeline where future then/map calls can depend on
         # previous calls being ran.
@@ -1024,36 +1029,161 @@ class ChatPipeline:
             params = [self.params.merge_with(p) for p in params]
         return [(p or GenerateParams()) for p in params]
 
-    def _fit_many(
+    # Run methods
+
+    def _initialize_states(
+        self, count: int, params: t.Sequence[t.Optional[GenerateParams]] | None = None
+    ) -> list[RunState]:
+        states = [RunState([], [], p, self._process()) for p in self._fit_params(count, params)]
+        for state in states:
+            next(state.processor)
+        return states
+
+    def _initialize_batch_states(
         self,
-        count: int,
-        many: t.Sequence[t.Sequence[Message]] | t.Sequence[Message] | t.Sequence[MessageDict] | t.Sequence[str],
-    ) -> list[list[Message]]:
+        many: t.Sequence[t.Sequence[Message]]
+        | t.Sequence[Message]
+        | t.Sequence[MessageDict]
+        | t.Sequence[str]
+        | MessageDict
+        | str,
+        params: t.Sequence[t.Optional[GenerateParams]] | None = None,
+    ) -> list[RunState]:
+        if isinstance(many, dict) or isinstance(many, str):  # Some strange typechecking here
+            many = t.cast(t.Union[t.Sequence[str], t.Sequence[MessageDict]], [many])
+
+        count = max(len(many), len(params) if params is not None else 0)
+
         many = [Message.fit_as_list(m) for m in many]
         if len(many) < count:
             if len(many) != 1:
                 raise ValueError(f"Can't fit many of length {len(many)} to {count}")
             many = many * count
-        return many
 
-    # TODO: There is an embarrassing amount of code duplication here
-    # between the async and non-async methods, batch and many, etc.
+        params = self._fit_params(count, params)
+
+        states: list[RunState] = [RunState(self.chat.all + m, [], p, self._process()) for m, p in zip(many, params)]
+        for state in states:
+            next(state.processor)
+
+        return states
+
+    def _create_chat(
+        self,
+        state: RunState,
+        outputs: list[Message],
+        inbound: GeneratedMessage,
+        batch_mode: bool,
+        failed: bool = False,
+        error: Exception | None = None,
+    ) -> Chat:
+        return Chat(
+            state.inputs if batch_mode else self.chat.all,
+            outputs,
+            generator=self.generator,
+            metadata=self.metadata,
+            params=state.params,
+            stop_reason=inbound.stop_reason,
+            usage=inbound.usage,
+            extra=inbound.extra,
+            failed=failed,
+            error=error,
+        )
+
+    def _create_failed_chat(self, state: RunState, error: Exception, batch_mode: bool) -> Chat:
+        return Chat(
+            state.inputs if batch_mode else self.chat.all,
+            [],
+            generator=self.generator,
+            metadata=self.metadata,
+            params=state.params,
+            failed=True,
+            error=error,
+        )
+
+    async def _run(self, states: list[RunState], on_failed: FailMode, batch_mode: bool = False) -> ChatList:
+        pending_states = states
+        while pending_states:
+            try:
+                inbounds = await self.generator.generate_messages(
+                    [(s.inputs if batch_mode else self.chat.all) + s.messages for s in pending_states],
+                    [s.params for s in pending_states],
+                )
+
+            except Exception as error:
+                # Handle core generator errors
+                if on_failed == "raise" or not any(isinstance(error, t) for t in self.errors_to_fail_on):
+                    raise
+
+                # We will apply the error to all chats in the batch as we can't
+                # tell which chat caused the error right now.
+                for state in states:
+                    state.chat = self._create_failed_chat(state, error, batch_mode)
+
+            else:
+                # Process each inbound message and individual errors
+                for inbound, state in zip(inbounds, pending_states):
+                    try:
+                        # Process for parsing callbacks, etc.
+                        state.messages = state.processor.send(inbound.message)
+                    except StopIteration as stop:
+                        # StopIteration implies we are done and the chat is good to go
+                        outputs = t.cast(list[Message], stop.value)
+                        state.chat = self._create_chat(state, outputs, inbound, batch_mode)
+                    except MessagesExhaustedMaxRoundsError as exhausted:
+                        if on_failed == "raise":
+                            raise
+                        # exhausted.messages holds the current messages when the error occured,
+                        # so we'll pass them into the chat as the last generated messages.
+                        state.chat = self._create_chat(
+                            state, exhausted.messages, inbound, batch_mode, failed=True, error=exhausted
+                        )
+                    except Exception as e:
+                        # Check to see if we should be handling any specific errors
+                        # and gracefully marking the chat as failed instead of raising (.catch)
+                        if on_failed == "raise" or not any(isinstance(e, t) for t in self.errors_to_fail_on):
+                            raise
+                        state.chat = self._create_chat(state, [], inbound, batch_mode, failed=True)
+
+            pending_states = [s for s in pending_states if s.chat is None]
+            completed_states = [s for s in states if s.chat is not None and not s.watched]
+
+            if not completed_states:
+                continue
+
+            # We want to deliver chats to the watch callback as soon as possible, so we'll
+            # track whether we've already done so and only deliver new chats.
+
+            await self._watch_callback([s.chat for s in completed_states if s.chat is not None])
+            for state in completed_states:
+                state.watched = True
+
+        return await self._post_run([s.chat for s in states if s.chat is not None], on_failed)
 
     # Single messages
 
-    async def run(self, *, allow_failed: bool = False) -> Chat:
+    async def run(self, *, allow_failed: bool = False, on_failed: FailMode | None = None) -> Chat:
         """
         Execute the generation process to produce the final chat.
 
         Parameters:
             allow_failed: Ignore any errors and potentially
                 return the chat in a failed state.
+            on_failed: The behavior when a message fails to generate.
+                (this is used as an alternative to allow_failed)
 
         Returns:
             The generated Chat.
         """
-        chats = await self.run_many(1, on_failed="include" if allow_failed else "raise")
-        return chats[0]
+        if on_failed is None:
+            on_failed = "include" if allow_failed else self.on_failed
+
+        if on_failed == "skip":
+            raise ValueError(
+                "Cannot use 'skip' mode with single message generation (pass allow_failed=True or on_failed='include'/'raise')"
+            )
+
+        return (await self.run_many(1, on_failed=on_failed))[0]
 
     __call__ = run
 
@@ -1078,64 +1208,8 @@ class ChatPipeline:
             A list of generatated Chats.
         """
         on_failed = on_failed or self.on_failed
-        states: list[RunState] = [RunState([], [], p, self._process()) for p in self._fit_params(count, params)]
-        _ = [next(state.processor) for state in states]
-
-        pending_states = states
-        while pending_states:
-            inbounds = await self.generator.generate_messages(
-                [self.chat.all + s.messages for s in pending_states], [s.params for s in pending_states]
-            )
-
-            for inbound, state in zip(inbounds, pending_states):
-                outputs: list[Message] = []
-                failed: bool = False
-                error: Exception | None = None
-
-                try:
-                    state.messages = state.processor.send(inbound.message)
-                    continue
-                except StopIteration as stop:
-                    outputs = t.cast(list[Message], stop.value)
-                except MessagesExhaustedMaxRoundsError as exhausted:
-                    if on_failed == "raise":
-                        raise
-                    failed = True
-                    outputs = exhausted.messages
-                    error = exhausted
-                except Exception as e:
-                    if on_failed == "raise" or not any(isinstance(e, t) for t in self.errors_to_fail_on):
-                        raise
-                    failed = True
-                    error = e
-
-                state.chat = Chat(
-                    self.chat.all,
-                    outputs,
-                    generator=self.generator,
-                    metadata=self.metadata,
-                    params=state.params,
-                    stop_reason=inbound.stop_reason,
-                    usage=inbound.usage,
-                    extra=inbound.extra,
-                    failed=failed,
-                    error=error,
-                )
-
-            pending_states = [s for s in pending_states if s.chat is None]
-            to_watch_states = [s for s in states if s.chat is not None and not s.watched]
-
-            await self._watch_callback([s.chat for s in to_watch_states if s.chat is not None])
-
-            for state in to_watch_states:
-                state.watched = True
-
-        if on_failed == "skip":
-            chats = [s.chat for s in states if s.chat is not None and not s.chat.failed]
-        else:
-            chats = [s.chat for s in states if s.chat is not None]
-
-        return await self._post_run(chats)
+        states = self._initialize_states(count, params)
+        return await self._run(states, on_failed)
 
     # Batch messages
 
@@ -1166,73 +1240,8 @@ class ChatPipeline:
             A list of generatated Chats.
         """
         on_failed = on_failed or self.on_failed
-
-        if isinstance(many, dict) or isinstance(many, str):  # Some strange typechecking here
-            many = t.cast(t.Union[t.Sequence[str], t.Sequence[MessageDict]], [many])
-
-        count = max(len(many), len(params) if params is not None else 0)
-        many = self._fit_many(count, many)
-        params = self._fit_params(count, params)
-
-        states: list[RunState] = [RunState(self.chat.all + m, [], p, self._process()) for m, p in zip(many, params)]
-        _ = [next(state.processor) for state in states]
-
-        pending_states = states
-        while pending_states:
-            inbounds = await self.generator.generate_messages(
-                [s.inputs + s.messages for s in pending_states],
-                [s.params for s in pending_states],
-            )
-
-            for inbound, state in zip(inbounds, pending_states):
-                outputs: list[Message] = []
-                failed: bool = False
-                error: Exception | None = None
-
-                try:
-                    state.messages = state.processor.send(inbound.message)
-                    continue
-                except StopIteration as stop:
-                    outputs = t.cast(list[Message], stop.value)
-                except MessagesExhaustedMaxRoundsError as exhausted:
-                    if on_failed == "raise":
-                        raise
-                    failed = True
-                    outputs = exhausted.messages
-                    error = exhausted
-                except Exception as e:
-                    if on_failed == "raise" or not any(isinstance(e, t) for t in self.errors_to_fail_on):
-                        raise
-                    failed = True
-                    error = e
-
-                state.chat = Chat(
-                    state.inputs,
-                    outputs,
-                    generator=self.generator,
-                    metadata=self.metadata,
-                    params=state.params,
-                    stop_reason=inbound.stop_reason,
-                    usage=inbound.usage,
-                    extra=inbound.extra,
-                    failed=failed,
-                    error=error,
-                )
-
-            pending_states = [s for s in pending_states if s.chat is None]
-            to_watch_states = [s for s in states if s.chat is not None and not s.watched]
-
-            await self._watch_callback([s.chat for s in to_watch_states if s.chat is not None])
-
-            for state in to_watch_states:
-                state.watched = True
-
-        if on_failed == "skip":
-            chats = [s.chat for s in states if s.chat is not None and not s.chat.failed]
-        else:
-            chats = [s.chat for s in states if s.chat is not None]
-
-        return await self._post_run(chats)
+        states = self._initialize_batch_states(many, params)
+        return await self._run(states, on_failed, batch_mode=True)
 
     # Generator iteration
 
@@ -1267,10 +1276,7 @@ class ChatPipeline:
 
         chats = await asyncio.gather(*coros)
 
-        if on_failed == "skip":
-            chats = [c for c in chats if not c.failed]
-
-        return ChatList(chats)
+        return await self._post_run(chats, on_failed)
 
     # Prompt functions
 
