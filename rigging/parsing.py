@@ -116,6 +116,7 @@ def try_parse_many(text: str, *types: type[ModelT], fail_on_missing: bool = Fals
 
     Raises:
         MissingModelError: If a model type is missing and `fail_on_missing` is True.
+        Exception: If the model is malformed and `fail_on_missing` is True.
     """
     model: ModelT
     parsed: list[tuple[ModelT, slice]] = []
@@ -123,7 +124,7 @@ def try_parse_many(text: str, *types: type[ModelT], fail_on_missing: bool = Fals
         try:
             for model, slice_ in model_class.from_text(text):
                 parsed.append((model, slice_))
-        except MissingModelError as e:
+        except Exception as e:
             if fail_on_missing:
                 raise e
 
