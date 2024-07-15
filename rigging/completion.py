@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from rigging.error import CompletionExhaustedMaxRoundsError
 from rigging.generator import GenerateParams, Generator, get_generator
-from rigging.generator.base import StopReason, Usage  # noqa: TCH001
+from rigging.generator.base import GeneratedText, StopReason, Usage  # noqa: TCH001
 from rigging.parsing import parse_many
 
 if t.TYPE_CHECKING:
@@ -533,17 +533,6 @@ class CompletionPipeline:
         coros = [callback(completions) for callback in self.watch_callbacks]
         await asyncio.gather(*coros)
 
-    async def _post_run(self, completions: list[Completion]) -> list[Completion]:
-        for map_callback in self.map_callbacks:
-            completions = await map_callback(completions)
-
-        for then_callback in self.then_callbacks:
-            coros = [then_callback(chat) for chat in completions]
-            new_completions = await asyncio.gather(*coros)
-            completions = [new or chat for new, chat in zip(new_completions, completions)]
-
-        return completions
-
     # TODO: It's opaque exactly how we should blend multiple
     # until callbacks together, so here is the current implementation:
     #
@@ -576,6 +565,47 @@ class CompletionPipeline:
 
         return generated
 
+    async def _post_run(self, completions: list[Completion], on_failed: FailMode) -> list[Completion]:
+        if on_failed == "skip":
+            completions = [c for c in completions if not c.failed]
+
+        for map_callback in self.map_callbacks:
+            completions = await map_callback(completions)
+
+        for then_callback in self.then_callbacks:
+            coros = [then_callback(chat) for chat in completions]
+            new_completions = await asyncio.gather(*coros)
+            completions = [new or chat for new, chat in zip(new_completions, completions)]
+
+        return completions
+
+    def _create_completion(
+        self, state: RunState, output: str, inbound: GeneratedText, failed: bool = False, error: Exception | None = None
+    ) -> Completion:
+        return Completion(
+            self.text,
+            output,
+            generator=self.generator,
+            params=state.params,
+            metadata=self.metadata,
+            stop_reason=inbound.stop_reason,
+            usage=inbound.usage,
+            extra=inbound.extra,
+            failed=failed,
+            error=error,
+        )
+
+    def _create_failed_completion(self, state: RunState, error: Exception) -> Completion:
+        return Completion(
+            state.text,
+            "",
+            generator=self.generator,
+            params=state.params,
+            metadata=self.metadata,
+            failed=True,
+            error=error,
+        )
+
     def _fit_params(
         self, count: int, params: t.Sequence[t.Optional[GenerateParams] | None] | None = None
     ) -> list[GenerateParams]:
@@ -586,15 +616,77 @@ class CompletionPipeline:
             params = [self.params.merge_with(p) for p in params]
         return [(p or GenerateParams()) for p in params]
 
-    async def run(self, *, allow_failed: bool = False) -> Completion:
+    async def _run(self, states: list[RunState], on_failed: FailMode, batch_mode: bool = False) -> list[Completion]:
+        pending_states = states
+        while pending_states:
+            try:
+                inbounds = await self.generator.generate_texts(
+                    [(self.text + s.text) if batch_mode else s.text for s in pending_states],
+                    [s.params for s in pending_states],
+                )
+            except Exception as e:
+                if on_failed == "raise" or not any(isinstance(e, t) for t in self.errors_to_fail_on):
+                    raise
+
+                for state in pending_states:
+                    state.completion = self._create_failed_completion(state, e)
+            else:
+                for inbound, state in zip(inbounds, pending_states):
+                    output: str = ""
+                    failed: bool = False
+                    error: Exception | None = None
+
+                    try:
+                        state.processor.send(inbound.text)
+                        continue
+                    except StopIteration as stop:
+                        output = t.cast(str, stop.value)
+                    except CompletionExhaustedMaxRoundsError as exhausted:
+                        if on_failed == "raise":
+                            raise
+                        output = exhausted.completion
+                        failed = True
+                        error = exhausted
+                    except Exception as e:
+                        if on_failed == "raise" or not any(isinstance(e, t) for t in self.errors_to_fail_on):
+                            raise
+                        failed = True
+                        error = e
+
+                    state.completion = self._create_completion(state, output, inbound, failed, error)
+
+            pending_states = [s for s in pending_states if s.completion is None]
+            to_watch_states = [s for s in states if s.completion is not None and not s.watched]
+
+            await self._watch_callback([s.completion for s in to_watch_states if s.completion is not None])
+
+            for state in to_watch_states:
+                state.watched = True
+
+        return await self._post_run([s.completion for s in states if s.completion is not None], on_failed)
+
+    async def run(self, *, allow_failed: bool = False, on_failed: FailMode | None = None) -> Completion:
         """
-        Execute the generation process to produce the final completion.
+        Execute the generation process to produce the final chat.
+
+        Parameters:
+            allow_failed: Ignore any errors and potentially
+                return the chat in a failed state.
+            on_failed: The behavior when a message fails to generate.
+                (this is used as an alternative to allow_failed)
 
         Returns:
-            The generated Completion.
+            The generated Chat.
         """
-        completions = await self.run_many(1, on_failed="include" if allow_failed else "raise")
-        return completions[0]
+        if on_failed is None:
+            on_failed = "include" if allow_failed else self.on_failed
+
+        if on_failed == "skip":
+            raise ValueError(
+                "Cannot use 'skip' mode with single completion generation (pass allow_failed=True or on_failed='include'/'raise')"
+            )
+
+        return (await self.run_many(1, on_failed=on_failed))[0]
 
     __call__ = run
 
@@ -619,64 +711,12 @@ class CompletionPipeline:
             A list of generatated Completions.
         """
         on_failed = on_failed or self.on_failed
+
         states: list[RunState] = [RunState(self.text, p, self._process()) for p in self._fit_params(count, params)]
-        _ = [next(state.processor) for state in states]
+        for state in states:
+            next(state.processor)
 
-        pending_states = states
-        while pending_states:
-            inbounds = await self.generator.generate_texts(
-                [s.text for s in pending_states], [s.params for s in pending_states]
-            )
-
-            for inbound, state in zip(inbounds, pending_states):
-                output: str = ""
-                failed: bool = False
-                error: Exception | None = None
-
-                try:
-                    state.processor.send(inbound.text)
-                    continue
-                except StopIteration as stop:
-                    output = t.cast(str, stop.value)
-                except CompletionExhaustedMaxRoundsError as exhausted:
-                    if on_failed == "raise":
-                        raise
-                    output = exhausted.completion
-                    failed = True
-                    error = exhausted
-                except Exception as e:
-                    if on_failed == "raise" or not any(isinstance(e, t) for t in self.errors_to_fail_on):
-                        raise
-                    failed = True
-                    error = e
-
-                state.completion = Completion(
-                    self.text,
-                    output,
-                    generator=self.generator,
-                    params=state.params,
-                    metadata=self.metadata,
-                    stop_reason=inbound.stop_reason,
-                    usage=inbound.usage,
-                    extra=inbound.extra,
-                    failed=failed,
-                    error=error,
-                )
-
-            pending_states = [s for s in pending_states if s.completion is None]
-            to_watch_states = [s for s in states if s.completion is not None and not s.watched]
-
-            await self._watch_callback([s.completion for s in to_watch_states if s.completion is not None])
-
-            for state in to_watch_states:
-                state.watched = True
-
-        if on_failed == "skip":
-            completions = [s.completion for s in states if s.completion is not None and not s.completion.failed]
-        else:
-            completions = [s.completion for s in states if s.completion is not None]
-
-        return await self._post_run(completions)
+        return await self._run(states, on_failed)
 
     # Batch completions
 
@@ -703,65 +743,12 @@ class CompletionPipeline:
         """
         on_failed = on_failed or self.on_failed
         params = self._fit_params(len(many), params)
+
         states: list[RunState] = [RunState(m, p, self._process()) for m, p in zip(many, params)]
-        _ = [next(state.processor) for state in states]
+        for state in states:
+            next(state.processor)
 
-        pending_states = states
-        while pending_states:
-            inbounds = await self.generator.generate_texts(
-                [self.text + s.text for s in pending_states],
-                [s.params for s in pending_states],
-            )
-
-            for inbound, state in zip(inbounds, pending_states):
-                output: str = ""
-                failed: bool = False
-                error: Exception | None = None
-
-                try:
-                    state.processor.send(inbound.text)
-                    continue
-                except StopIteration as stop:
-                    output = t.cast(str, stop.value)
-                except CompletionExhaustedMaxRoundsError as exhausted:
-                    if on_failed == "raise":
-                        raise
-                    output = exhausted.completion
-                    failed = True
-                    error = exhausted
-                except Exception as e:
-                    if on_failed == "raise" or not any(isinstance(e, t) for t in self.errors_to_fail_on):
-                        raise
-                    failed = True
-                    error = e
-
-                state.completion = Completion(
-                    self.text,
-                    output,
-                    generator=self.generator,
-                    params=state.params,
-                    metadata=self.metadata,
-                    stop_reason=inbound.stop_reason,
-                    usage=inbound.usage,
-                    extra=inbound.extra,
-                    failed=failed,
-                    error=error,
-                )
-
-            pending_states = [s for s in pending_states if s.completion is None]
-            to_watch_states = [s for s in states if s.completion is not None and not s.watched]
-
-            await self._watch_callback([s.completion for s in to_watch_states if s.completion is not None])
-
-            for state in to_watch_states:
-                state.watched = True
-
-        if on_failed == "skip":
-            completions = [s.completion for s in states if s.completion is not None and not s.completion.failed]
-        else:
-            completions = [s.completion for s in states if s.completion is not None]
-
-        return await self._post_run(completions)
+        return await self._run(states, on_failed, batch_mode=True)
 
     # Generator iteration
 
@@ -795,8 +782,4 @@ class CompletionPipeline:
             coros.append(sub.run(allow_failed=(on_failed != "raise")))
 
         completions = await asyncio.gather(*coros)
-
-        if on_failed == "skip":
-            completions = [c for c in completions if not c.failed]
-
-        return completions
+        return await self._post_run(completions, on_failed)
