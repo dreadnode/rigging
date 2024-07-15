@@ -486,7 +486,7 @@ def get_identifier(generator: Generator, params: GenerateParams | None = None) -
 
     merged_params = generator.params.merge_with(params)
     if merged_params.extra:
-        logger.warning("Extra parameters are not supported in identifiers.")
+        logger.debug("Extra parameters are not supported in identifiers.")
         merged_params.extra = {}
 
     params_dict = merged_params.to_dict()
