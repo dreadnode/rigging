@@ -31,6 +31,8 @@ if t.TYPE_CHECKING:
     from rigging.data import ElasticOpType
     from rigging.prompt import P, Prompt, R
 
+CallableT = t.TypeVar("CallableT", bound=t.Callable[..., t.Any])
+
 DEFAULT_MAX_ROUNDS = 5
 """Maximum number of internal callback rounds to attempt during generation before giving up."""
 
@@ -780,6 +782,19 @@ class ChatPipeline:
             The current instance of the chat.
         """
         self.until_callbacks.append((callback, attempt_recovery, drop_dialog, max_rounds))
+        return self
+
+    def wrap(self, func: t.Callable[[CallableT], CallableT]) -> ChatPipeline:
+        """
+        Helper for [rigging.generator.base.Generator.wrap][].
+
+        Args:
+            func: The function to wrap the calls with.
+
+        Returns:
+            The current instance of the pipeline.
+        """
+        self.generator = self.generator.wrap(func)
         return self
 
     def using(

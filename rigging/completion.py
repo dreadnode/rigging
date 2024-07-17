@@ -25,6 +25,9 @@ if t.TYPE_CHECKING:
     from rigging.chat import FailMode
     from rigging.model import Model, ModelT
 
+CallableT = t.TypeVar("CallableT", bound=t.Callable[..., t.Any])
+
+
 DEFAULT_MAX_ROUNDS = 5
 
 # TODO: Chats and Completions share a lot of structure and code.
@@ -520,6 +523,19 @@ class CompletionPipeline:
         if next((c for c in self.until_callbacks if c[0] == self._until_parse_callback), None) is None:
             self.until_callbacks.append((self._until_parse_callback, use_all_text, max_rounds))
 
+        return self
+
+    def wrap(self, func: t.Callable[[CallableT], CallableT]) -> CompletionPipeline:
+        """
+        Helper for [rigging.generator.base.Generator.wrap][].
+
+        Args:
+            func: The function to wrap the calls with.
+
+        Returns:
+            The current instance of the pipeline.
+        """
+        self.generator = self.generator.wrap(func)
         return self
 
     def _until_parse_callback(self, text: str) -> bool:

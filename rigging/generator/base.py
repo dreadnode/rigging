@@ -293,6 +293,9 @@ class Generator(BaseModel):
 
         This is useful for adding things like backoff or rate limiting.
 
+        Args:
+            func: The function to wrap the calls with.
+
         Returns:
             The generator.
         """
