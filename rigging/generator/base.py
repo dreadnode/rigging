@@ -17,6 +17,9 @@ if t.TYPE_CHECKING:
 
     WatchCallbacks = t.Union[WatchChatCallback, WatchCompletionCallback]
 
+
+CallableT = t.TypeVar("CallableT", bound=t.Callable[..., t.Any])
+
 # Global provider map
 
 
@@ -226,6 +229,7 @@ class Generator(BaseModel):
     """The parameters used for generating completion messages."""
 
     _watch_callbacks: list[WatchCallbacks] = []
+    _wrap: t.Callable[[CallableT], CallableT] | None = None
 
     def to_identifier(self, params: GenerateParams | None = None) -> str:
         """
@@ -281,6 +285,19 @@ class Generator(BaseModel):
         Returns:
             The generator.
         """
+        return self
+
+    def wrap(self, func: t.Callable[[CallableT], CallableT] | None) -> Self:
+        """
+        If supported, wrap any underlying interior framework calls with this function.
+
+        This is useful for adding things like backoff or rate limiting.
+
+        Returns:
+            The generator.
+        """
+        # TODO: Not sure why mypy is complaining here
+        self._wrap = func  # type: ignore [assignment]
         return self
 
     async def generate_messages(

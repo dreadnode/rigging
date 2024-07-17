@@ -128,12 +128,18 @@ class LiteLLMGenerator(Generator):
             # if params.max_tokens is None:
             #     params.max_tokens = get_max_tokens_for_model(self.model)
             await self._ensure_delay_between_requests()
-            response = await litellm.acompletion(
+
+            acompletion = litellm.acompletion
+            if self._wrap is not None:
+                acompletion = self._wrap(acompletion)
+
+            response = await acompletion(
                 model=self.model,
                 messages=[message.to_openai_spec() for message in messages],
                 api_key=self.api_key,
                 **self.params.merge_with(params).to_dict(),
             )
+
             self._last_request_time = datetime.datetime.now()
             return self._parse_model_response(response)
 
@@ -142,9 +148,15 @@ class LiteLLMGenerator(Generator):
             # if params.max_tokens is None:
             #     params.max_tokens = get_max_tokens_for_model(self.model)
             await self._ensure_delay_between_requests()
-            response = await litellm.atext_completion(
+
+            atext_completion = litellm.atext_completion
+            if self._wrap is not None:
+                atext_completion = self._wrap(atext_completion)
+
+            response = await atext_completion(
                 prompt=text, model=self.model, api_key=self.api_key, **self.params.merge_with(params).to_dict()
             )
+
             self._last_request_time = datetime.datetime.now()
             return self._parse_text_completion_response(response)
 
