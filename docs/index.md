@@ -469,7 +469,7 @@ our previous example and have rigging parse out FunFacts directly for us:
     def get_fun_fact() -> FunFact:
         """Provide a fun fact."""
 
-    fun_facts = await get_fun_facts.run_many(3)
+    fun_facts = await get_fun_fact.run_many(3)
     ```
 
 === "Inline Set"
