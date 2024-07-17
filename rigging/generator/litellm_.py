@@ -47,7 +47,7 @@ class LiteLLMGenerator(Generator):
         ```
     """
 
-    max_connections: int = 4
+    max_connections: int = 10
     """
     How many simultaneous requests to pool at one time.
     This is useful to set when you run into API limits at a provider.
