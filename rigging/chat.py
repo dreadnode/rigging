@@ -497,6 +497,8 @@ class ChatPipeline:
 
         ExhuastedMaxRounds is implicitly included.
         """
+        self.errors_to_exclude: set[type[Exception]] = set()
+        """The list of exceptions to exclude from the catch list."""
         self.on_failed: FailMode = "raise"
         """How to handle failures in the pipeline unless overriden in calls."""
 
@@ -538,7 +540,9 @@ class ChatPipeline:
         self.params = params
         return self
 
-    def catch(self, *errors: type[Exception], on_failed: FailMode | None = None) -> ChatPipeline:
+    def catch(
+        self, *errors: type[Exception], on_failed: FailMode | None = None, exclude: list[type[Exception]] | None = None
+    ) -> ChatPipeline:
         """
         Adds exceptions to catch during generation when including or skipping failures.
 
@@ -550,6 +554,7 @@ class ChatPipeline:
             The updated ChatPipeline object.
         """
         self.errors_to_fail_on.update(errors)
+        self.errors_to_exclude.update(exclude or [])
         self.on_failed = on_failed or self.on_failed
         return self
 
@@ -647,6 +652,7 @@ class ChatPipeline:
             new.map_callbacks = self.map_callbacks.copy()
             new.on_failed = self.on_failed
             new.errors_to_fail_on = self.errors_to_fail_on.copy()
+            new.errors_to_exclude = self.errors_to_exclude.copy()
         return new
 
     def meta(self, **kwargs: t.Any) -> ChatPipeline:
@@ -1133,7 +1139,11 @@ class ChatPipeline:
 
             except Exception as error:
                 # Handle core generator errors
-                if on_failed == "raise" or not any(isinstance(error, t) for t in self.errors_to_fail_on):
+                if (
+                    on_failed == "raise"
+                    or not any(isinstance(error, t) for t in self.errors_to_fail_on)
+                    or any(isinstance(error, t) for t in self.errors_to_exclude)
+                ):
                     raise
 
                 # We will apply the error to all chats in the batch as we can't
@@ -1159,12 +1169,16 @@ class ChatPipeline:
                         state.chat = self._create_chat(
                             state, exhausted.messages, inbound, batch_mode, failed=True, error=exhausted
                         )
-                    except Exception as e:
+                    except Exception as error:
                         # Check to see if we should be handling any specific errors
                         # and gracefully marking the chat as failed instead of raising (.catch)
-                        if on_failed == "raise" or not any(isinstance(e, t) for t in self.errors_to_fail_on):
+                        if (
+                            on_failed == "raise"
+                            or not any(isinstance(error, t) for t in self.errors_to_fail_on)
+                            or any(isinstance(error, t) for t in self.errors_to_exclude)
+                        ):
                             raise
-                        state.chat = self._create_chat(state, [], inbound, batch_mode, failed=True)
+                        state.chat = self._create_chat(state, [], inbound, batch_mode, failed=True, error=error)
 
             pending_states = [s for s in pending_states if s.chat is None]
             completed_states = [s for s in states if s.chat is not None and not s.watched]
