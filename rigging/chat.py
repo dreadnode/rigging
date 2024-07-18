@@ -16,7 +16,7 @@ from typing import runtime_checkable
 from uuid import UUID, uuid4
 
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, computed_field
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, ValidationError, computed_field
 
 from rigging.error import MessagesExhaustedMaxRoundsError
 from rigging.generator import GenerateParams, Generator, get_generator
@@ -76,9 +76,11 @@ class Chat(BaseModel):
     params: t.Optional[GenerateParams] = Field(None, exclude=True, repr=False)
     """Any additional generation params used for this chat."""
 
-    error: t.Optional[Exception] = Field(None, exclude=True, repr=False)
+    error: t.Optional[
+        t.Annotated[Exception, PlainSerializer(lambda x: str(x), return_type=str, when_used="json-unless-none")]
+    ] = Field(None, repr=False)
     """Holds any exception that was caught during the generation pipeline."""
-    failed: bool = Field(False, exclude=False, repr=False)
+    failed: bool = Field(False, exclude=False, repr=True)
     """
     Indicates whether conditions during generation were not met.
     This is typically used for graceful error handling when parsing.
@@ -112,6 +114,9 @@ class Chat(BaseModel):
         if "generator_id" in kwargs and generator is None:
             # TODO: Should we move params to self.params?
             generator = get_generator(kwargs.pop("generator_id"))
+
+        # We can't deserialize an error
+        kwargs.pop("error", None)
 
         super().__init__(
             messages=Message.fit_as_list(messages),
