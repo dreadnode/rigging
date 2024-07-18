@@ -116,7 +116,8 @@ class Chat(BaseModel):
             generator = get_generator(kwargs.pop("generator_id"))
 
         # We can't deserialize an error
-        kwargs.pop("error", None)
+        if isinstance(kwargs.get("error"), str):
+            kwargs.pop("error")
 
         super().__init__(
             messages=Message.fit_as_list(messages),
