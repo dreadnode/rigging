@@ -1024,7 +1024,7 @@ class ChatPipeline:
         for then_callback in self.then_callbacks:
             coros = [then_callback(chat) for chat in chats]
             new_chats = await asyncio.gather(*coros)
-            if not all(isinstance(c, Chat | None) for c in new_chats):
+            if not all(isinstance(c, Chat) or c is None for c in new_chats):
                 raise ValueError(
                     f".then() callback must return a Chat object or None ({then_callback.__call__.__name__})"
                 )
