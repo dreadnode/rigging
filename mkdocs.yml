@@ -31,6 +31,7 @@ nav:
     - rigging.data: api/data.md
     - rigging.watchers: api/watchers.md
     - rigging.parsing: api/parsing.md
+    - rigging.interact: api/interact.md
     - rigging.logging: api/logging.md
     - rigging.error: api/error.md
     - rigging.util: api/util.md

@@ -216,15 +216,10 @@ class Message(BaseModel):
                 self._remove_part(part)
         return self
 
-    def to_openai_spec(self, *, only_str: bool = False) -> dict[str, t.Any]:
+    def to_openai_spec(self) -> dict[str, t.Any]:
         """
         Converts the message to the OpenAI-compatible JSON format. This should
         be the primary way to serialize a message for use with APIs.
-
-        Args:
-            only_str: Whether to force content as a str as opposed to allowing
-            structured content parts like images - useful for generators which
-            do not support multi-modal data.
 
         Returns:
             The serialized message.

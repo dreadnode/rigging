@@ -120,6 +120,8 @@ Want more?
 
 ## Examples
 
+- Basic interactive chat: [**chat.py**](examples/chat.py)
+- Jupyter code interpreter: [**jupyter.py**](examples/jupyter.py)
 - OverTheWire Bandit Agent: [**bandit.py**](examples/bandit.py)
 - Damn Vulnerable Restaurant Agent: [**dvra.py**](examples/dvra.py)
 - RAG Pipeline: [**rag.py**](examples/rag.py) (from [kyleavery](https://github.com/kyleavery/))

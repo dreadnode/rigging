@@ -70,6 +70,49 @@ export MISTRAL_API_KEY=...
 export ANTHROPIC_API_KEY=...
 ```
 
+## Rate Limits
+
+Generators that leverage remote services (LiteLLM) expose properties for managing connection/request limits:
+
+- [`LiteLLMGenerator.max_connections`][rigging.generator.litellm_.LiteLLMGenerator]
+- [`LiteLLMGenerator.min_delay_between_requests`][rigging.generator.litellm_.LiteLLMGenerator]
+
+However, a more flexible solution is [`ChatPipeline.wrap()`][rigging.chat.ChatPipeline.wrap] 
+with a library like [**backoff**](https://github.com/litl/backoff) to catch
+many, or specific errors, like rate limits or general connection issues.
+
+```py
+import rigging as rg
+
+import backoff
+import backoff.types
+
+
+def on_backoff(details: backoff.types.Details) -> None:
+    print(f"Backing off {details['wait']:.2f}s")
+
+pipeline = (
+    rg.get_generator("claude-3-haiku-20240307")
+    .chat("Give me a 4 word phrase about machines.")
+    .wrap(
+        backoff.on_exception(
+            backoff.expo,
+            Exception,  # This should be scoped down
+            on_backoff=on_backoff,
+        )
+    )
+)
+
+chats = await pipeline.run_many(50)
+```
+
+!!! note "Exception mess"
+
+    You'll find that the exception consistency inside LiteLLM is quite poor.
+    Different providers throw different types of exceptions for all kinds of
+    status codes, response data, etc. With that said, you can typically find
+    a target list that works well for your use-case.
+
 ## Local Models
 
 We have experimental support for both [`vLLM`](https://docs.vllm.ai/en/latest/) 
@@ -112,17 +155,6 @@ See more about them below:
     [`Generator.unload`][rigging.generator.Generator.unload] methods to better
     control memory usage. Local providers typically are lazy and load the model
     into memory only when first needed.
-
-## Generator interface
-
-::: rigging.generator.Generator
-    options:
-        show_source: false
-        show_signature: false
-        members:
-        - generate_messages
-        - generate_texts
-
 
 ## Overload Generation Params
 

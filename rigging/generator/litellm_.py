@@ -5,6 +5,7 @@ import datetime
 import typing as t
 
 import litellm
+import litellm.types.utils
 from loguru import logger
 
 from rigging.generator.base import (
@@ -95,7 +96,7 @@ class LiteLLMGenerator(Generator):
     # This seems like a brittle feature at the moment, so we'll
     # leave it out for now.
 
-    def _parse_model_response(self, response: litellm.utils.ModelResponse) -> GeneratedMessage:
+    def _parse_model_response(self, response: litellm.types.utils.ModelResponse) -> GeneratedMessage:
         choice = response.choices[-1]
         usage = None
         if getattr(response, "usage", None) is not None:
@@ -109,7 +110,7 @@ class LiteLLMGenerator(Generator):
             extra={"response_id": response.id},
         )
 
-    def _parse_text_completion_response(self, response: litellm.utils.TextCompletionResponse) -> GeneratedText:
+    def _parse_text_completion_response(self, response: litellm.types.utils.TextCompletionResponse) -> GeneratedText:
         choice = response.choices[-1]
         usage = None
         if response.usage is not None:

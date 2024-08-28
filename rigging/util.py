@@ -36,7 +36,7 @@ def _get_event_loop() -> asyncio.AbstractEventLoop:
 
 
 @t.overload
-def await_(coros: t.Coroutine[t.Any, t.Any, R]) -> R:  # type: ignore[overload-overlap]
+def await_(coros: t.Coroutine[t.Any, t.Any, R]) -> R:
     ...
 
 
@@ -45,7 +45,7 @@ def await_(*coros: t.Coroutine[t.Any, t.Any, R]) -> list[R]:
     ...
 
 
-def await_(*coros: t.Coroutine[t.Any, t.Any, R]) -> R | list[R]:  # type: ignore[misc]
+def await_(*coros: t.Coroutine[t.Any, t.Any, R]) -> R | list[R]:  # type: ignore [misc]
     """
     A utility function that allows awaiting coroutines in a managed thread.
 

@@ -163,7 +163,7 @@ class TransformersGenerator(Generator):
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[GeneratedMessage]:
-        message_dicts = [[m.to_openai_spec(only_str=True) for m in _messages] for _messages in messages]
+        message_dicts = [[m.to_openai_spec() for m in _messages] for _messages in messages]
         outputs = self._generate(message_dicts, params)
         generated = [o.to_generated_message() for o in outputs]
 

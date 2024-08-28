@@ -86,7 +86,7 @@ class Chat(BaseModel):
     This is typically used for graceful error handling when parsing.
     """
 
-    @computed_field(repr=False)  # type: ignore[misc]
+    @computed_field(repr=False)  # type: ignore [prop-decorator]
     @property
     def generator_id(self) -> str | None:
         """The identifier of the generator used to create the chat"""
@@ -421,7 +421,7 @@ class ChatList(list[Chat]):
 
 @runtime_checkable
 class UntilMessageCallback(t.Protocol):
-    def __call__(self, message: Message) -> tuple[bool, list[Message]]:
+    def __call__(self, message: Message, /) -> tuple[bool, list[Message]]:
         """
         Passed the next message, returns whether or not to continue and an
         optional list of messages to append before continuing.
@@ -431,7 +431,7 @@ class UntilMessageCallback(t.Protocol):
 
 @runtime_checkable
 class ThenChatCallback(t.Protocol):
-    async def __call__(self, chat: Chat) -> Chat | None:
+    def __call__(self, chat: Chat, /) -> t.Awaitable[Chat | None]:
         """
         Passed a finalized chat to process and can return a new chat to replace it.
         """
@@ -440,7 +440,7 @@ class ThenChatCallback(t.Protocol):
 
 @runtime_checkable
 class MapChatCallback(t.Protocol):
-    async def __call__(self, chats: list[Chat]) -> list[Chat]:
+    def __call__(self, chats: list[Chat], /) -> t.Awaitable[list[Chat]]:
         """
         Passed a finalized chats to process. Can replace chats in the pipeline by returning
         a new chat object.
@@ -450,7 +450,7 @@ class MapChatCallback(t.Protocol):
 
 @runtime_checkable
 class WatchChatCallback(t.Protocol):
-    async def __call__(self, chats: list[Chat]) -> None:
+    def __call__(self, chats: list[Chat], /) -> t.Awaitable[None]:
         """
         Passed any created chat objects for monitoring/logging.
         """

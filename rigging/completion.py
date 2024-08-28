@@ -72,7 +72,7 @@ class Completion(BaseModel):
     This is typically used for graceful error handling when parsing.
     """
 
-    @computed_field(repr=False)  # type: ignore[misc]
+    @computed_field(repr=False)  # type: ignore [prop-decorator]
     @property
     def generator_id(self) -> str | None:
         """The identifier of the generator used to create the completion"""
@@ -185,7 +185,7 @@ class Completion(BaseModel):
 
 @runtime_checkable
 class UntilCompletionCallback(t.Protocol):
-    def __call__(self, text: str) -> bool:
+    def __call__(self, text: str, /) -> bool:
         """
         A callback function that takes the generated text and returns whether or not to retry generation.
         """
@@ -194,7 +194,7 @@ class UntilCompletionCallback(t.Protocol):
 
 @runtime_checkable
 class ThenCompletionCallback(t.Protocol):
-    async def __call__(self, completion: Completion) -> Completion | None:
+    def __call__(self, completion: Completion, /) -> t.Awaitable[Completion | None]:
         """
         Passed a finalized completion to process and can return a new completion to replace it.
         """
@@ -203,7 +203,7 @@ class ThenCompletionCallback(t.Protocol):
 
 @runtime_checkable
 class MapCompletionCallback(t.Protocol):
-    async def __call__(self, completions: list[Completion]) -> list[Completion]:
+    def __call__(self, completions: list[Completion], /) -> t.Awaitable[list[Completion]]:
         """
         Passed a finalized completion to process.
 
@@ -215,7 +215,7 @@ class MapCompletionCallback(t.Protocol):
 
 @runtime_checkable
 class WatchCompletionCallback(t.Protocol):
-    async def __call__(self, completions: list[Completion]) -> None:
+    def __call__(self, completions: list[Completion], /) -> t.Awaitable[None]:
         """
         Passed any created completion objects for monitoring/logging.
         """
