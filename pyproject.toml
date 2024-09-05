@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "rigging"
-version = "2.0.3"
+version = "2.0.4"
 description = "LLM Interaction Framework"
 authors = ["Nick Landers <monoxgas@gmail.com>"]
 license = "MIT"
@@ -20,7 +20,7 @@ pandas = "^2.2.2"
 eval-type-backport = "^0.2.0" # For 3.9 future annotations
 elasticsearch = "^8.13.2"
 xmltodict = "^0.13.0"
-types-colorama = "^0.4.15.20240311"
+colorama = "^0.4.6"
 
 vllm = { version = "0.5.0", optional = true }
 transformers = { version = "^4.41.0", optional = true }
@@ -32,7 +32,6 @@ click = { version = "^8.1.7", optional = true }
 httpx = { version = "^0.27.0", optional = true }
 aiodocker = { version = "^0.22.2", optional = true }
 websockets = { version = "^13.0", optional = true }
-
 
 [tool.poetry.extras]
 examples = ["asyncssh", "types-requests", "click", "httpx", "aiodocker", "websockets"]
@@ -47,6 +46,7 @@ pandas-stubs = "^2.2.1.240316"
 coverage = "^7.5.1"
 ipywidgets = "^8.1.3"
 pytest-asyncio = "^0.23.7"
+types-colorama = "^0.4.15.20240311"
 
 [tool.poetry.group.docs.dependencies]
 mkdocs = "^1.6.0"

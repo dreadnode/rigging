@@ -5443,4 +5443,4 @@ examples = ["aiodocker", "asyncssh", "click", "httpx", "types-requests", "websoc
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "75a1c078ed79c824992149eec0536c00fdd12fc8eae19e934a6aaefbbbe75fbe"
+content-hash = "0270a4d2c231674a805220ab5a23b700787e569d8931c22dc3fc95e3005296df"
