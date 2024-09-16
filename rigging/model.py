@@ -342,7 +342,7 @@ def make_primitive(
         __doc__=doc,
         __cls_kwargs__={"tag": tag},
         content=(type_, ...),
-        __validators__={"content_validator": field_validator("content")(_validate)} if validator else {},  # type: ignore
+        __validators__={"content_validator": field_validator("content")(_validate)} if validator else {},
     )
 
 
