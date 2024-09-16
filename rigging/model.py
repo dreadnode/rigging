@@ -106,6 +106,9 @@ class Model(BaseXmlModel):
         else:
             return pretty_encoded_xml  # type: ignore [no-any-return]
 
+    def __str__(self) -> str:
+        return self.to_pretty_xml()
+
     # XML parsing gets weird when the interior text contains tags like <br>.
     # Essentially it assumes all the text is valid XML first, then parses.
     # So we'll handle easy cases here and mark the model as "simple"
@@ -441,11 +444,6 @@ class NewlineDelimitedAnswer(DelimitedAnswer):
     "Newline delimited answer (\n)"
 
     _delimiters = ["\n"]
-
-
-# TODO: We can update this to just use the bool type with
-# some string stripping - pydantic has fairly robust
-# boolean parsing logic.
 
 
 class YesNoAnswer(Model):
