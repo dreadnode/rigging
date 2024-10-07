@@ -115,7 +115,27 @@ chats = await pipeline.run_many(50)
 
 ## Local Models
 
-We have experimental support for both [`vLLM`](https://docs.vllm.ai/en/latest/) 
+Rigging supports local models via the [`ollama`](https://ollama.ai/) provider:
+
+```py
+import rigging as rg
+
+# default to http://localhost:11434
+ollama = rg.get_generator("ollama/llama3.1")
+```
+
+In the default configuration, the API base address is set to `http://localhost:11434`. It is possible to specify an alternative server by setting the OLLAMA_API_BASE environment variable:
+
+```py
+import os
+import rigging as rg
+
+os.environ['OLLAMA_API_BASE'] = 'http://192.168.0.10:11434'
+
+ollama = rg.get_generator("ollama/llama3.1")
+```
+
+We also have experimental support for both [`vLLM`](https://docs.vllm.ai/en/latest/) 
 and [`transformers`](https://huggingface.co/docs/transformers/index) generators for
 loading and running local models. In general vLLM is more consistent with Rigging's
 preferred API, but the dependency requirements are heavier.
