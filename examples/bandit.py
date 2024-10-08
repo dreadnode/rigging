@@ -410,7 +410,7 @@ async def main(
 
 @click.command()
 @click.option("-l", "--level", type=int, default=1, help="Starting level (1-34)")
-@click.option("-p", "--password", type=str, default="NH2SXQwcBdpmTEzi3bvBHMM9H66vVXjL", help="Starting password")
+@click.option("-p", "--password", type=str, required=True, help="Starting password")
 @click.option(
     "-g",
     "--generator-id",
