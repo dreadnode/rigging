@@ -215,6 +215,9 @@ class State:
     # Progress
     result: t.Optional[str] = ""
 
+    # Prompt role
+    role: t.Literal["system", "user", "assistant"] = "user"
+
     # CTF
     client: t.Optional[asyncssh.SSHClientConnection] = None
     level: int = 1
@@ -250,7 +253,7 @@ class State:
         current_goal = self.goals[-1]
         history = "\n---\n".join([h[0].to_pretty_xml() + "\n" + h[1] for h in self.history[-max_history:]])
         pinned = "\n".join(self.pins)
-        return f"""\
+        return rg.MessageDict(role=self.role, content=f"""\
 # Context
 
 <current-level>
@@ -341,7 +344,7 @@ When you have the password to the next level, provide it so the system can authe
 - Passwords look like long base64 strings, watch for them
 
 Output a new action from the list above in your response. Prior action results are displayed above.
-"""
+""")
 
 
 # CLI  + Core
@@ -374,9 +377,9 @@ async def agent_loop(state: State) -> State:
 
 
 async def main(
-    level: int, password: str, generator_id: str, max_iterations: int, parallel_agents: int, max_actions: int
+    level: int, password: str, generator_id: str, state_role: str, max_iterations: int, parallel_agents: int, max_actions: int
 ) -> None:
-    logger.success(f"Starting Bandit with {parallel_agents} agents")
+    logger.success(f"Starting Bandit with {parallel_agents} agents (state role={state_role})")
 
     # Prepare our objects
 
@@ -389,7 +392,7 @@ async def main(
         logger.success(f"Starting level {level}")
 
         states: list[State] = [
-            State(id=i, max_actions=max_actions, base_chat=base_chat.with_(temperature=random.uniform(0.25, 1)))
+            State(id=i, max_actions=max_actions, role=state_role, base_chat=base_chat.with_(temperature=random.uniform(0.25, 1)))
             for i in range(parallel_agents)
         ]
         for state in states:
@@ -418,6 +421,14 @@ async def main(
     default="anthropic/claude-3-sonnet-20240229",
     required=True,
     help="Rigging generator identifier (gpt-4, mistral/mistral-medium, etc.)",
+)
+@click.option(
+    "-r",
+    "--state-role",
+    type=str,
+    default="user",
+    required=True,
+    help="Whether to provide the state as user prompt or as system prompt.",
 )
 @click.option(
     "-i",
@@ -455,6 +466,7 @@ def cli(
     level: int,
     password: str,
     generator_id: str,
+    state_role: str,
     max_iterations: int,
     parallel_agents: int,
     max_actions: int,
@@ -467,7 +479,7 @@ def cli(
     """
 
     logging.configure_logging(log_level, log_file, log_file_level)
-    asyncio.run(main(level, password, generator_id, max_iterations, parallel_agents, max_actions))
+    asyncio.run(main(level, password, generator_id, state_role, max_iterations, parallel_agents, max_actions))
 
 
 if __name__ == "__main__":
