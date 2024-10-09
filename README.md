@@ -88,20 +88,27 @@ Check out [the docs](https://rigging.dreadnode.io/topics/generators/#api-keys) f
 3. **Run** the pipeline and get the output.
 
 ```py
-import rigging as rg 
+import rigging as rg
+import asyncio
 
-# 1 - Get a generator
-generator = rg.get_generator("claude-3-sonnet-20240229")
+async def main():
+    # 1 - Get a generator
+    generator = rg.get_generator("claude-3-sonnet-20240229")
 
-# 2 - Build a chat pipeline
-pipeline = generator.chat([
-    {"role": "system", "content": "Talk like a pirate."},
-    {"role": "user", "content": "Say hello!"},
-])
+    # 2 - Build a chat pipeline
+    pipeline = generator.chat(
+        [
+            {"role": "system", "content": "Talk like a pirate."},
+            {"role": "user", "content": "Say hello!"},
+        ]
+    )
 
-# 3 - Run the pipeline
-chat = await pipeline.run()
-print(chat.conversation)
+    # 3 - Run the pipeline
+    chat = await pipeline.run()
+    print(chat.conversation)
+
+# Run the main function
+asyncio.run(main())
 
 # [system]: Talk like a pirate.
 # [user]: Say hello!
