@@ -356,7 +356,7 @@ def parse_output(annotation: t.Any, error_name: str, *, allow_nested: bool = Tru
 
         return TupleOutput(id="tuple", context=context or Ctx(), interiors=tuple_interiors)
 
-    if dataclasses.is_dataclass(annotation):
+    if dataclasses.is_dataclass(annotation) and type(annotation) is type:
         interior_annotations: list[t.Any] = []
         for field in dataclasses.fields(annotation):
             field_annotation, field_context = unwrap_annotated(field.type)
