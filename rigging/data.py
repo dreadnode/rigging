@@ -13,6 +13,7 @@ from rigging.message import Message
 
 if t.TYPE_CHECKING:
     from elastic_transport import ObjectApiResponse
+    from mypy_boto3_s3 import S3Client
 
 
 def flatten_chats(chats: Chat | t.Sequence[Chat]) -> list[dict[t.Any, t.Any]]:
@@ -334,3 +335,46 @@ async def elastic_to_chats(
     """
     data = await client.search(index=index, query=query, size=max_results, **kwargs)
     return elastic_data_to_chats(t.cast(dict[str, t.Any], data))
+
+
+async def s3_bucket_exists(client: S3Client, bucket: str) -> bool:
+    """
+    Determine if an S3 bucket exists.
+
+    Args:
+        client: The S3 client to use.
+        bucket: The bucket to check.
+
+    Returns:
+        True if the bucket exists, False otherwise.
+    """
+    try:
+        client.head_bucket(Bucket=bucket)
+        return True
+    except client.exceptions.ClientError as e:
+        if e.response["Error"]["Code"] == "404":
+            return False
+        else:
+            raise
+
+
+async def s3_object_exists(client: S3Client, bucket: str, key: str) -> bool:
+    """
+    Determine if an S3 object exists.
+
+    Args:
+        client: The S3 client to use.
+        bucket: The bucket to check.
+        key: The key to check.
+
+    Returns:
+        True if the object exists, False otherwise.
+    """
+    try:
+        client.head_object(Bucket=bucket, Key=key)
+        return True
+    except client.exceptions.ClientError as e:
+        if e.response["Error"]["Code"] == "404":
+            return False
+        else:
+            raise

@@ -9,10 +9,11 @@ import os
 import typing as t
 from pathlib import Path
 
-from rigging.data import chats_to_elastic, flatten_chats
+from rigging.data import chats_to_elastic, flatten_chats, s3_object_exists
 
 if t.TYPE_CHECKING:
     from elasticsearch import AsyncElasticsearch
+    from mypy_boto3_s3 import S3Client
 
     from rigging.chat import Chat, WatchChatCallback
 
@@ -101,3 +102,46 @@ def write_chats_to_elastic(
         await chats_to_elastic(chats, index, client, create_index=create_index, **kwargs)
 
     return _write_chats_to_elastic
+
+
+def write_chats_to_s3(client: S3Client, bucket: str, key: str, replace: bool = False) -> WatchChatCallback:
+    """
+    Create a watcher to write each chat to an Amazon S3 bucket.
+
+    Args:
+        client: The S3 client to use.
+        bucket: The bucket to write to.
+        key: The key to write to.
+        replace: If the file should be replaced if it already exists.
+
+    Returns:
+        A callback to use in [rigging.chat.ChatPipeline.watch][]
+        or [rigging.generator.Generator.watch][].
+    """
+
+    replaced: bool = False
+
+    async def _write_chats_to_s3(chats: list[Chat]) -> None:
+        nonlocal replaced
+
+        content: str = ""
+
+        if await s3_object_exists(client, bucket, key):
+            if replace and not replaced:
+                # if the object exists, we want to replace it and has not been replaced yet, delete it
+                client.delete_object(Bucket=bucket, Key=key)
+                replaced = True
+
+            else:
+                # if we're not replacing or we have already replaced, read the existing object
+                response = client.get_object(Bucket=bucket, Key=key)
+                content = response["Body"].read().decode("utf-8")
+
+        # append the new chats to the existing content
+        for chat in chats:
+            content += chat.model_dump_json() + "\n"
+
+        # write the new content to the object
+        client.put_object(Bucket=bucket, Key=key, Body=content)
+
+    return _write_chats_to_s3
