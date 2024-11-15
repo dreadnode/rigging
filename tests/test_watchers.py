@@ -77,3 +77,18 @@ async def test_write_chats_to_jsonl_replace(tmp_path, sample_chats):
         for i, message in enumerate(saved_chat["messages"]):
             assert message["role"] == original_chat.messages[i].role
             assert message["content"] == original_chat.messages[i].content
+
+    # write another chat - should append since already replaced once
+    await watcher2(sample_chats[1:2])
+
+    with output_file.open() as f:
+        lines = f.readlines()
+        assert len(lines) == 2
+
+        # verify both chats were written correctly
+        for i, line in enumerate(lines):
+            saved_chat = json.loads(line)
+            original_chat = sample_chats[i]
+            for j, message in enumerate(saved_chat["messages"]):
+                assert message["role"] == original_chat.messages[j].role
+                assert message["content"] == original_chat.messages[j].content
