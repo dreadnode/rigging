@@ -18,7 +18,7 @@ from rigging.prompt import Ctx, Prompt, prompt
 from rigging.tool import Tool
 from rigging.util import await_
 
-__version__ = "2.0.5"
+__version__ = "2.0.6"
 
 __all__ = [
     "get_generator",
