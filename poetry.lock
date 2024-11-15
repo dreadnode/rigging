@@ -6297,4 +6297,4 @@ examples = ["aiodocker", "asyncssh", "click", "httpx", "websockets"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "3692182bc75e9be45e31f481f4b402b147df39bdc1e0da50dc59efb830afd2ae"
+content-hash = "515bf9fee8f381564553c3290cc18dcdd2ed18974318cb93897f8491b089e7ef"
