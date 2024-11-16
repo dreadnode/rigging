@@ -172,16 +172,6 @@ async def main(
                     print()
             print("=" * 80 + "\n")
 
-        for msg in messages:
-            if isinstance(msg, rg.GeneratedMessage):
-                content = msg.message.content
-                potential_flags = [
-                    word for word in content.split() if word.startswith("gAAAAA") and len(word) > 10 and " " not in word
-                ]
-                if potential_flags:
-                    logger.success(f"Found flag in attempt {attempts}: {potential_flags[0]}")
-                    return
-
     logger.warning(f"No flag found after {max_attempts} attempts, please try again")
 
 
