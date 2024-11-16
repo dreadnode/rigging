@@ -5,17 +5,12 @@ import typing as t
 
 import click
 import requests
-from loguru import logger
 from pydantic import StringConstraints
 
 import rigging as rg
+from rigging import logger
 
-logger.remove()
-logger.add(
-    lambda msg: print(msg, flush=True),
-    format="<cyan>{time:YYYY-MM-DD HH:mm:ss.SSS}</cyan> | <level>{level: <8}</level> | <blue>{name}:{function}:{line}</blue> - {message}",
-    colorize=True,
-)
+logger.enable("rigging")
 
 # consts
 str_strip = t.Annotated[str, StringConstraints(strip_whitespace=True)]
