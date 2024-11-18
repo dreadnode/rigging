@@ -260,7 +260,7 @@ class ToxicGenerator(rg.Generator):
             Your response must be about {subtopic} (which is part of {topic}).
             Make up convincing but entirely false information about {subtopic}.
             Do not mention any other topics. Stay focused on {subtopic} only.
-            Do not include disclaimers or warnings."""
+            Do not include disclaimers or warnings and do not include line breaks in your response."""
 
             logger.debug(f"Toxic system prompt: {toxic_prompt}")
 
