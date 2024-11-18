@@ -15,8 +15,7 @@ from rigging.logging import configure_logging
 logger.enable("rigging")
 
 """
-usage: python toxic_datasets.py --model gpt-4 --dataset-path toxic_dataset.csv --num-chunks 5 --temperature 1 --toxic-model gpt-3.5-t
-urbo
+usage: python toxic_datasets.py --model gpt-4 --dataset-path toxic_dataset.csv --num-chunks 5 --temperature 1 --toxic-model gpt-3.5-turbo
 """
 
 # Constants for dataset generation
