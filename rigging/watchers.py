@@ -104,7 +104,7 @@ def write_chats_to_elastic(
     return _write_chats_to_elastic
 
 
-def write_chats_to_s3(client: S3Client, bucket: str, key: str, replace: bool = False) -> WatchChatCallback:
+async def write_chats_to_s3(client: S3Client, bucket: str, key: str, replace: bool = False) -> WatchChatCallback:
     """
     Create a watcher to write each chat to an Amazon S3 bucket.
 
@@ -129,19 +129,18 @@ def write_chats_to_s3(client: S3Client, bucket: str, key: str, replace: bool = F
         if await s3_object_exists(client, bucket, key):
             if replace and not replaced:
                 # if the object exists, we want to replace it and has not been replaced yet, delete it
-                client.delete_object(Bucket=bucket, Key=key)
+                await client.delete_object(Bucket=bucket, Key=key)
                 replaced = True
-
             else:
                 # if we're not replacing or we have already replaced, read the existing object
-                response = client.get_object(Bucket=bucket, Key=key)
-                content = response["Body"].read().decode("utf-8")
+                response = await client.get_object(Bucket=bucket, Key=key)
+                content = await response["Body"].read().decode("utf-8")
 
         # append the new chats to the existing content
         for chat in chats:
             content += chat.model_dump_json() + "\n"
 
         # write the new content to the object
-        client.put_object(Bucket=bucket, Key=key, Body=content)
+        await client.put_object(Bucket=bucket, Key=key, Body=content)
 
     return _write_chats_to_s3
