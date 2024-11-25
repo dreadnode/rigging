@@ -1,0 +1,64 @@
+name: Update PR Description with Rigging
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  update-description:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+        with:
+          fetch-depth: 0
+
+      # Get the diff first
+      - name: Get Diff
+        id: diff
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          MERGE_BASE=$(git merge-base HEAD origin/${{ github.base_ref }})
+          # Encode the diff as base64 to preserve all characters
+          DIFF=$(git diff $MERGE_BASE..HEAD | base64 -w 0)
+          echo "diff=$DIFF" >> $GITHUB_OUTPUT
+
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b #v5.0.3
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip cache purge
+          pip install rigging[all]
+
+      # Generate the description using the diff
+      - name: Generate PR Description
+        id: description
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GIT_DIFF: ${{ steps.diff.outputs.diff }}
+        run: |
+          python .github/scripts/rigging_pr_decorator.py
+
+      # Update the PR description
+      - name: Update PR Description
+        uses: nefrob/pr-description@4dcc9f3ad5ec06b2a197c5f8f93db5e69d2fdca7 #v1.2.0
+        with:
+          content: |
+            ## AI-Generated Summary
+
+            ${{ steps.description.outputs.content }}
+
+            ---
+
+            This summary was generated with ❤️ by [rigging](https://rigging.dreadnode.io/)
+          regex: ".*"
+          regexFlags: s
+          token: ${{ secrets.GITHUB_TOKEN }}
