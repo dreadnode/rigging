@@ -2,9 +2,9 @@ name: Lint, Typecheck, and Test
 
 on:
   push:
-    branches: [ main, dev ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, dev ]
+    branches: [ main ]
 
 jobs:
   ci:
@@ -16,49 +16,48 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - name: Checkout code
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
-    - name: Set up Python
-      uses: actions/setup-python@v2
+    - name: Setup Python ${{ matrix.python-version }}
+      uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b
       with:
         python-version: ${{ matrix.python-version }}
 
-    - name: Setup Poetry
-      uses: abatilo/actions-poetry@v2
+    - name: Install Poetry
+      uses: abatilo/actions-poetry@e78f54a89cb052fff327414dd9ff010b5d2b4dbd
 
-    - name: Configure local .venv
+    - name: Configure Poetry
       run: |
         poetry config virtualenvs.create true --local
         poetry config virtualenvs.in-project true --local
 
-    - uses: actions/cache@v3
-      name: Cache Dependencies
+    - name: Cache dependencies
+      uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a
       with:
         path: ./.venv
-        key: venv-${{ hashFiles('poetry.lock') }}
+        key: venv-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
+        restore-keys: |
+          venv-${{ runner.os }}-py${{ matrix.python-version }}-
 
-    - name: Install dependencies
+    - name: Install package
       run: poetry install --all-extras
 
-    - name: Verify version match
+    - name: Validate version
       run: |
-        toml_version=$(grep -oP '(?<=version = ")[^"]+' pyproject.toml | head -1)
-        package_version=$(grep -oP '(?<=__version__ = ")[^"]+' rigging/__init__.py)
-        
-        if [ "$toml_version" != "$package_version" ]; then
-          echo "Version mismatch detected!"
-          echo "Version in pyproject.toml: $toml_version"
-          echo "Version in package: $package_version"
+        POETRY_VERSION=$(poetry version -s)
+        INIT_VERSION=$(python -c "import rigging; print(rigging.__version__)")
+
+        if [ "$POETRY_VERSION" != "$INIT_VERSION" ]; then
+          echo "Version mismatch: pyproject.toml ($POETRY_VERSION) != __init__.py ($INIT_VERSION)"
           exit 1
-        else
-          echo "Versions match: $toml_version"
         fi
 
-    - name: Linting
-      run: poetry run ruff rigging/
+    - name: Lint
+      run: poetry run ruff check --output-format=github rigging
 
     - name: Typecheck
-      run: poetry run mypy rigging/
+      run: poetry run mypy rigging
 
-    - name: Tests
+    - name: Test
       run: poetry run pytest

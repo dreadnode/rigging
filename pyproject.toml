@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "rigging"
-version = "2.0.7"
+version = "2.0.8"
 description = "LLM Interaction Framework"
 authors = ["Nick Landers <monoxgas@gmail.com>"]
 license = "MIT"
@@ -10,7 +10,7 @@ packages = [{ include = "rigging" }]
 
 [tool.poetry.dependencies]
 python = "^3.9"
-pydantic = "^2.7.3,!=2.10.0"
+pydantic = "^2.7.3"
 pydantic-xml = "^2.11.0"
 loguru = "^0.7.2"
 litellm = "^1.44.7"
