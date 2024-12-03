@@ -36,7 +36,7 @@ jobs:
         run: |
           TAG_VERSION=${GITHUB_REF#refs/tags/v}
           POETRY_VERSION=$(poetry version -s)
-          INIT_VERSION=$(python -c "import rigging; print(rigging.__version__)")
+          INIT_VERSION=$(poetry run python -c "import rigging; print(rigging.__version__)")
 
           if ! [[ $TAG_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Invalid tag format: $TAG_VERSION. Must be vX.X.X"

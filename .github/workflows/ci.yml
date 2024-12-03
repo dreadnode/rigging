@@ -46,7 +46,7 @@ jobs:
     - name: Validate version
       run: |
         POETRY_VERSION=$(poetry version -s)
-        INIT_VERSION=$(python -c "import rigging; print(rigging.__version__)")
+        INIT_VERSION=$(poetry run python -c "import rigging; print(rigging.__version__)")
 
         if [ "$POETRY_VERSION" != "$INIT_VERSION" ]; then
           echo "Version mismatch: pyproject.toml ($POETRY_VERSION) != __init__.py ($INIT_VERSION)"
