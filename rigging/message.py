@@ -27,10 +27,8 @@ from pydantic import (
 )
 
 from rigging.error import MissingModelError
+from rigging.model import Model, ModelT  # noqa: TCH001
 from rigging.parsing import try_parse_many
-
-if t.TYPE_CHECKING:
-    from rigging.model import Model, ModelT
 
 Role = t.Literal["system", "user", "assistant"]
 """The role of a message. Can be 'system', 'user', or 'assistant'."""
