@@ -77,8 +77,8 @@ async def generate_pr_description(diff_text: str) -> str:
     )
 
     generator = rg.get_generator("pr_decorator!gpt-4-turbo-preview", params=params)
-    prompt = f"""You are a helpful AI that generates clear and concise PR descriptions.
-    Analyze the provided diff between {PRDiffData.xml_example()} tags and create a summary using exactly this format:
+    prompt = f"""You are a helpful AI that generates clear and concise PR descriptions. Analyze the provided git diff and create a summary, specifically focusing on the elements of the code that has changed
+    including high severity functions etc using exactly this format:
 
     ### PR Summary
 
@@ -87,14 +87,10 @@ async def generate_pr_description(diff_text: str) -> str:
 
     #### Key Modifications
     1. **<modification title>**: <description>
-    2. **<modification title>**: <description>
-    3. **<modification title>**: <description>
     (continue as needed)
 
     #### Potential Impact
     - <impact point 1>
-    - <impact point 2>
-    - <impact point 3>
     (continue as needed)
 
     Here is the PR diff to analyze:
