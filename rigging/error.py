@@ -10,6 +10,17 @@ if t.TYPE_CHECKING:
     from rigging.message import Message
 
 
+class UnknownToolError(Exception):
+    """
+    Raised when the an api tool call is made for an unknown tool.
+    """
+
+    def __init__(self, tool_name: str):
+        super().__init__(f"Unknown tool call was requested for '{tool_name}'")
+        self.tool_name = tool_name
+        """The name of the tool which was unknown."""
+
+
 class ExhaustedMaxRoundsError(Exception):
     """
     Raised when the maximum number of rounds is exceeded while generating.

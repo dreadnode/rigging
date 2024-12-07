@@ -7,6 +7,7 @@ They are the primary way to interact with the generator.
 from __future__ import annotations
 
 import asyncio
+import types
 import typing as t
 import warnings
 from copy import deepcopy
@@ -18,12 +19,13 @@ from uuid import UUID, uuid4
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, ValidationError, computed_field
 
-from rigging.error import MessagesExhaustedMaxRoundsError
+from rigging.error import MessagesExhaustedMaxRoundsError, UnknownToolError
 from rigging.generator import GenerateParams, Generator, get_generator
 from rigging.generator.base import GeneratedMessage, StopReason, Usage  # noqa: TCH001
 from rigging.message import Message, MessageDict, Messages
 from rigging.model import Model, ModelT, SystemErrorModel, ValidationErrorModel
-from rigging.tool import Tool, ToolCalls, ToolDescriptionList, ToolResult, ToolResults, system_tool_extension
+from rigging.tool.api import ApiTool, ToolChoice
+from rigging.tool.native import Tool, ToolCalls, ToolDescriptionList, ToolResult, ToolResults, system_tool_extension
 
 if t.TYPE_CHECKING:
     from elasticsearch import AsyncElasticsearch
@@ -505,9 +507,10 @@ class ChatPipeline:
         # (callback, attempt_recovery, drop_dialog, max_rounds)
         self.until_callbacks: list[tuple[UntilMessageCallback, bool, bool, int]] = []
         self.until_types: list[type[Model]] = []
-        self.until_tools: list[Tool] = []
-        self.inject_tool_prompt: bool = True
-        self.force_tool: bool = False
+        self.api_tools: list[ApiTool] = []
+        self.native_tools: list[Tool] = []
+        self.inject_native_tool_prompt: bool = True
+        self.force_native_tool: bool = False
         self.then_callbacks: list[ThenChatCallback] = []
         self.map_callbacks: list[MapChatCallback] = []
         self.watch_callbacks: list[WatchChatCallback] = watch_callbacks or []
@@ -644,9 +647,9 @@ class ChatPipeline:
         if not only_messages:
             new.until_callbacks = self.until_callbacks.copy()
             new.until_types = self.until_types.copy()
-            new.until_tools = self.until_tools.copy()
-            new.inject_tool_prompt = self.inject_tool_prompt
-            new.force_tool = self.force_tool
+            new.native_tools = self.native_tools.copy()
+            new.inject_native_tool_prompt = self.inject_native_tool_prompt
+            new.force_native_tool = self.force_native_tool
             new.metadata = deepcopy(self.metadata)
             new.then_callbacks = self.then_callbacks.copy()
             new.map_callbacks = self.map_callbacks.copy()
@@ -777,6 +780,9 @@ class ChatPipeline:
         ```
 
         Note:
+            Users might prefer the `.then` or `.map` callbacks as they are easier to work with.
+
+        Note:
             In general, your callback function should always include the message that was passed to it.
 
             Whether these messages get used or discarded in the next round depends on `attempt_recovery`.
@@ -809,7 +815,68 @@ class ChatPipeline:
         self.generator = self.generator.wrap(func)
         return self
 
+    @t.overload
+    def using(self, *tools: t.Callable[..., t.Any], choice: ToolChoice | None = None) -> ChatPipeline:
+        ...
+
+    @t.overload
     def using(
+        self,
+        *tools: Tool,
+        force: bool = False,
+        attempt_recovery: bool = True,
+        drop_dialog: bool = False,
+        max_rounds: int = DEFAULT_MAX_ROUNDS,
+        inject_prompt: bool | None = None,
+    ) -> ChatPipeline:
+        ...
+
+    def using(
+        self,
+        *tools: Tool | t.Callable[..., t.Any],
+        choice: ToolChoice | None = None,
+        force: bool = False,
+        attempt_recovery: bool = True,
+        drop_dialog: bool = False,
+        max_rounds: int = DEFAULT_MAX_ROUNDS,
+        inject_prompt: bool | None = None,
+    ) -> ChatPipeline:
+        """
+        Adds a tool or a sequence of tools to participate in the generation process.
+
+        These can be either:
+        - Native tools (rigging.tool.native.Tool) which use manual parsing and schema insertion
+        - API tools (rigging.tool.api.ApiTool or any callable) which uses api-provided tool integrations
+
+        Args:
+            tools: The tool or sequence of tools to be added.
+            force: Whether to force the use of the tool(s) at least once.
+            attempt_recovery: Whether to attempt recovery if the tool(s) fail by providing
+                validation feedback to the model before the next round.
+            drop_dialog: Whether to drop the intermediate dialog of recovery efforts
+                before returning the final chat to the caller.
+            max_rounds: The maximum number of rounds to attempt recovery.
+            inject_prompt: Whether to inject the tool guidance prompt into a
+                system message.and will override self.inject_tool_prompt if provided.
+
+        Returns:
+            The updated ChatPipeline object.
+        """
+        if all(isinstance(tool, Tool) for tool in tools):
+            return self.using_native_tools(
+                *t.cast(list[Tool], tools),
+                force=force,
+                attempt_recovery=attempt_recovery,
+                drop_dialog=drop_dialog,
+                max_rounds=max_rounds,
+                inject_prompt=inject_prompt,
+            )
+        elif all(isinstance(tool, types.FunctionType) for tool in tools):
+            return self.using_api_tools(*t.cast(list[ApiTool], tools), choice=choice)
+        else:
+            raise ValueError("All tools must be of the same type (api or native)")
+
+    def using_native_tools(
         self,
         *tools: Tool,
         force: bool = False,
@@ -835,18 +902,49 @@ class ChatPipeline:
         Returns:
             The updated ChatPipeline object.
         """
-        self.until_tools += tools
-        self.inject_tool_prompt = inject_prompt or self.inject_tool_prompt
-        self.force_tool = force
-        if next((c for c in self.until_callbacks if c[0] == self._until_tools_callback), None) is None:
+        if self.api_tools:
+            raise ValueError("Cannot mix native and API tools in the same pipeline")
+        self.native_tools += tools
+        self.inject_native_tool_prompt = inject_prompt or self.inject_native_tool_prompt
+        self.force_native_tool = force
+        if next((c for c in self.until_callbacks if c[0] == self._until_native_tools_callback), None) is None:
             self.until_callbacks.append(
                 (
-                    self._until_tools_callback,
+                    self._until_native_tools_callback,
                     attempt_recovery,
                     drop_dialog,
                     max_rounds,
                 )
             )
+        return self
+
+    def using_api_tools(
+        self, *tools: ApiTool | t.Callable[..., t.Any], choice: ToolChoice | None = None
+    ) -> ChatPipeline:
+        """
+        Adds an API tool or a sequence of API tools to participate in the generation process.
+
+        Args:
+            tools: The API tool or sequence of API tools to be added.
+
+        Returns:
+            The updated ChatPipeline object.
+        """
+        if self.native_tools:
+            raise ValueError("Cannot mix native and API tools in the same pipeline")
+
+        self.api_tools += [tool if isinstance(tool, ApiTool) else ApiTool(tool) for tool in tools]
+
+        if self.params is None:
+            self.params = GenerateParams()
+        self.params.tools = [tool.definition for tool in self.api_tools]
+
+        if choice is not None:
+            self.params.tool_choice = choice
+
+        if next((c for c in self.then_callbacks if c == self._then_api_tools), None) is None:
+            self.then_callbacks.append(self._then_api_tools)
+
         return self
 
     def until_parsed_as(
@@ -877,7 +975,7 @@ class ChatPipeline:
 
         return self
 
-    def _until_tools_callback(self, message: Message) -> tuple[bool, list[Message]]:
+    def _until_native_tools_callback(self, message: Message) -> tuple[bool, list[Message]]:
         generated: list[Message] = [message]
 
         try:
@@ -887,23 +985,23 @@ class ChatPipeline:
             return (True, generated)
 
         if tool_calls is None:
-            if self.force_tool:
+            if self.force_native_tool:
                 logger.debug("No tool calls or types, returning error")
                 generated.append(Message.from_model(SystemErrorModel(content="You must use a tool")))
             else:
                 logger.debug("No tool calls or types, returning message")
-            return (self.force_tool, generated)
+            return (self.force_native_tool, generated)
 
-        self.force_tool = False
+        self.force_native_tool = False
 
         tool_results: list[ToolResult] = []
         errors: list[SystemErrorModel] = []
         for call in tool_calls.calls:
-            if call.tool not in [tool.name for tool in self.until_tools]:
+            if call.tool not in [tool.name for tool in self.native_tools]:
                 errors.append(SystemErrorModel(content=f"Tool '{call.tool}' does not exist"))
                 continue
 
-            tool = next(t for t in self.until_tools if t.name == call.tool)
+            tool = next(t for t in self.native_tools if t.name == call.tool)
             tool_description = tool.get_description()
 
             if call.function not in [f.name for f in tool_description.functions]:
@@ -918,6 +1016,34 @@ class ChatPipeline:
             generated.append(Message.from_model(ToolResults(results=tool_results)))
 
         return (True, generated)
+
+    async def _then_api_tools(self, chat: Chat) -> Chat | None:
+        # If there are no tool calls, we can continue
+        if not chat.last.tool_calls:
+            return None
+
+        # Slightly strange cloning behavior here, but we are abusing
+        # the .then() mechanic slightly and want our pipeline to maintain
+        # all existing state
+
+        next_pipeline = self.clone()
+        next_pipeline.chat = chat.clone()
+
+        for tool_call in chat.last.tool_calls:
+            tool = next((t for t in self.api_tools if t.name == tool_call.function.name), None)
+            if tool is None:
+                raise UnknownToolError(tool_call.function.name)
+            next_pipeline.add(await tool.execute(tool_call))
+
+        # Need to prevent infinite loops and treat tool_choice like
+        # an ephemeral setting which resets after each tool call.
+        #
+        # TODO: Seems like this is surfacing a larger architectural issue we should look at
+
+        if next_pipeline.params:
+            next_pipeline.params.tool_choice = None
+
+        return await next_pipeline.run()
 
     def _until_parse_callback(self, message: Message) -> tuple[bool, list[Message]]:
         should_continue: bool = False
@@ -1034,10 +1160,10 @@ class ChatPipeline:
         return ChatList(chats)
 
     def _pre_run(self) -> None:
-        if self.until_tools:
-            if self.inject_tool_prompt:
-                self.chat.inject_tool_prompt(self.until_tools)
-                self.inject_tool_prompt = False
+        if self.native_tools:
+            if self.inject_native_tool_prompt:
+                self.chat.inject_tool_prompt(self.native_tools)
+                self.inject_native_tool_prompt = False
 
             # TODO: This can cause issues when certain APIs do not return
             # the stop sequence as part of the response. This behavior

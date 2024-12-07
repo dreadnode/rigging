@@ -103,8 +103,23 @@ class LiteLLMGenerator(Generator):
             usage = response.usage.model_dump()  # type: ignore
             usage["input_tokens"] = usage.pop("prompt_tokens")
             usage["output_tokens"] = usage.pop("completion_tokens")
+
+        if isinstance(choice, litellm.types.utils.StreamingChoices):
+            raise ValueError("Streaming choices are not supported")
+
+        tool_calls: list[dict[str, t.Any]] | None = None
+        if (
+            isinstance(choice.message, litellm.types.utils.Message)
+            and choice.message.tool_calls is not None
+            and all(
+                isinstance(call, litellm.types.utils.ChatCompletionMessageToolCall)
+                for call in choice.message.tool_calls
+            )
+        ):
+            tool_calls = [call.model_dump() for call in choice.message.tool_calls]
+
         return GeneratedMessage(
-            message=Message(role="assistant", content=choice.message.content),  # type: ignore
+            message=Message(role="assistant", content=choice.message.content, tool_calls=tool_calls),
             stop_reason=choice.finish_reason,
             usage=usage,
             extra={"response_id": response.id},
