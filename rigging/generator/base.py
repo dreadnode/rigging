@@ -3,6 +3,10 @@ from __future__ import annotations
 import inspect
 import typing as t
 
+# if we import this in the TYPE_CHECKING block, it will break models validation with:
+#   pydantic.errors.PydanticUserError: `GenerateParams` is not fully defined;
+#   you should define `ChatCompletionToolParam`, then call `GenerateParams.model_rebuild()`.
+from litellm.types.llms.openai import ChatCompletionToolParam  # noqa: TCH002
 from loguru import logger
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 from typing_extensions import Self
@@ -25,8 +29,7 @@ CallableT = t.TypeVar("CallableT", bound=t.Callable[..., t.Any])
 
 @t.runtime_checkable
 class LazyGenerator(t.Protocol):
-    def __call__(self) -> type[Generator]:
-        ...
+    def __call__(self) -> type[Generator]: ...
 
 
 g_providers: dict[str, type[Generator] | LazyGenerator] = {}
@@ -82,6 +85,9 @@ class GenerateParams(BaseModel):
 
     extra: dict[str, t.Any] = Field(default_factory=dict)
     """Extra parameters to be passed to the API."""
+
+    tools: list[ChatCompletionToolParam] | None = None
+    """The tools available to the LLM."""
 
     @field_validator("stop", mode="before")
     def validate_stop(cls, value: t.Any) -> t.Any:
@@ -361,16 +367,14 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[MessageDict],
         params: GenerateParams | None = None,
-    ) -> ChatPipeline:
-        ...
+    ) -> ChatPipeline: ...
 
     @t.overload
     def chat(
         self,
         messages: t.Sequence[Message] | MessageDict | Message | str | None = None,
         params: GenerateParams | None = None,
-    ) -> ChatPipeline:
-        ...
+    ) -> ChatPipeline: ...
 
     def chat(
         self,
@@ -439,8 +443,7 @@ def chat(
     generator: Generator,
     messages: t.Sequence[MessageDict],
     params: GenerateParams | None = None,
-) -> ChatPipeline:
-    ...
+) -> ChatPipeline: ...
 
 
 @t.overload
@@ -448,8 +451,7 @@ def chat(
     generator: Generator,
     messages: t.Sequence[Message] | MessageDict | Message | str | None = None,
     params: GenerateParams | None = None,
-) -> ChatPipeline:
-    ...
+) -> ChatPipeline: ...
 
 
 def chat(

@@ -104,7 +104,12 @@ class LiteLLMGenerator(Generator):
             usage["input_tokens"] = usage.pop("prompt_tokens")
             usage["output_tokens"] = usage.pop("completion_tokens")
         return GeneratedMessage(
-            message=Message(role="assistant", content=choice.message.content),  # type: ignore
+            message=Message(
+                role="assistant",
+                # ENG-423: this can be None if choice.finish_reason == 'tool_calls'
+                content=choice.message.content or "",  # type: ignore
+                tool_calls=choice.message.tool_calls,  # type: ignore
+            ),
             stop_reason=choice.finish_reason,
             usage=usage,
             extra={"response_id": response.id},
