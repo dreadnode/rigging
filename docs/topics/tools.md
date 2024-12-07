@@ -1,12 +1,115 @@
 # Tools
 
-By popular demand, Rigging includes a basic helper layer to provide the concept of "Tools" to a model. It's
-debatable whether this approach (or more specifically the way we present it to narrative models) is a good idea,
-but it's a fast way to extend the capability of your generation into arbitrary code functions that you define.
+Rigging supports the concept of tools through 2 implementations:
 
-## Writing Tools
+- **'API' Tools**: These are API-level tool definitions which require a support from a model provder.
+- **'Native' Tools**: These are internally defined, parsed, and handled by Rigging (the original implementation).
 
-Much like models, tools inherit from a base [`rg.Tool`][rigging.tool.Tool] class. These subclasses are required
+In most cases, users should opt for API tools with better provider integrations and performance.
+
+
+=== "API Tools"
+
+    ```py
+    from typing import Annotated
+    import requests
+    import rigging as rg
+ 
+    def get_weather(city: Annotated[str, "The city name to get weather for"]) -> str:
+       "A tool to get the weather for a location"
+       try:
+          city = city.replace(" ", "+")
+          return requests.get(f"http://wttr.in/{city}?format=2").text
+       except:
+          return "Failed to call the API"
+ 
+    chat = (
+       await 
+       rg.get_generator("gpt-4o-mini")
+       .chat("How is the weather in london?")
+       .using(get_weather)
+       .run()
+    )
+
+    # [user]: How is the weather in london?
+
+    # [assistant]: 
+    # |- get_weather({"city":"London"})
+ 
+    # [tool]: 🌦 🌡️+6°C 🌬️↘35km/h
+ 
+    # [assistant]: The weather in London is currently overcast with light rain ...
+    ```
+
+=== "Native Tools"
+
+    ```py
+    from typing import Annotated
+    import requests
+    import rigging as rg
+    
+    class WeatherTool(rg.Tool):
+       name = "weather"
+       description = "A tool to get the weather for a location"
+    
+       def get_for_city(self, city: Annotated[str, "The city name to get weather for"]) -> str:
+          try:
+                city = city.replace(" ", "+")
+                return requests.get(f"http://wttr.in/{city}?format=2").text
+          except:
+                return "Failed to call the API"
+    
+    chat = (
+       await 
+       rg.get_generator("gpt-4o-mini")
+       .chat("How is the weather in london?")
+       .using(WeatherTool())
+       .run()
+    )
+    ```
+
+
+## API Tools
+
+API tools are defined as standard callables (async supported) and get wrapped in the [`rg.ApiTool`][rigging.tool.ApiTool] class.
+We use Pydantic to introspect the callable and extract schema information from the signature.
+
+We automatically get some great benefits:
+
+1. API-compatible schema information from any function
+2. Robust argument validation for incoming inference data
+3. Flexible type handling for BaseModels, Fields, TypedDicts, and Dataclasses
+
+```py
+from typing_extensions import TypedDict
+from typing import Annotated
+from pydantic import Field
+import rigging as rg
+
+class Filters(TypedDict):
+    city: Annotated[str | None, Field(description="The city to filter by")]
+    age: int | None
+
+def lookup_person(name: Annotated[str, "Full name"], filters: Filters) -> str:
+    "Search the database for a person"
+    ...
+
+
+tool = rg.ApiTool(lookup_person)
+
+print(tool.name)
+# lookup_person
+
+print(tool.description)
+# Search the database for a person
+
+print(tool.schema)
+# {'$defs': {'Filters': {'properties': ...}
+```
+
+## Native Tools
+
+Much like models, native tools inherit from a base [`rg.Tool`][rigging.tool.Tool] class. These subclasses are required
 to provide at least 1 function along with a name and description property to present to the LLM during generation.
 
 Every function you define and the parameters within are required to carry both type hints and annotations that
@@ -29,7 +132,7 @@ class WeatherTool(rg.Tool):
             return "Failed to call the API"
 ```
 
-Integrating tools into the generation process is as easy as passing an instantiation
+Integrating native tools into the generation process is as easy as passing an instantiation
 of your tool class to the [`ChatPipeline.using()`][rigging.chat.ChatPipeline.using] method.
 
 ```py
@@ -61,7 +164,7 @@ of the generation process.
     progresses. Whether this is a good software design decision is up to you.
 
     
-## Under the Hood
+### Under the Hood
 
 If you are curious what is occuring "under the hood" (as you should), you can
 print the entire conversation text and see our injected system prompt of
@@ -127,19 +230,3 @@ use a tool, please do so before you continue the conversation.
 
 Every tool assigned to the `ChatPipeline` will be processed by calling [`.get_description()`][rigging.tool.Tool.get_description]
 and a minimal tool-use prompt will be injected as, or appended to, the system message.
-
-!!! warning "The Curse of Complexity"
-
-    Everything we add to the context window of a model introduces variance to it's outputs.
-    Even the way we name parameters and tools can have a large impact on whether a model
-    elects to output a tool call and how frequently or late it does so. For this reason
-    tool calling in Rigging might not be the best way to accomplish your goals.
-
-    Consider different approaches to your problem like isolating fixed input/output
-    pairs and building a dedicated generation process around those, or pushing the
-    model to think more about selecting from a series of "actions" it should take
-    rather than "tools" it should use are part of a conversation.
-
-    You also might consider a pipeline where incoming messages are scanned against
-    a list of possible tools, and fork the generation process with something like
-    [`.then`][rigging.chat.ChatPipeline.then] instead. 

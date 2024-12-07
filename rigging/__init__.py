@@ -15,7 +15,7 @@ from rigging.interact import interact
 from rigging.message import ContentImageUrl, ContentText, Message, MessageDict, Messages
 from rigging.model import Model, attr, element, wrapped
 from rigging.prompt import Ctx, Prompt, prompt
-from rigging.tool import Tool
+from rigging.tool import ApiTool, Tool
 from rigging.util import await_
 
 __version__ = "2.0.8"
@@ -28,6 +28,7 @@ __all__ = [
     "ContentText",
     "ContentImageUrl",
     "Tool",
+    "ApiTool",
     "Model",
     "attr",
     "element",
