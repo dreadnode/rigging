@@ -1,5 +1,5 @@
 """
-This module defines handles tool interaction with rigging generation.
+This module handles tools using internal flows, callbacks, and parsing with rigging models.
 """
 
 from __future__ import annotations
@@ -138,7 +138,7 @@ class ToolResults(Model, tag="tool_results"):
 
 class Tool:
     """
-    Base class for implementing tools in the Rigging system.
+    Base class for implementing internally-managed tools in the Rigging system.
 
     You should subclass this to define your own tools:
 

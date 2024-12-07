@@ -9,6 +9,7 @@ from typing_extensions import Self
 
 from rigging.error import InvalidModelSpecifiedError
 from rigging.message import Message, MessageDict
+from rigging.tool.api import ToolChoice, ToolDefinition
 
 if t.TYPE_CHECKING:
     from rigging.chat import ChatPipeline, WatchChatCallback
@@ -80,8 +81,25 @@ class GenerateParams(BaseModel):
     seed: int | None = None
     """The random seed."""
 
+    tools: list[ToolDefinition] | None = None
+    """The tools to be used in the generation."""
+
+    tool_choice: ToolChoice | None = None
+    """The tool choice to be used in the generation."""
+
+    parallel_tool_calls: bool | None = None
+    """Whether to run allow tool calls in parallel."""
+
     extra: dict[str, t.Any] = Field(default_factory=dict)
     """Extra parameters to be passed to the API."""
+
+    @field_validator("tools", mode="before")
+    def validate_tools(cls, value: t.Any) -> t.Any:
+        if isinstance(value, list) and all(isinstance(v, dict) for v in value):
+            return [ToolDefinition.model_validate(v) for v in value]
+        elif isinstance(value, list) and all(isinstance(v, str) for v in value):
+            return [ToolDefinition.model_validate_json(v) for v in value]
+        return value
 
     @field_validator("stop", mode="before")
     def validate_stop(cls, value: t.Any) -> t.Any:
@@ -107,10 +125,9 @@ class GenerateParams(BaseModel):
 
         updates: dict[str, t.Any] = {}
         for other in [o for o in others if o is not None]:
-            other_dict = other.model_dump(exclude_unset=True)
-            for name, value in other_dict.items():
-                if value is not None:
-                    updates[name] = value
+            other_dict = other.model_dump(exclude_unset=True, exclude_none=True)
+            for name in other_dict.keys():
+                updates[name] = getattr(other, name)
 
         return self.model_copy(update=updates)
 
@@ -121,13 +138,13 @@ class GenerateParams(BaseModel):
         Returns:
             The parameters as a dictionary.
         """
-        params = self.model_dump(exclude_unset=True)
+        params = self.model_dump(exclude_none=True)
         if "extra" in params:
             params.update(params.pop("extra"))
         return params
 
 
-StopReason = t.Literal["stop", "length", "content_filter", "unknown"]
+StopReason = t.Literal["stop", "length", "content_filter", "tool_calls", "unknown"]
 """Reporting reason for generation completing."""
 
 
@@ -140,6 +157,8 @@ def convert_stop_reason(reason: t.Optional[str]) -> StopReason:
         return "length"
     elif reason in ["content_filter"]:
         return "content_filter"
+    elif reason and "tool" in reason:
+        return "tool_calls"
     return "unknown"
 
 
