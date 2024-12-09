@@ -10,7 +10,7 @@ import warnings
 from functools import cached_property
 
 from openai.lib._pydantic import to_strict_json_schema
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel, TypeAdapter, field_validator
 
 if t.TYPE_CHECKING:
     from rigging.message import Message
@@ -36,6 +36,29 @@ class FunctionDefinition(BaseModel):
     name: str
     description: t.Optional[str] = None
     parameters: t.Optional[dict[str, t.Any]] = None
+
+    # Some providers get picky about providing null or empty ({}) params.
+    # To ensure conformity, we'll always just create a hollow specification
+    # as if the function takes 0 params.
+    @field_validator("parameters", mode="before")
+    def validate_parameters(cls, value: t.Any) -> t.Any:
+        if value is None:
+            value = {}
+
+        if isinstance(value, dict):
+            if "additionalProperties" not in value:
+                value["additionalProperties"] = False
+
+            if "required" not in value:
+                value["required"] = []
+
+            if "properties" not in value:
+                value["properties"] = {}
+
+            if "type" not in value:
+                value["type"] = "object"
+
+        return value
 
 
 class ToolDefinition(BaseModel):
