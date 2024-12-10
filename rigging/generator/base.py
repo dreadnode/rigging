@@ -103,6 +103,8 @@ class GenerateParams(BaseModel):
 
     @field_validator("stop", mode="before")
     def validate_stop(cls, value: t.Any) -> t.Any:
+        if value is None:
+            return None
         if isinstance(value, str):
             return value.split(";")
         elif isinstance(value, list) and all(isinstance(v, str) for v in value):
