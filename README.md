@@ -20,7 +20,7 @@ Rigging is a lightweight LLM framework built on Pydantic XML. The goal is to mak
 - **Structured Pydantic models** can be used interchangably with unstructured text output.
 - LiteLLM as the default generator giving you **instant access to a huge array of models**.
 - Define prompts as python functions with **type hints and docstrings**.
-- Simple **tool calling** abilities for models which don't natively support it.
+- Simple **tool calling** even for models which don't support them at the API.
 - Store different models and configs as **simple connection strings** just like databases.
 - Chat templating, forking, continuations, generation parameter overloads, stripping segments, etc.
 - Async batching and fast iterations for **large scale generation**.
