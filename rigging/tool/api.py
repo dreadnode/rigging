@@ -29,7 +29,7 @@ class ToolChoiceDefinition(BaseModel):
 # different providers interpret it differently.
 
 # ToolChoice = t.Union[t.Literal["none"], t.Literal["auto"], ToolChoiceDefinition]
-ToolChoice = str | dict[str, t.Any]
+ToolChoice = t.Union[str, dict[str, t.Any]]
 
 
 class FunctionDefinition(BaseModel):
