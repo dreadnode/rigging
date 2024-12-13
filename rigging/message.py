@@ -29,9 +29,10 @@ from pydantic import (
 from rigging.error import MissingModelError
 from rigging.model import Model, ModelT  # noqa: TCH001
 from rigging.parsing import try_parse_many
+from rigging.tool.api import ToolCall
 
-Role = t.Literal["system", "user", "assistant"]
-"""The role of a message. Can be 'system', 'user', or 'assistant'."""
+Role = t.Literal["system", "user", "assistant", "tool"]
+"""The role of a message. Can be 'system', 'user', 'assistant', or 'tool'."""
 
 
 # Helper type for messages structured
@@ -76,17 +77,27 @@ class ParsedMessagePart(BaseModel):
 
 
 class ContentText(BaseModel):
+    """A text content part of a message."""
+
     type: t.Literal["text"] = "text"
+    """The type of content (always `text`)."""
     text: str
+    """The text content."""
 
 
 class ContentImageUrl(BaseModel):
+    """An image URL content part of a message."""
+
     class ImageUrl(BaseModel):
         url: str
+        """The URL of the image (supports base64-encoded)."""
         detail: t.Literal["auto", "low", "high"] = "auto"
+        """The detail level of the image."""
 
     type: t.Literal["image_url"] = "image_url"
+    """The type of content (always `image_url`)."""
     image_url: ImageUrl
+    """The image URL content."""
 
     @classmethod
     def from_file(cls, file: Path | str, *, mimetype: str | None = None) -> ContentImageUrl:
@@ -107,6 +118,8 @@ class ContentImageUrl(BaseModel):
 
 
 Content = t.Union[ContentText, ContentImageUrl]
+"""The types of content that can be included in a message."""
+ContentTypes = (ContentText, ContentImageUrl)
 
 
 class Message(BaseModel):
@@ -131,23 +144,47 @@ class Message(BaseModel):
     """The parsed message parts."""
     all_content: str | list[Content] = Field("", repr=False)
     """Interior str content or structured content parts."""
+    tool_calls: list[ToolCall] | None = Field(None)
+    """The tool calls associated with the message."""
+    tool_call_id: str | None = Field(None)
+    """Associated call id if this message is a response to a tool call."""
 
     def __init__(
         self,
         role: Role,
-        content: str | list[str | Content],
+        content: str | list[str | Content] | None = None,
         parts: t.Sequence[ParsedMessagePart] | None = None,
+        tool_calls: list[ToolCall] | list[dict[str, t.Any]] | None = None,
+        tool_call_id: str | None = None,
         **kwargs: t.Any,
     ):
+        # TODO: We default to an empty string, but this technically isn't
+        # correct. APIs typically support the concept of a null-content msg
+        if content is None:
+            content = ""
+
         if isinstance(content, str):
             content = dedent(content)
         else:
             content = [ContentText(text=dedent(part)) if isinstance(part, str) else part for part in content]
 
-        super().__init__(role=role, all_content=content, parts=parts or [], **kwargs)
+        if tool_calls is not None and not all(isinstance(call, ToolCall) for call in tool_calls):
+            tool_calls = [ToolCall.model_validate(call) if isinstance(call, dict) else call for call in tool_calls]
+
+        super().__init__(
+            role=role,
+            all_content=content,
+            parts=parts or [],
+            tool_calls=tool_calls,
+            tool_call_id=tool_call_id,
+            **kwargs,
+        )
 
     def __str__(self) -> str:
-        return f"[{self.role}]: {self.content}"
+        formatted = f"[{self.role}]: {self.content}"
+        for tool_call in self.tool_calls or []:
+            formatted += f"\n |- {tool_call}"
+        return formatted
 
     def __len__(self) -> int:
         return len(self.content)
@@ -223,7 +260,7 @@ class Message(BaseModel):
             The serialized message.
         """
         # `all_content` will be moved to `content`
-        return self.model_dump(include={"role", "all_content"})
+        return self.model_dump(include={"role", "all_content", "tool_calls", "tool_call_id"}, exclude_none=True)
 
     def force_str_content(self) -> Message:
         """
