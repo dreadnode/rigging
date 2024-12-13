@@ -7,6 +7,8 @@ Rigging supports the concept of tools through 2 implementations:
 
 In most cases, users should opt for API tools with better provider integrations and performance.
 
+Regardless of tool type, the [`ChatPipeline.using()`][rigging.chat.ChatPipeline.using] method should be
+used to register tools for use during generation.
 
 === "API Tools"
 
@@ -71,14 +73,17 @@ In most cases, users should opt for API tools with better provider integrations 
 
 ## API Tools
 
-API tools are defined as standard callables (async supported) and get wrapped in the [`rg.ApiTool`][rigging.tool.ApiTool] class.
-We use Pydantic to introspect the callable and extract schema information from the signature.
+API tools are defined as standard callables (async supported) and get wrapped in the 
+[`rg.ApiTool`][rigging.tool.ApiTool] class before being used during generation.
 
-We automatically get some great benefits:
+We use Pydantic to introspect the callable and extract schema information from the signature with some great benefits:
 
 1. API-compatible schema information from any function
 2. Robust argument validation for incoming inference data
 3. Flexible type handling for BaseModels, Fields, TypedDicts, and Dataclasses
+
+Just after the tool is converted, we take the function schema and add it to the 
+[GenerateParams.tools][rigging.generator.GenerateParams] inside the `ChatPipeline`.
 
 ```py
 from typing_extensions import TypedDict
@@ -106,6 +111,11 @@ print(tool.description)
 print(tool.schema)
 # {'$defs': {'Filters': {'properties': ...}
 ```
+
+Internally, we leverage [`ChatPipeline.then()`][rigging.chat.ChatPipeline.then] to handle responses from the model and
+attempt to resolve tool calls before starting another generation loop. This means that when you pass the tool function
+into your chat pipeline will define it's order amongst other callbacks like [`.then()`][rigging.chat.ChatPipeline.then]
+and [`.map()`][rigging.chat.ChatPipeline.map]
 
 ## Native Tools
 

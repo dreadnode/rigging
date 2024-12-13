@@ -225,6 +225,45 @@ outputs as structured objects, lists, dataclasses, and collect the underlying Ch
 
 Check out [Prompt Functions](topics/prompt-functions.md) for more information.
 
+
+### Tools
+
+Tools exposed to LLMs are super simple with Rigging. You can define a python function and make
+it available straight in the chat pipeline.
+
+```py
+import rigging as rg
+
+def add_numbers(x: float, y: float) -> float:
+    return x + y
+
+chat = (
+    await 
+    rg.get_generator("gpt-4o-mini")
+    .chat("What is 1337 + 42?")
+    .using(add_numbers)
+    .run()
+)
+
+print(chat.conversation)
+
+# [user]: What is 1337 + 42?
+#
+# [assistant]: 
+#  |- add_numbers({"x":1337,"y":42})
+#
+# [tool]: 1379
+#
+# [assistant]: 1337 + 42 equals 1379.
+```
+
+You can add as many tools as you'd like, document them and their parameters, and we support complex
+argument types like pydantic models and dataclasses. Your function can return standard objects to
+cast into strings, [`Message`][rigging.message.Message] objects, or even content parts for
+multi-modal generation ([`ContentImageUrl`][rigging.message.ContentImageUrl])
+
+Check out [Tools](topics/tools.md) for more information.
+
 ### Conversations
 
 Both [`ChatPipeline`][rigging.chat.ChatPipeline] and [`Chat`][rigging.chat.Chat] objects provide freedom

@@ -270,12 +270,17 @@ to register any number of callbacks before executing [`ChatPipeline.run()`][rigg
 ## Map Callbacks
 
 Rigging also allows you to map process a group of Chats all at once. This is particularly
-useful for instances of uses of [`.run_many()`][rigging.chat.ChatPipeline.run_many], 
-[`.run_batch()`][rigging.chat.ChatPipeline.run_batch], or their async variants.
+useful for instances of uses of [`.run_many()`][rigging.chat.ChatPipeline.run_many] and
+[`.run_batch()`][rigging.chat.ChatPipeline.run_batch].
 
 You also might want to take certain actions depending on the state of a set of Chats
 all at once. For instance, attempting re-generation if a certain % of Chats didn't
 meet some criteria.
+
+!!! note "Ordering"
+
+    `map()` callbacks are always executed before `then()` callbacks. Order is preserved
+    based on when they were installed into the `ChatPipeline`.
 
 === "Using .map()"
 

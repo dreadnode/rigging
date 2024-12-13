@@ -77,17 +77,27 @@ class ParsedMessagePart(BaseModel):
 
 
 class ContentText(BaseModel):
+    """A text content part of a message."""
+
     type: t.Literal["text"] = "text"
+    """The type of content (always `text`)."""
     text: str
+    """The text content."""
 
 
 class ContentImageUrl(BaseModel):
+    """An image URL content part of a message."""
+
     class ImageUrl(BaseModel):
         url: str
+        """The URL of the image (supports base64-encoded)."""
         detail: t.Literal["auto", "low", "high"] = "auto"
+        """The detail level of the image."""
 
     type: t.Literal["image_url"] = "image_url"
+    """The type of content (always `image_url`)."""
     image_url: ImageUrl
+    """The image URL content."""
 
     @classmethod
     def from_file(cls, file: Path | str, *, mimetype: str | None = None) -> ContentImageUrl:
@@ -108,6 +118,7 @@ class ContentImageUrl(BaseModel):
 
 
 Content = t.Union[ContentText, ContentImageUrl]
+"""The types of content that can be included in a message."""
 ContentTypes = (ContentText, ContentImageUrl)
 
 
