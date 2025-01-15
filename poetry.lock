@@ -2216,6 +2216,17 @@ pydantic = ">=1.10.8"
 pyyaml = "*"
 
 [[package]]
+name = "logfire-api"
+version = "3.1.1"
+description = "Shim for the Logfire SDK which does nothing unless Logfire is installed"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "logfire_api-3.1.1-py3-none-any.whl", hash = "sha256:00e6e015ffc9eccf5afc2c84a71b596999c00e64fdf886f797e1c781025f3b51"},
+    {file = "logfire_api-3.1.1.tar.gz", hash = "sha256:9eba3f3fb25d07d1fc1344c9cb1de4b9f9d55a2bc6b39c4d5f5227b6b1ea3532"},
+]
+
+[[package]]
 name = "loguru"
 version = "0.7.3"
 description = "Python logging made (stupidly) simple"
@@ -5740,4 +5751,4 @@ examples = ["aiodocker", "asyncssh", "click", "httpx", "websockets"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "f975f6ae0ec3cbd067465d8b38dbadc9398e48f549b2804bdc5c4572403db479"
+content-hash = "c4dbf8865bf5f419e85eb928edd48319901a65c488f95fdaabb7530618983424"

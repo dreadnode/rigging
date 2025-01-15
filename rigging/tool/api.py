@@ -12,6 +12,8 @@ from functools import cached_property
 from openai.lib._pydantic import to_strict_json_schema
 from pydantic import BaseModel, TypeAdapter, field_validator
 
+from rigging.tracing import tracer
+
 if t.TYPE_CHECKING:
     from rigging.message import Message
 
@@ -159,17 +161,21 @@ class ApiTool:
         if tool_call.function.name != self.name:
             raise ValueError(f"Function name {tool_call.function.name} does not match {self.name}")
 
-        args = json.loads(tool_call.function.arguments)
+        with tracer.span("Tool {name}()", name=self.name, tool_call_id=tool_call.id) as span:
+            args = json.loads(tool_call.function.arguments)
+            span.set_attribute("arguments", args)
 
-        # For some reason, this will throw a coroutine unawaited warning
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=RuntimeWarning)
-            self.type_adapter.validate_python(args)
+            # For some reason, this will throw a coroutine unawaited warning
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=RuntimeWarning)
+                self.type_adapter.validate_python(args)
 
-        if inspect.iscoroutinefunction(self._fn_to_call):
-            result = await self._fn_to_call(**args)
-        else:
-            result = self._fn_to_call(**args)
+            if inspect.iscoroutinefunction(self._fn_to_call):
+                result = await self._fn_to_call(**args)
+            else:
+                result = self._fn_to_call(**args)
+
+            span.set_attribute("result", result)
 
         message = Message(role="tool", tool_call_id=tool_call.id)
 

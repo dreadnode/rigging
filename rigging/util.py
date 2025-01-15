@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import functools
+import inspect
 import re
+import types
 import typing as t
 from threading import Thread
 
@@ -90,3 +93,45 @@ def to_snake(text: str) -> str:
 
 def to_xml_tag(text: str) -> str:
     return to_snake(text).replace("_", "-").strip("-")
+
+
+# Name resolution
+
+
+def get_qualified_name(obj: t.Callable[..., t.Any]) -> str:
+    if obj is None or not callable(obj):
+        return "unknown"
+
+    module = inspect.getmodule(obj)
+    module_name = module.__name__ if module else ""
+
+    # Partial functions
+    if isinstance(obj, functools.partial):
+        base_name = get_qualified_name(obj.func)
+        return f"partial({base_name})"
+
+    # Methods
+    if isinstance(obj, types.MethodType):
+        class_name = obj.__self__.__class__.__name__
+        method_name = obj.__func__.__name__
+        return f"{class_name}.{method_name}"
+
+    # Functions
+    if isinstance(obj, types.FunctionType):
+        # Check if it's a wrapped function
+        if hasattr(obj, "__wrapped__"):
+            original_name = get_qualified_name(obj.__wrapped__)
+            return f"wrapped({original_name})"
+
+        name = obj.__qualname__ or obj.__name__
+        return f"{module_name}.{name}" if module_name != "__main__" else name
+
+    # Callable classes
+    if callable(obj):
+        if isinstance(obj, type):
+            return obj.__qualname__
+        else:
+            return f"{obj.__class__.__qualname__}.__call__"
+
+    # Fallback
+    return obj.__class__.__qualname__
