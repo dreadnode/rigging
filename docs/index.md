@@ -3,7 +3,7 @@ Rigging is a lightweight LLM framework built on Pydantic XML. The goal is to mak
 - **Structured Pydantic models** can be used interchangably with unstructured text output.
 - LiteLLM as the default generator giving you **instant access to a huge array of models**.
 - Define prompts as python functions with **type hints and docstrings**.
-- Simple **tool calling** abilities for models which don't natively support it.
+- Simple **tool use**, even for models which don't support them at the API.
 - Store different models and configs as **simple connection strings** just like databases.
 - Chat templating, forking, continuations, generation parameter overloads, stripping segments, etc.
 - Async batching and fast iterations for **large scale generation**.
@@ -263,6 +263,34 @@ cast into strings, [`Message`][rigging.message.Message] objects, or even content
 multi-modal generation ([`ContentImageUrl`][rigging.message.ContentImageUrl])
 
 Check out [Tools](topics/tools.md) for more information.
+
+### Tools + Prompts
+
+You can combine prompts and tools to achieve "multi-agent" behavior":
+
+```py
+import rigging as rg
+from typing import Annotated
+
+Joke = Annotated[str, rg.Ctx("joke")]
+
+@rg.prompt(generator_id="gpt-4o-mini")
+async def generate_jokes(count: int) -> list[Joke]:
+    "Write {{count}} short hilarious jokes."
+
+
+@rg.prompt(generator_id="gpt-4o", tools=[generate_jokes])
+async def write_joke() -> Joke:
+    """
+    Generate some jokes, then choose the best.
+    You must return just a single joke.
+    """
+
+joke = await write_joke()
+```
+
+Underneath the `generate_jokes` prompt will be presented as an available tool when `gpt-4o` is working
+on tasks, and rigging with handle all the inference and type processing for you.
 
 ### Conversations
 

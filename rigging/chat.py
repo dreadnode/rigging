@@ -7,7 +7,6 @@ They are the primary way to interact with the generator.
 from __future__ import annotations
 
 import asyncio
-import types
 import typing as t
 import warnings
 from copy import deepcopy
@@ -648,6 +647,7 @@ class ChatPipeline:
             new.until_callbacks = self.until_callbacks.copy()
             new.until_types = self.until_types.copy()
             new.native_tools = self.native_tools.copy()
+            new.api_tools = self.api_tools.copy()
             new.inject_native_tool_prompt = self.inject_native_tool_prompt
             new.force_native_tool = self.force_native_tool
             new.metadata = deepcopy(self.metadata)
@@ -833,7 +833,7 @@ class ChatPipeline:
 
     def using(
         self,
-        *tools: Tool | t.Callable[..., t.Any],
+        *tools: Tool | ApiTool | t.Callable[..., t.Any],
         choice: ToolChoice | None = None,
         force: bool = False,
         attempt_recovery: bool = True,
@@ -862,7 +862,11 @@ class ChatPipeline:
         Returns:
             The updated ChatPipeline object.
         """
-        if all(isinstance(tool, Tool) for tool in tools):
+        native_tools = [tool for tool in tools if isinstance(tool, Tool)]
+        if native_tools and len(native_tools) != len(tools):
+            raise ValueError("All tools must be of the same type (api or native)")
+
+        if native_tools:
             return self.using_native_tools(
                 *t.cast(list[Tool], tools),
                 force=force,
@@ -871,10 +875,8 @@ class ChatPipeline:
                 max_rounds=max_rounds,
                 inject_prompt=inject_prompt,
             )
-        elif all(isinstance(tool, types.FunctionType) for tool in tools):
-            return self.using_api_tools(*t.cast(list[ApiTool], tools), choice=choice)
         else:
-            raise ValueError("All tools must be of the same type (api or native)")
+            return self.using_api_tools(*t.cast(list[ApiTool], tools), choice=choice)
 
     def using_native_tools(
         self,
@@ -902,8 +904,12 @@ class ChatPipeline:
         Returns:
             The updated ChatPipeline object.
         """
+        if len(tools) == 0:
+            return self
+
         if self.api_tools:
             raise ValueError("Cannot mix native and API tools in the same pipeline")
+
         self.native_tools += tools
         self.inject_native_tool_prompt = inject_prompt or self.inject_native_tool_prompt
         self.force_native_tool = force
@@ -930,6 +936,9 @@ class ChatPipeline:
         Returns:
             The updated ChatPipeline object.
         """
+        if len(tools) == 0:
+            return self
+
         if self.native_tools:
             raise ValueError("Cannot mix native and API tools in the same pipeline")
 
@@ -1118,6 +1127,12 @@ class ChatPipeline:
         self._pre_run()
         first_response = yield []
         new_messages = [first_response]
+
+        # If we need to process tool calls, we should do that first
+        # before proceeding with our until callbacks
+        if first_response.tool_calls and self.api_tools:
+            return new_messages
+
         for callback, reset_between, drop_internal, max_rounds in self.until_callbacks:
             generated = yield from self._until(new_messages[-1], callback, reset_between, drop_internal, max_rounds)
             new_messages = new_messages[:-1] + generated

@@ -81,9 +81,36 @@ class ToolCall(BaseModel):
 
 
 class ApiTool:
-    def __init__(self, fn: t.Callable[..., t.Any]) -> None:
+    def __init__(self, fn: t.Callable[..., t.Any], *, _fn_to_call: t.Callable[..., t.Any] | None = None) -> None:
+        from rigging.prompt import Prompt
+
+        # We support _fn_to_call for cases where the incoming function
+        # for signature analysis and schema generation is different from
+        # the function we actually want to call (generally internal-only)
+
         self.fn = fn
-        self.signature = inspect.signature(fn)
+        self._fn_to_call = _fn_to_call or fn
+
+        # We need to do some magic here because our Prompt object and
+        # associated run function lack the context needed to construct
+        # the schema at runtime - so we pass in the wrapped function for
+        # attribute access and the top level Prompt.run for actual execution
+        if isinstance(fn, Prompt):
+            self.fn = fn.func  # type: ignore
+            self._fn_to_call = fn.run
+
+        # In the case that we are recieving a bound function which is tracking
+        # an originating prompt, we can extract it from a private attribute
+        elif hasattr(fn, "__rg_prompt__") and isinstance(fn.__rg_prompt__, Prompt):
+            if fn.__name__ in ["run_many", "run_over"]:
+                raise ValueError(
+                    "Only the singular Prompt.run (Prompt.bind) is supported when using prompt objects inside API tools"
+                )
+
+            self.fn = fn.__rg_prompt__.func  # type: ignore
+            self._fn_to_call = fn
+
+        self.signature = inspect.signature(self.fn)
         self.type_adapter: TypeAdapter[t.Any] = TypeAdapter(self.fn)
         _ = self.schema  # Ensure schema is valid
 
@@ -129,8 +156,8 @@ class ApiTool:
 
         from rigging.message import ContentTypes, Message
 
-        if tool_call.function.name != self.fn.__name__:
-            raise ValueError(f"Function name {tool_call.function.name} does not match {self.fn.__name__}")
+        if tool_call.function.name != self.name:
+            raise ValueError(f"Function name {tool_call.function.name} does not match {self.name}")
 
         args = json.loads(tool_call.function.arguments)
 
@@ -139,10 +166,10 @@ class ApiTool:
             warnings.filterwarnings("ignore", category=RuntimeWarning)
             self.type_adapter.validate_python(args)
 
-        if inspect.iscoroutinefunction(self.fn):
-            result = await self.fn(**args)
+        if inspect.iscoroutinefunction(self._fn_to_call):
+            result = await self._fn_to_call(**args)
         else:
-            result = self.fn(**args)
+            result = self._fn_to_call(**args)
 
         message = Message(role="tool", tool_call_id=tool_call.id)
 

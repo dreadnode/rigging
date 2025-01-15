@@ -18,6 +18,7 @@ from rigging.chat import Chat, ChatPipeline
 from rigging.generator.base import GenerateParams, Generator, get_generator
 from rigging.message import Message
 from rigging.model import Model, SystemErrorModel, ValidationErrorModel, make_primitive
+from rigging.tool.api import ApiTool
 from rigging.util import escape_xml, to_snake, to_xml_tag
 
 if t.TYPE_CHECKING:
@@ -350,7 +351,7 @@ def parse_output(annotation: t.Any, error_name: str, *, allow_nested: bool = Tru
         if len({i.tag for i in tuple_interiors}) != len(tuple_interiors):
             raise TypeError(
                 f"Tuple return annotations must have unique internal types\n"
-                "or use Annotated[..., Context(tag=...)] overrides to\n"
+                "or use Annotated[..., Ctx(tag=...)] overrides to\n"
                 f"make them differentiable ({error_name})"
             )
 
@@ -377,7 +378,7 @@ def parse_output(annotation: t.Any, error_name: str, *, allow_nested: bool = Tru
         if len({i.tag for i in dataclass_interiors}) != len(dataclass_interiors):
             raise TypeError(
                 f"Dataclass return annotations must have unique internal types\n"
-                "or use Annotated[..., Context(tag=...)] overrides to\n"
+                "or use Annotated[..., Ctx(tag=...)] overrides to\n"
                 f"make them differentiable ({error_name})"
             )
 
@@ -402,8 +403,8 @@ class Prompt(t.Generic[P, R]):
     passing inputs into a ChatPipeline and parsing outputs.
     """
 
-    func: t.Callable[P, t.Coroutine[t.Any, t.Any, R]]
-    """The function that the prompt wraps. This function should be a coroutine."""
+    func: t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | None = None
+    """The function that the prompt was derived from."""
 
     attempt_recovery: bool = True
     """Whether the prompt should attempt to recover from errors in output parsing."""
@@ -421,14 +422,21 @@ class Prompt(t.Generic[P, R]):
     """Callbacks to be passed any chats produced while executing this prompt."""
     params: GenerateParams | None = None
     """The parameters to be used when generating chats for this prompt."""
+    api_tools: list[ApiTool] = dataclasses.field(default_factory=list)
+    """The API tools to be made available when generating chats for this prompt."""
 
     _generator_id: str | None = None
     _generator: Generator | None = None
     _pipeline: ChatPipeline | None = None
 
+    _docstring: str | None = None
+
     def __post_init__(self) -> None:
         # if not inspect.iscoroutinefunction(self.func):
         #     raise TypeError("Prompts must wrap an async function")
+
+        if self.func is None:
+            return
 
         signature = inspect.signature(self.func)
         undeclared = get_undeclared_variables(self.docstring)
@@ -448,11 +456,14 @@ class Prompt(t.Generic[P, R]):
     @property
     def docstring(self) -> str:
         """The docstring for the prompt function."""
-        # Guidance is taken from https://github.com/outlines-dev/outlines/blob/main/outlines/prompts.py
-        docstring = self.func.__doc__ or DEFAULT_DOC.format(func_name=self.func.__name__)
-        docstring = inspect.cleandoc(docstring)
-        docstring = re.sub(r"(?![\r\n])(\b\s+)", " ", docstring)
-        return docstring
+        if self._docstring is None:
+            # Guidance is taken from https://github.com/outlines-dev/outlines/blob/main/outlines/prompts.py
+            docstring = self.func.__doc__ or DEFAULT_DOC.format(
+                func_name=self.func.__name__ if self.func else "function"
+            )
+            docstring = inspect.cleandoc(docstring)
+            self._docstring = re.sub(r"(?![\r\n])(\b\s+)", " ", docstring)
+        return self._docstring
 
     @property
     def template(self) -> str:
@@ -625,6 +636,7 @@ class Prompt(t.Generic[P, R]):
         """
         Pass the arguments to the jinja2 template and render the full prompt.
         """
+
         env = Environment(
             trim_blocks=True,
             lstrip_blocks=True,
@@ -632,6 +644,9 @@ class Prompt(t.Generic[P, R]):
             undefined=StrictUndefined,
         )
         jinja_template = env.from_string(self.template)
+
+        if self.func is None:
+            return jinja_template.render()
 
         signature = inspect.signature(self.func)
         bound_args = signature.bind(*args, **kwargs)
@@ -676,6 +691,8 @@ class Prompt(t.Generic[P, R]):
             results = await self.bind_many(pipeline)(1, *args, **kwargs)
             return results[0]
 
+        run.__rg_prompt__ = self  # type: ignore
+
         return run
 
     def bind_many(
@@ -706,6 +723,7 @@ class Prompt(t.Generic[P, R]):
             content = self.render(*args, **kwargs)
             _pipeline = (
                 pipeline.fork(content)
+                .using_api_tools(*self.api_tools)
                 .until(
                     self._until_parsed,
                     attempt_recovery=self.attempt_recovery,
@@ -720,6 +738,8 @@ class Prompt(t.Generic[P, R]):
             await asyncio.gather(*coros)
 
             return [self.process(chat) for chat in chats]
+
+        run_many.__rg_prompt__ = self  # type: ignore
 
         return run_many
 
@@ -757,6 +777,7 @@ class Prompt(t.Generic[P, R]):
             content = self.render(*args, **kwargs)
             _pipeline = (
                 pipeline.fork(content)
+                .using_api_tools(*self.api_tools)
                 .until(
                     self._until_parsed,
                     attempt_recovery=self.attempt_recovery,
@@ -771,6 +792,8 @@ class Prompt(t.Generic[P, R]):
             await asyncio.gather(*coros)
 
             return [self.process(chat) for chat in chats]
+
+        run_over.__rg_prompt__ = self  # type: ignore
 
         return run_over
 
@@ -844,6 +867,7 @@ def prompt(
     pipeline: ChatPipeline | None = None,
     generator: Generator | None = None,
     generator_id: str | None = None,
+    tools: list[ApiTool | t.Callable[..., t.Any]] | None = None,
 ) -> t.Callable[[t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R]], Prompt[P, R]]:
     ...
 
@@ -856,6 +880,7 @@ def prompt(
     pipeline: ChatPipeline | None = None,
     generator: Generator | None = None,
     generator_id: str | None = None,
+    tools: list[ApiTool | t.Callable[..., t.Any]] | None = None,
 ) -> Prompt[P, R]:
     ...
 
@@ -868,6 +893,7 @@ def prompt(
     pipeline: ChatPipeline | None = None,
     generator: Generator | None = None,
     generator_id: str | None = None,
+    tools: list[ApiTool | t.Callable[..., t.Any]] | None = None,
 ) -> Prompt[P, R]:
     ...
 
@@ -879,6 +905,7 @@ def prompt(
     pipeline: ChatPipeline | None = None,
     generator: Generator | None = None,
     generator_id: str | None = None,
+    tools: list[ApiTool | t.Callable[..., t.Any]] | None = None,
 ) -> t.Callable[[t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R]], Prompt[P, R]] | Prompt[P, R]:
     """
     Convert a hollow function into a Prompt, which can be called directly or passed a
@@ -901,6 +928,7 @@ def prompt(
         ...
 
     await write_joke("programming")
+    ```
 
     Note:
         A docstring is not required, but this can be used to provide guidance to the model, or
@@ -934,6 +962,7 @@ def prompt(
         pipeline: An optional pipeline to use for the prompt.
         generator: An optional generator to use for the prompt.
         generator_id: An optional generator id to use for the prompt.
+        tools: An optional list of API tools to make available to the prompt (Native tools are not currently supported).
 
     Returns:
         A prompt instance or a function that can be used to create a prompt.
@@ -947,8 +976,50 @@ def prompt(
             _generator_id=generator_id,
             _pipeline=pipeline,
             _generator=generator,
+            api_tools=[tool if isinstance(tool, ApiTool) else ApiTool(tool) for tool in tools] if tools else [],
         )
 
     if func is not None:
         return make_prompt(func)
     return make_prompt
+
+
+@t.overload
+def make_prompt(content: str, return_type: type[R], *, ctx: Ctx | None = None) -> Prompt[..., R]:
+    ...
+
+
+@t.overload
+def make_prompt(content: str, return_type: None = None, *, ctx: Ctx | None = None) -> Prompt[..., str]:
+    ...
+
+
+def make_prompt(
+    content: str, return_type: type[R] | None = None, *, ctx: Ctx | None = None
+) -> Prompt[..., R] | Prompt[..., str]:
+    """
+    Create a prompt at runtime from a basic string and return type (experimental).
+
+    ```
+    import rigging as rg
+
+    write_joke = rg.make_prompt("Write a joke.", ctx=rg.Ctx(tag="joke"))
+
+    await write_joke.bind("gpt-4o-mini")()
+    ```
+
+    Note:
+        Adding input parameters is not currently supported. Instead use
+        the [rigging.prompt.prompt][] decorator.
+
+    Args:
+        content: The docstring content for the prompt.
+        return_type: The return type of the prompt function.
+        ctx: Context for the return type (Use this instead of Annotated for better type hints).
+
+    Returns:
+        The constructed Prompt
+    """
+    return_type = return_type or str  # type: ignore
+    output = parse_output(t.Annotated[return_type, ctx] if ctx is not None else return_type, "make_prompt(<return>)")
+    return Prompt(output=output, _docstring=content)
