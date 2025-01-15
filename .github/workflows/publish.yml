@@ -30,7 +30,7 @@ jobs:
           poetry config virtualenvs.in-project true --local
 
       - name: Install package
-        run: poetry install --no-dev
+        run: poetry install
 
       - name: Validate version
         run: |
