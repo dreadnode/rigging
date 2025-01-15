@@ -266,7 +266,7 @@ Check out [Tools](topics/tools.md) for more information.
 
 ### Tools + Prompts
 
-You can combine prompts and tools to achieve "multi-agent" behavior":
+You can combine prompts and tools to achieve "multi-agent" behavior:
 
 ```py
 import rigging as rg
