@@ -340,13 +340,12 @@ constructing models in a [later section](topics/models.md), but don't stress the
 ??? note "XML vs JSON"
 
     Rigging is opinionated with regard to using XML to weave unstructured data with structured contents
-    as the underlying LLM generates text responses. A frequent solution to getting "predictable"
-    outputs from LLMs has been forcing JSON conformant outputs, but we think this is
-    poor form in the long run. You can read more about this from [Anthropic](https://docs.anthropic.com/claude/docs/use-xml-tags)
+    as the underlying LLM generates text responses, at least when it comes to raw text content. If you want
+    to take advantage of structured JSON parsing provided by model providers or inference tools,
+    [`APITools`](topics/tools.md) are a good alternative.
+    
+    You can read more about XML tag use from [Anthropic](https://docs.anthropic.com/claude/docs/use-xml-tags)
     who have done extensive research with their models.
-
-    We'll skip the long rant, but trust us that XML is a very useful syntax which beats
-    JSON any day of the week for typical use cases.
 
 To begin, let's define a `FunFact` model which we'll have the LLM fill in. Rigging exposes a 
 [`Model`][rigging.model.Model] base class which you should inherit from when defining structured
