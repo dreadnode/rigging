@@ -1,10 +1,13 @@
-Rigging is a lightweight LLM framework built on Pydantic XML. The goal is to make leveraging language models in production code as simple and effective as possible. Here are the highlights:
+# Home
+
+Rigging is a lightweight LLM framework to make using language models in production code as simple and effective as possible. Here are the highlights:
 
 - **Structured Pydantic models** can be used interchangably with unstructured text output.
 - LiteLLM as the default generator giving you **instant access to a huge array of models**.
 - Define prompts as python functions with **type hints and docstrings**.
 - Simple **tool use**, even for models which don't support them at the API.
 - Store different models and configs as **simple connection strings** just like databases.
+- Integrated **tracing** support with [Logfire](https://logfire.pydantic.dev/docs/) to track activity.
 - Chat templating, forking, continuations, generation parameter overloads, stripping segments, etc.
 - Async batching and fast iterations for **large scale generation**.
 - Metadata, callbacks, and data format conversions.
@@ -266,7 +269,7 @@ Check out [Tools](topics/tools.md) for more information.
 
 ### Tools + Prompts
 
-You can combine prompts and tools to achieve "multi-agent" behavior":
+You can combine prompts and tools to achieve "multi-agent" behavior:
 
 ```py
 import rigging as rg
@@ -340,13 +343,12 @@ constructing models in a [later section](topics/models.md), but don't stress the
 ??? note "XML vs JSON"
 
     Rigging is opinionated with regard to using XML to weave unstructured data with structured contents
-    as the underlying LLM generates text responses. A frequent solution to getting "predictable"
-    outputs from LLMs has been forcing JSON conformant outputs, but we think this is
-    poor form in the long run. You can read more about this from [Anthropic](https://docs.anthropic.com/claude/docs/use-xml-tags)
+    as the underlying LLM generates text responses, at least when it comes to raw text content. If you want
+    to take advantage of structured JSON parsing provided by model providers or inference tools,
+    [`APITools`](topics/tools.md) are a good alternative.
+    
+    You can read more about XML tag use from [Anthropic](https://docs.anthropic.com/claude/docs/use-xml-tags)
     who have done extensive research with their models.
-
-    We'll skip the long rant, but trust us that XML is a very useful syntax which beats
-    JSON any day of the week for typical use cases.
 
 To begin, let's define a `FunFact` model which we'll have the LLM fill in. Rigging exposes a 
 [`Model`][rigging.model.Model] base class which you should inherit from when defining structured

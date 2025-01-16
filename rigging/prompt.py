@@ -9,6 +9,7 @@ import dataclasses
 import inspect
 import re
 import typing as t
+from collections import OrderedDict
 
 from jinja2 import Environment, StrictUndefined, meta
 from pydantic import ValidationError
@@ -19,7 +20,8 @@ from rigging.generator.base import GenerateParams, Generator, get_generator
 from rigging.message import Message
 from rigging.model import Model, SystemErrorModel, ValidationErrorModel, make_primitive
 from rigging.tool.api import ApiTool
-from rigging.util import escape_xml, to_snake, to_xml_tag
+from rigging.tracing import tracer
+from rigging.util import escape_xml, get_qualified_name, to_snake, to_xml_tag
 
 if t.TYPE_CHECKING:
     from rigging.chat import WatchChatCallback
@@ -632,6 +634,15 @@ class Prompt(t.Generic[P, R]):
                 self.watch_callbacks.append(callback)
         return self
 
+    def _bind_args(self, *args: P.args, **kwargs: P.kwargs) -> t.OrderedDict[str, t.Any]:
+        if self.func is None:
+            return OrderedDict()
+
+        signature = inspect.signature(self.func)
+        bound_args = signature.bind(*args, **kwargs)
+        bound_args.apply_defaults()
+        return bound_args.arguments
+
     def render(self, *args: P.args, **kwargs: P.kwargs) -> str:
         """
         Pass the arguments to the jinja2 template and render the full prompt.
@@ -648,14 +659,12 @@ class Prompt(t.Generic[P, R]):
         if self.func is None:
             return jinja_template.render()
 
-        signature = inspect.signature(self.func)
-        bound_args = signature.bind(*args, **kwargs)
-        bound_args.apply_defaults()
+        bound_args = self._bind_args(*args, **kwargs)
 
         for input_ in self.inputs:
-            bound_args.arguments[to_snake(input_.tag)] = input_.to_xml(bound_args.arguments[input_.name])
+            bound_args[to_snake(input_.tag)] = input_.to_xml(bound_args[input_.name])
 
-        return jinja_template.render(**bound_args.arguments)
+        return jinja_template.render(**bound_args)
 
     def process(self, chat: Chat) -> R:
         """
@@ -720,24 +729,48 @@ class Prompt(t.Generic[P, R]):
             raise NotImplementedError("pipeline.on_failed='include' cannot be used with prompts that process outputs")
 
         async def run_many(count: int, /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
-            content = self.render(*args, **kwargs)
-            _pipeline = (
-                pipeline.fork(content)
-                .using_api_tools(*self.api_tools)
-                .until(
-                    self._until_parsed,
-                    attempt_recovery=self.attempt_recovery,
-                    drop_dialog=self.drop_dialog,
-                    max_rounds=self.max_rounds,
+            with tracer.span(
+                "Prompt {name}()" if count == 1 else "Prompt {name}() (x{count})",
+                count=count,
+                name=get_qualified_name(self.func) if self.func else "<generated>",
+                arguments=self._bind_args(*args, **kwargs),
+            ) as span:
+                content = self.render(*args, **kwargs)
+                _pipeline = (
+                    pipeline.fork(content)
+                    .using_api_tools(*self.api_tools)
+                    .until(
+                        self._until_parsed,
+                        attempt_recovery=self.attempt_recovery,
+                        drop_dialog=self.drop_dialog,
+                        max_rounds=self.max_rounds,
+                    )
+                    .with_(self.params)
                 )
-                .with_(self.params)
-            )
-            chats = await _pipeline.run_many(count)
+                chats = await _pipeline.run_many(count)
 
-            coros = [watch(chats) for watch in self.watch_callbacks if watch not in pipeline.watch_callbacks]
-            await asyncio.gather(*coros)
+                # TODO: I can't remember why we don't just pass the watch_callbacks to the pipeline
+                # Maybe it has something to do with uniqueness and merging?
 
-            return [self.process(chat) for chat in chats]
+                def wrap_watch_callback(callback: WatchChatCallback) -> WatchChatCallback:
+                    async def traced_watch_callback(chats: list[Chat]) -> None:
+                        with tracer.span(
+                            "Watch with {callback}()", callback=get_qualified_name(callback), chat_count=len(chats)
+                        ):
+                            await callback(chats)
+
+                    return traced_watch_callback
+
+                coros = [
+                    wrap_watch_callback(watch)(chats)
+                    for watch in self.watch_callbacks
+                    if watch not in pipeline.watch_callbacks
+                ]
+                await asyncio.gather(*coros)
+
+                results = [self.process(chat) for chat in chats]
+                span.set_attribute("results", results)
+                return results
 
         run_many.__rg_prompt__ = self  # type: ignore
 
