@@ -1316,9 +1316,11 @@ class ChatPipeline:
 
                 # We will apply the error to all chats in the batch as we can't
                 # tell which chat caused the error right now.
+
+                span.set_attribute("failed", True)
+                span.set_attribute("error", error)
+
                 for state in states:
-                    span.set_attribute("failed", True)
-                    span.set_attribute("error", error)
                     state.chat = self._create_failed_chat(state, error, batch_mode)
 
             else:
@@ -1369,7 +1371,6 @@ class ChatPipeline:
 
         chats = await self._post_run([s.chat for s in states if s.chat is not None], on_failed)
         span.set_attribute("chats", chats)
-
         return chats
 
     # Single messages
@@ -1399,7 +1400,7 @@ class ChatPipeline:
         states = self._initialize_states(1)
 
         with tracer.span(
-            "Chat pipeline with {generator_id}",
+            "Chat with {generator_id}",
             generator_id=self.generator.to_identifier(),
             params=self.params.to_dict() if self.params is not None else {},
         ) as span:
@@ -1431,7 +1432,7 @@ class ChatPipeline:
         states = self._initialize_states(count, params)
 
         with tracer.span(
-            "Chat pipeline with {generator_id} (x{count})",
+            "Chat with {generator_id} (x{count})",
             count=count,
             generator_id=self.generator.to_identifier(),
             params=self.params.to_dict() if self.params is not None else {},
@@ -1470,7 +1471,7 @@ class ChatPipeline:
         states = self._initialize_batch_states(many, params)
 
         with tracer.span(
-            "Chat pipeline batch with {generator_id} ({count})",
+            "Chat batch with {generator_id} ({count})",
             count=len(states),
             generator_id=self.generator.to_identifier(),
             params=self.params.to_dict() if self.params is not None else {},
@@ -1508,10 +1509,9 @@ class ChatPipeline:
             sub.generator = generator
             coros.append(sub.run(allow_failed=(on_failed != "raise")))
 
-        with tracer.span("Chat pipeline over {count} generators", count=len(coros)):
+        with tracer.span("Chat over {count} generators", count=len(coros)):
             chats = await asyncio.gather(*coros)
-
-        return await self._post_run(chats, on_failed)
+            return await self._post_run(chats, on_failed)
 
     # Prompt functions
 

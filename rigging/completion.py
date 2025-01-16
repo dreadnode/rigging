@@ -20,6 +20,8 @@ from rigging.error import CompletionExhaustedMaxRoundsError
 from rigging.generator import GenerateParams, Generator, get_generator
 from rigging.generator.base import GeneratedText, StopReason, Usage  # noqa: TCH001
 from rigging.parsing import parse_many
+from rigging.tracing import Span, tracer
+from rigging.util import get_qualified_name
 
 if t.TYPE_CHECKING:
     from rigging.chat import FailMode
@@ -305,7 +307,7 @@ class CompletionPipeline:
             on_failed: How to handle failures in the pipeline unless overriden in calls.
 
         Returns:
-            The updated ChatPipeline object.
+            The updated CompletionPipeline object.
         """
         self.errors_to_fail_on.update(errors)
         self.on_failed = on_failed or self.on_failed
@@ -546,7 +548,16 @@ class CompletionPipeline:
         return False
 
     async def _watch_callback(self, completions: list[Completion]) -> None:
-        coros = [callback(completions) for callback in self.watch_callbacks]
+        def wrap_watch_callback(callback: WatchCompletionCallback) -> WatchCompletionCallback:
+            async def traced_watch_callback(completions: list[Completion]) -> None:
+                with tracer.span(
+                    "Watch with {callback}()", callback=get_qualified_name(callback), competion_count=len(completions)
+                ):
+                    await callback(completions)
+
+            return traced_watch_callback
+
+        coros = [wrap_watch_callback(callback)(completions) for callback in self.watch_callbacks]
         await asyncio.gather(*coros)
 
     # TODO: It's opaque exactly how we should blend multiple
@@ -585,13 +596,38 @@ class CompletionPipeline:
         if on_failed == "skip":
             completions = [c for c in completions if not c.failed]
 
+        # These have to be sequenced to support the concept of
+        # a pipeline where future then/map calls can depend on
+        # previous calls being ran.
+
         for map_callback in self.map_callbacks:
-            completions = await map_callback(completions)
+            with tracer.span(
+                "Map with {callback}()",
+                callback=get_qualified_name(map_callback),
+                completion_count=len(completions),
+            ):
+                completions = await map_callback(completions)
+                if not all(isinstance(c, Completion) for c in completions):
+                    raise ValueError(
+                        f".map() callback must return a Completion object or None ({get_qualified_name(map_callback)})"
+                    )
+
+        def wrap_then_callback(callback: ThenCompletionCallback) -> ThenCompletionCallback:
+            async def traced_then_callback(completion: Completion) -> Completion | None:
+                with tracer.span("Then with {callback}()", callback=get_qualified_name(callback)):
+                    return await callback(completion)
+
+            return traced_then_callback
 
         for then_callback in self.then_callbacks:
-            coros = [then_callback(chat) for chat in completions]
+            coros = [wrap_then_callback(then_callback)(completion) for completion in completions]
             new_completions = await asyncio.gather(*coros)
-            completions = [new or chat for new, chat in zip(new_completions, completions)]
+            if not all(isinstance(c, Completion) or c is None for c in new_completions):
+                raise ValueError(
+                    f".then() callback must return a Completion object or None ({get_qualified_name(then_callback)})"
+                )
+
+            completions = [new or completion for new, completion in zip(new_completions, completions)]
 
         return completions
 
@@ -632,7 +668,17 @@ class CompletionPipeline:
             params = [self.params.merge_with(p) for p in params]
         return [(p or GenerateParams()) for p in params]
 
-    async def _run(self, states: list[RunState], on_failed: FailMode, batch_mode: bool = False) -> list[Completion]:
+    def _initialize_states(
+        self, count: int, params: t.Sequence[t.Optional[GenerateParams]] | None = None
+    ) -> list[RunState]:
+        states = [RunState(self.text, p, self._process()) for p in self._fit_params(count, params)]
+        for state in states:
+            next(state.processor)
+        return states
+
+    async def _run(
+        self, span: Span, states: list[RunState], on_failed: FailMode, batch_mode: bool = False
+    ) -> list[Completion]:
         pending_states = states
         while pending_states:
             try:
@@ -643,6 +689,9 @@ class CompletionPipeline:
             except Exception as e:
                 if on_failed == "raise" or not any(isinstance(e, t) for t in self.errors_to_fail_on):
                     raise
+
+                span.set_attribute("failed", True)
+                span.set_attribute("error", e)
 
                 for state in pending_states:
                     state.completion = self._create_failed_completion(state, e)
@@ -669,6 +718,10 @@ class CompletionPipeline:
                         failed = True
                         error = e
 
+                    if error is not None:
+                        span.set_attribute("failed", True)
+                        span.set_attribute("error", error)
+
                     state.completion = self._create_completion(state, output, inbound, failed, error)
 
             pending_states = [s for s in pending_states if s.completion is None]
@@ -679,7 +732,9 @@ class CompletionPipeline:
             for state in to_watch_states:
                 state.watched = True
 
-        return await self._post_run([s.completion for s in states if s.completion is not None], on_failed)
+        completions = await self._post_run([s.completion for s in states if s.completion is not None], on_failed)
+        span.set_attribute("completions", completions)
+        return completions
 
     async def run(self, *, allow_failed: bool = False, on_failed: FailMode | None = None) -> Completion:
         """
@@ -692,7 +747,7 @@ class CompletionPipeline:
                 (this is used as an alternative to allow_failed)
 
         Returns:
-            The generated Chat.
+            The generated Completion.
         """
         if on_failed is None:
             on_failed = "include" if allow_failed else self.on_failed
@@ -702,7 +757,15 @@ class CompletionPipeline:
                 "Cannot use 'skip' mode with single completion generation (pass allow_failed=True or on_failed='include'/'raise')"
             )
 
-        return (await self.run_many(1, on_failed=on_failed))[0]
+        on_failed = on_failed or self.on_failed
+        states = self._initialize_states(1)
+
+        with tracer.span(
+            "Completion with {generator_id}",
+            generator_id=self.generator.to_identifier(),
+            params=self.params.to_dict() if self.params is not None else {},
+        ) as span:
+            return (await self._run(span, states, on_failed))[0]
 
     __call__ = run
 
@@ -727,12 +790,15 @@ class CompletionPipeline:
             A list of generatated Completions.
         """
         on_failed = on_failed or self.on_failed
+        states = self._initialize_states(count, params)
 
-        states: list[RunState] = [RunState(self.text, p, self._process()) for p in self._fit_params(count, params)]
-        for state in states:
-            next(state.processor)
-
-        return await self._run(states, on_failed)
+        with tracer.span(
+            "Completion with {generator_id} (x{count})",
+            count=count,
+            generator_id=self.generator.to_identifier(),
+            params=self.params.to_dict() if self.params is not None else {},
+        ) as span:
+            return await self._run(span, states, on_failed)
 
     # Batch completions
 
@@ -764,7 +830,13 @@ class CompletionPipeline:
         for state in states:
             next(state.processor)
 
-        return await self._run(states, on_failed, batch_mode=True)
+        with tracer.span(
+            "Completion batch with {generator_id} ({count})",
+            count=len(states),
+            generator_id=self.generator.to_identifier(),
+            params=self.params.to_dict() if self.params is not None else {},
+        ) as span:
+            return await self._run(span, states, on_failed, batch_mode=True)
 
     # Generator iteration
 
@@ -783,7 +855,7 @@ class CompletionPipeline:
             on_failed: The behavior when a message fails to generate.
 
         Returns:
-            A list of generatated Chats.
+            A list of generatated Completions.
         """
         on_failed = on_failed or self.on_failed
 
@@ -797,5 +869,6 @@ class CompletionPipeline:
             sub.generator = generator
             coros.append(sub.run(allow_failed=(on_failed != "raise")))
 
-        completions = await asyncio.gather(*coros)
-        return await self._post_run(completions, on_failed)
+        with tracer.span("Completion over {count} generators", count=len(coros)):
+            completions = await asyncio.gather(*coros)
+            return await self._post_run(completions, on_failed)

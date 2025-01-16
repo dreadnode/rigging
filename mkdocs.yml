@@ -5,21 +5,23 @@ site_url: https://rigging.dreadnode.io
 repo_url: https://github.com/dreadnode/rigging
 
 nav:
-  - Home: index.md
-  - Topics:
-    - Workflow: topics/workflow.md
-    - Models: topics/models.md
-    - Generators: topics/generators.md
-    - Chats and Messages: topics/chats-and-messages.md
-    - Prompt Functions: topics/prompt-functions.md
-    - Completions: topics/completions.md
-    - Callbacks and Mapping: topics/callbacks-and-mapping.md
-    - Iterating and Batching: topics/iterating-and-batching.md
-    - Tools: topics/tools.md
-    - Serialization: topics/serialization.md
-    - Logging: topics/logging.md
-    - Migrations: topics/migrations.md
-    - Principles: topics/principles.md
+  - Home:
+    - index.md
+    - Topics:
+      - Workflow: topics/workflow.md
+      - Models: topics/models.md
+      - Generators: topics/generators.md
+      - Chats and Messages: topics/chats-and-messages.md
+      - Prompt Functions: topics/prompt-functions.md
+      - Completions: topics/completions.md
+      - Callbacks and Mapping: topics/callbacks-and-mapping.md
+      - Iterating and Batching: topics/iterating-and-batching.md
+      - Tools: topics/tools.md
+      - Tracing: topics/tracing.md
+      - Serialization: topics/serialization.md
+      - Logging: topics/logging.md
+      - Migrations: topics/migrations.md
+      - Principles: topics/principles.md
   - API:
     - rigging.chat: api/chat.md
     - rigging.completion: api/completion.md
@@ -49,7 +51,6 @@ theme:
   features:
     - content.code.copy
     - content.code.annotate
-    - toc.integrate
     - navigation.footer
     - navigation.indexes
     - navigation.sections

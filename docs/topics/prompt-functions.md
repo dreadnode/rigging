@@ -75,8 +75,21 @@ A [`Prompt`][rigging.prompt.Prompt] is typically created using one of the follow
 
 Prompts are optionally bound to a pipeline/generator underneath, hence the generator and pipeline
 decorator variants, but they don't have to be. We refer to bound prompts as "standalone", because
-they can be executed directly as functions. Otherwise, you are required to use 
-[`ChatPipeline.run_prompt`][rigging.chat.ChatPipeline.run_prompt] to execute the prompt.
+they can be executed directly as functions. Otherwise, you are required first "bind" the prompt to
+a specific generator id, generator, or pipeline to make it callable. Do this with 
+[`Prompt.bind`][rigging.prompt.Prompt.bind] or related methods.
+
+```py
+import rigging as rg
+
+@rg.prompt
+def summarize(text: str) -> str:
+    """Summarize this text."""
+
+generator = rg.get_generator("gpt-4o-mini")
+
+await summarize.bind(generator)("...")
+```
 
 ### Templates and Docstrings
 
@@ -334,7 +347,7 @@ processed correctly.
     # <age></age>
     ```
 
-You can also embedd a [`Chat`][rigging.chat.Chat] object inside a some objects, which
+You can also embed a [`Chat`][rigging.chat.Chat] object inside other objects, which
 will be excluded from any prompt guidance, but supplied the value when the prompt
 is executed. This is great for gathering both structured data and the original chat. 
 
@@ -422,11 +435,11 @@ Prompt objects expose the following methods for execution:
 
 *(Available if the prompt was supplied/bonded to a pipeline or generator)*
 
-You can also run a prompt with a specific `ChatPipeline` by passing it to any of:
+You can also bind a prompt at runtime with any of the following:
 
-- [`ChatPipeline.run_prompt()`][rigging.chat.ChatPipeline.run_prompt]
-- [`ChatPipeline.run_prompt_many()`][rigging.chat.ChatPipeline.run_prompt_many]
-- [`ChatPipeline.run_prompt_over()`][rigging.chat.ChatPipeline.run_prompt_over]
+- [`Prompt.bind()`][rigging.prompt.Prompt.bind]
+- [`Prompt.bind_many()`][rigging.prompt.Prompt.bind_many]
+- [`Prompt.bind_over()`][rigging.prompt.Prompt.bind_over]
 
 !!! Note "Pipeline Context"
 
@@ -469,7 +482,7 @@ You can also run a prompt with a specific `ChatPipeline` by passing it to any of
     def write_code(description: str, language: str = "python") -> code_str:
         """Write a single function."""
 
-    code = await pipeline.run_prompt(write_code, "Calculate the factorial of a number.")
+    code = await write_code.bind(pipeline)("Calculate the factorial of a number.")
     ```
 
 === "Run Manually"
