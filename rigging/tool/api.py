@@ -161,7 +161,7 @@ class ApiTool:
         if tool_call.function.name != self.name:
             raise ValueError(f"Function name {tool_call.function.name} does not match {self.name}")
 
-        with tracer.span("Tool {name}()", name=self.name, tool_call_id=tool_call.id) as span:
+        with tracer.span(f"Tool {self.name}()", name=self.name, tool_call_id=tool_call.id) as span:
             args = json.loads(tool_call.function.arguments)
             span.set_attribute("arguments", args)
 

@@ -25,7 +25,7 @@ def flatten_chats(chats: Chat | t.Sequence[Chat]) -> list[dict[t.Any, t.Any]]:
         chats: A Chat or list of Chat objects.
 
     Returns:
-        A list of flat Message objects.
+        A list of flat Message objects as dictionaries.
     """
     chats = [chats] if isinstance(chats, Chat) else chats
 
@@ -34,7 +34,7 @@ def flatten_chats(chats: Chat | t.Sequence[Chat]) -> list[dict[t.Any, t.Any]]:
         generator_id = chat.generator_id
 
         # We let pydantic do the heavy lifting here
-        chat_json = chat.model_dump(include={"metadata", "usage", "extra"})
+        chat_json = chat.model_dump(include={"uuid", "timestamp", "metadata", "usage", "extra"}, mode="json")
         metadata = chat_json.pop("metadata")
         usage = chat_json.pop("usage")
         extra = chat_json.pop("extra")
@@ -42,18 +42,19 @@ def flatten_chats(chats: Chat | t.Sequence[Chat]) -> list[dict[t.Any, t.Any]]:
         generated = False
         for messages in [chat.messages, chat.generated]:
             for message in messages:
-                message_dict = message.model_dump(exclude={"uuid"})
+                message_dict = message.model_dump(mode="json")
+                message_id = message_dict.pop("uuid")
                 flattened.append(
                     {
-                        "chat_id": chat.uuid,
+                        "chat_id": chat_json["uuid"],
                         "chat_metadata": metadata,
                         "chat_generator_id": generator_id,
-                        "chat_timestamp": chat.timestamp,
+                        "chat_timestamp": chat_json["timestamp"],
                         "chat_stop_reason": chat.stop_reason,
                         "chat_usage": usage,
                         "chat_extra": extra,
                         "generated": generated,
-                        "message_id": message.uuid,
+                        "message_id": message_id,
                         **message_dict,
                     }
                 )

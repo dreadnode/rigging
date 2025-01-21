@@ -1097,16 +1097,17 @@ class ChatPipeline:
         next_message: Message
 
         for _round in range(1, max_rounds + 1):
+            callback_name = get_qualified_name(callback)
             with tracer.span(
-                "Until with {callback}() ({round}/{max_rounds})",
-                callback=get_qualified_name(callback),
+                f"Until with {callback_name}() ({_round}/{max_rounds})",
+                callback=callback_name,
                 round=_round,
                 max_rounds=max_rounds,
                 attempt_recovery=attempt_recovery,
                 drop_dialog=drop_dialog,
             ):
                 logger.trace(
-                    f"_until({get_qualified_name(callback)}) round {_round}/{max_rounds} (attempt_recovery={attempt_recovery})"
+                    f"_until({callback_name}) round {_round}/{max_rounds} (attempt_recovery={attempt_recovery})"
                 )
                 next_message = yield running_messages
                 should_continue, step_messages = callback(next_message)
@@ -1154,8 +1155,12 @@ class ChatPipeline:
 
         def wrap_watch_callback(callback: WatchChatCallback) -> WatchChatCallback:
             async def traced_watch_callback(chats: list[Chat]) -> None:
+                callback_name = get_qualified_name(callback)
                 with tracer.span(
-                    "Watch with {callback}()", callback=get_qualified_name(callback), chat_count=len(chats)
+                    f"Watch with {callback_name}()",
+                    callback=callback_name,
+                    chat_count=len(chats),
+                    chat_ids=[str(c.uuid) for c in chats],
                 ):
                     await callback(chats)
 
@@ -1175,16 +1180,21 @@ class ChatPipeline:
         # previous calls being ran.
 
         for map_callback in self.map_callbacks:
-            with tracer.span("Map with {callback}()", callback=get_qualified_name(map_callback), chat_count=len(chats)):
+            callback_name = get_qualified_name(map_callback)
+            with tracer.span(
+                f"Map with {callback_name}()",
+                callback=callback_name,
+                chat_count=len(chats),
+                chat_ids=[str(c.uuid) for c in chats],
+            ):
                 chats = await map_callback(chats)
                 if not all(isinstance(c, Chat) for c in chats):
-                    raise ValueError(
-                        f".map() callback must return a Chat object or None ({get_qualified_name(map_callback)})"
-                    )
+                    raise ValueError(f".map() callback must return a Chat object or None ({callback_name})")
 
         def wrap_then_callback(callback: ThenChatCallback) -> ThenChatCallback:
             async def traced_then_callback(chat: Chat) -> Chat | None:
-                with tracer.span("Then with {callback}()", callback=get_qualified_name(callback)):
+                callback_name = get_qualified_name(map_callback)
+                with tracer.span(f"Then with {callback_name}()", callback=callback_name, chat_id=str(chat.uuid)):
                     return await callback(chat)
 
             return traced_then_callback
@@ -1400,7 +1410,7 @@ class ChatPipeline:
         states = self._initialize_states(1)
 
         with tracer.span(
-            "Chat with {generator_id}",
+            f"Chat with {self.generator.to_identifier()}",
             generator_id=self.generator.to_identifier(),
             params=self.params.to_dict() if self.params is not None else {},
         ) as span:
@@ -1432,7 +1442,7 @@ class ChatPipeline:
         states = self._initialize_states(count, params)
 
         with tracer.span(
-            "Chat with {generator_id} (x{count})",
+            f"Chat with {self.generator.to_identifier()} (x{count})",
             count=count,
             generator_id=self.generator.to_identifier(),
             params=self.params.to_dict() if self.params is not None else {},
@@ -1471,7 +1481,7 @@ class ChatPipeline:
         states = self._initialize_batch_states(many, params)
 
         with tracer.span(
-            "Chat batch with {generator_id} ({count})",
+            f"Chat batch with {self.generator.to_identifier()} ({len(states)})",
             count=len(states),
             generator_id=self.generator.to_identifier(),
             params=self.params.to_dict() if self.params is not None else {},
@@ -1509,7 +1519,7 @@ class ChatPipeline:
             sub.generator = generator
             coros.append(sub.run(allow_failed=(on_failed != "raise")))
 
-        with tracer.span("Chat over {count} generators", count=len(coros)):
+        with tracer.span(f"Chat over {len(coros)} generators", count=len(coros)):
             chats = await asyncio.gather(*coros)
             return await self._post_run(chats, on_failed)
 

@@ -550,8 +550,12 @@ class CompletionPipeline:
     async def _watch_callback(self, completions: list[Completion]) -> None:
         def wrap_watch_callback(callback: WatchCompletionCallback) -> WatchCompletionCallback:
             async def traced_watch_callback(completions: list[Completion]) -> None:
+                callback_name = get_qualified_name(callback)
                 with tracer.span(
-                    "Watch with {callback}()", callback=get_qualified_name(callback), competion_count=len(completions)
+                    f"Watch with {callback_name}()",
+                    callback=callback_name,
+                    competion_count=len(completions),
+                    completion_ids=[str(c.uuid) for c in completions],
                 ):
                     await callback(completions)
 
@@ -601,20 +605,24 @@ class CompletionPipeline:
         # previous calls being ran.
 
         for map_callback in self.map_callbacks:
+            callback_name = get_qualified_name(map_callback)
             with tracer.span(
-                "Map with {callback}()",
-                callback=get_qualified_name(map_callback),
+                f"Map with {callback_name}()",
+                callback=callback_name,
                 completion_count=len(completions),
+                completion_ids=[str(c.uuid) for c in completions],
             ):
                 completions = await map_callback(completions)
                 if not all(isinstance(c, Completion) for c in completions):
-                    raise ValueError(
-                        f".map() callback must return a Completion object or None ({get_qualified_name(map_callback)})"
-                    )
+                    raise ValueError(f".map() callback must return a Completion object or None ({callback_name})")
 
         def wrap_then_callback(callback: ThenCompletionCallback) -> ThenCompletionCallback:
+            callback_name = get_qualified_name(callback)
+
             async def traced_then_callback(completion: Completion) -> Completion | None:
-                with tracer.span("Then with {callback}()", callback=get_qualified_name(callback)):
+                with tracer.span(
+                    f"Then with {callback_name}()", callback=callback_name, completion_id=str(completion.uuid)
+                ):
                     return await callback(completion)
 
             return traced_then_callback
@@ -761,7 +769,7 @@ class CompletionPipeline:
         states = self._initialize_states(1)
 
         with tracer.span(
-            "Completion with {generator_id}",
+            f"Completion with {self.generator.to_identifier()}",
             generator_id=self.generator.to_identifier(),
             params=self.params.to_dict() if self.params is not None else {},
         ) as span:
@@ -793,7 +801,7 @@ class CompletionPipeline:
         states = self._initialize_states(count, params)
 
         with tracer.span(
-            "Completion with {generator_id} (x{count})",
+            f"Completion with {self.generator.to_identifier()} (x{count})",
             count=count,
             generator_id=self.generator.to_identifier(),
             params=self.params.to_dict() if self.params is not None else {},
@@ -831,7 +839,7 @@ class CompletionPipeline:
             next(state.processor)
 
         with tracer.span(
-            "Completion batch with {generator_id} ({count})",
+            f"Completion batch with {self.generator.to_identifier()} ({len(states)})",
             count=len(states),
             generator_id=self.generator.to_identifier(),
             params=self.params.to_dict() if self.params is not None else {},
@@ -869,6 +877,6 @@ class CompletionPipeline:
             sub.generator = generator
             coros.append(sub.run(allow_failed=(on_failed != "raise")))
 
-        with tracer.span("Completion over {count} generators", count=len(coros)):
+        with tracer.span(f"Completion over {len(coros)} generators", count=len(coros)):
             completions = await asyncio.gather(*coros)
             return await self._post_run(completions, on_failed)

@@ -729,10 +729,11 @@ class Prompt(t.Generic[P, R]):
             raise NotImplementedError("pipeline.on_failed='include' cannot be used with prompts that process outputs")
 
         async def run_many(count: int, /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
+            name = get_qualified_name(self.func) if self.func else "<generated>"
             with tracer.span(
-                "Prompt {name}()" if count == 1 else "Prompt {name}() (x{count})",
+                f"Prompt {name}()" if count == 1 else f"Prompt {name}() (x{count})",
                 count=count,
-                name=get_qualified_name(self.func) if self.func else "<generated>",
+                name=name,
                 arguments=self._bind_args(*args, **kwargs),
             ) as span:
                 content = self.render(*args, **kwargs)
@@ -754,8 +755,12 @@ class Prompt(t.Generic[P, R]):
 
                 def wrap_watch_callback(callback: WatchChatCallback) -> WatchChatCallback:
                     async def traced_watch_callback(chats: list[Chat]) -> None:
+                        callback_name = get_qualified_name(callback)
                         with tracer.span(
-                            "Watch with {callback}()", callback=get_qualified_name(callback), chat_count=len(chats)
+                            f"Watch with {callback_name}()",
+                            callback=callback_name,
+                            chat_count=len(chats),
+                            chat_ids=[str(c.uuid) for c in chats],
                         ):
                             await callback(chats)
 
