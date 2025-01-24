@@ -7,7 +7,6 @@
 # ///
 
 import asyncio
-import logging
 import subprocess
 import typing as t
 
@@ -16,8 +15,6 @@ import typer
 import rigging as rg
 
 TRUNCATION_WARNING = "\n---\n**Note**: Due to the large size of this diff, some content has been truncated."
-
-logger = logging.getLogger(__name__)
 
 
 @rg.prompt
