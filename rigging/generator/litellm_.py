@@ -118,11 +118,17 @@ class LiteLLMGenerator(Generator):
         ):
             tool_calls = [call.model_dump() for call in choice.message.tool_calls]
 
+        extra = {"response_id": response.id}
+        if hasattr(response, "provider"):
+            extra["provider"] = response.provider
+        if choice.message.provider_specific_fields is not None:
+            extra.update(choice.message.provider_specific_fields)
+
         return GeneratedMessage(
             message=Message(role="assistant", content=choice.message.content, tool_calls=tool_calls),
             stop_reason=choice.finish_reason,
             usage=usage,
-            extra={"response_id": response.id},
+            extra=extra,
         )
 
     def _parse_text_completion_response(self, response: litellm.types.utils.TextCompletionResponse) -> GeneratedText:

@@ -1193,7 +1193,7 @@ class ChatPipeline:
 
         def wrap_then_callback(callback: ThenChatCallback) -> ThenChatCallback:
             async def traced_then_callback(chat: Chat) -> Chat | None:
-                callback_name = get_qualified_name(map_callback)
+                callback_name = get_qualified_name(callback)
                 with tracer.span(f"Then with {callback_name}()", callback=callback_name, chat_id=str(chat.uuid)):
                     return await callback(chat)
 
