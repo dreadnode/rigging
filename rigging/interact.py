@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import sys
 import typing as t
 
 from colorama import Fore, Style
@@ -9,6 +11,16 @@ from rigging.generator.base import Generator, get_generator
 
 if t.TYPE_CHECKING:
     from rigging.chat import Chat
+
+
+async def _animate(*, delay: float = 0.5, chars: list[str] | None = None, color: str = Fore.BLUE) -> None:
+    chars = chars or ["   ", ".  ", ".. ", "..."]
+    i = 0
+    while True:
+        print(f"{color}{chars[i]}{Style.RESET_ALL}", end="\r")
+        sys.stdout.flush()
+        await asyncio.sleep(delay)
+        i = (i + 1) % len(chars)
 
 
 async def interact(
@@ -70,10 +82,15 @@ async def interact(
             else:
                 pipeline.add(user_input)
 
-            chat = await pipeline.run()
-            pipeline.add(chat.last)
+            print("")
 
-            print(f"\n{Fore.BLUE}Assistant: {Style.RESET_ALL}{chat.last.content}")
+            animation_task = asyncio.create_task(_animate())
+            chat = await pipeline.run()
+            animation_task.cancel()
+
+            print(f"\r{Fore.BLUE}Assistant: {Style.RESET_ALL}{chat.last.content}")
+
+            pipeline.add(chat.last)
 
         except KeyboardInterrupt:
             print(f"\n\n{Fore.YELLOW}Chat interrupted. Exiting.{Style.RESET_ALL}")
