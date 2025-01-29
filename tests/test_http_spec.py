@@ -85,7 +85,7 @@ def test_chained_transforms() -> None:
                     "type": "jinja",
                     "pattern": """
                     {
-                        "formatted_messages": {{raw_messages|tojson}},
+                        "formatted_messages": {{data.raw_messages|tojson}},
                         "additional_context": {
                             "model": "{{model}}",
                             "temperature": {{params.temperature}}

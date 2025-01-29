@@ -37,6 +37,13 @@ def _to_dict(v: str | dict[str, t.Any]) -> dict[str, t.Any]:
     return t.cast(dict[str, t.Any], json.loads(v)) if isinstance(v, str) else v
 
 
+def _to_dict_or_str(v: str) -> dict[str, t.Any] | str:
+    try:
+        return t.cast(dict[str, t.Any], json.loads(v))
+    except json.JSONDecodeError:
+        return v
+
+
 # Jinja/template context when building request bodies
 
 
@@ -94,7 +101,7 @@ class HTTPSpec(BaseModel):
 
     @raise_as(ProcessingError, "Error while transforming input")
     def make_request_body(self, context: RequestTransformContext) -> str:
-        result: str | None = None
+        result: str = ""
 
         for transform in self.request.transforms:
             if transform.type == "json":
@@ -116,12 +123,16 @@ class HTTPSpec(BaseModel):
 
             elif transform.type == "jinja":
                 merged_context = context.model_dump(mode="json")
-                merged_context.update({"result": result, "data": result, "output": result, "body": result})
-
-                try:
-                    merged_context.update(_to_dict(result or {}))
-                except Exception:
-                    pass
+                _result = _to_dict_or_str(result)
+                merged_context.update(
+                    {
+                        # Duplicates here for convenience
+                        "result": _result,
+                        "data": _result,
+                        "output": _result,
+                        "body": _result,
+                    }
+                )
 
                 template = jinja2.Template(_to_str(transform.pattern), undefined=jinja2.StrictUndefined)
                 result = template.render(**merged_context)
@@ -141,7 +152,14 @@ class HTTPSpec(BaseModel):
         for transform in self.response.transforms:
             if transform.type == "jinja":
                 template = jinja2.Template(_to_str(transform.pattern), undefined=jinja2.StrictUndefined)
-                result = template.render(result=result, data=result, output=result, body=result)
+                _result = _to_dict_or_str(result)
+                result = template.render(
+                    # Duplicates here for convenience
+                    result=_result,
+                    data=_result,
+                    output=_result,
+                    body=_result,
+                )
 
             elif transform.type == "jsonpath":
                 jsonpath_expr = jsonpath_ng.parse(_to_str(transform.pattern))
