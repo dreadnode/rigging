@@ -1,4 +1,4 @@
-from rigging import data, error, model, parsing, watchers
+from rigging import data, error, generator, model, parsing, watchers
 from rigging.chat import Chat, ChatPipeline, MapChatCallback, ThenChatCallback
 from rigging.completion import Completion, CompletionPipeline, MapCompletionCallback, ThenCompletionCallback
 from rigging.generator import (
@@ -58,6 +58,7 @@ __all__ = [
     "MapChatCallback",
     "ThenCompletionCallback",
     "MapCompletionCallback",
+    "generator",
 ]
 
 from loguru import logger
