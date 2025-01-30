@@ -41,13 +41,10 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           content: |
-            ---
 
-            ## Generated Summary
+            ---
 
             ${{ steps.description.outputs.description }}
-
-            ---
 
             This summary was generated with ❤️ by [rigging](https://rigging.dreadnode.io/)
           

@@ -30,23 +30,24 @@ def generate_pr_description(diff: str) -> t.Annotated[str, rg.Ctx("markdown")]: 
     - Write like a developer who authored the changes.
     - Prefer flat bullet lists over nested.
     - Do not include any title structure.
+    - If there are no changes, just provide "No relevant changes."
     </guidance>
     """
 
 
-def get_diff(target_ref: str, source_ref: str, *, exclude: list[str] | None = None) -> str:
+def get_diff(base_ref: str, target_ref: str, *, exclude: list[str] | None = None) -> str:
     """
     Get the git diff between two branches.
     """
 
     merge_base = subprocess.run(
-        ["git", "merge-base", source_ref, target_ref],
+        ["git", "merge-base", target_ref, base_ref],
         capture_output=True,
         text=True,
         check=True,
     ).stdout.strip()
 
-    diff_command = ["git", "diff", "--no-color", merge_base, target_ref]
+    diff_command = ["git", "diff", "--no-color", merge_base, base_ref]
     if exclude:
         diff_command.extend(["--", ".", *[f":(exclude){path}" for path in exclude]])
 
@@ -61,8 +62,8 @@ def get_diff(target_ref: str, source_ref: str, *, exclude: list[str] | None = No
 
 
 def main(
-    target_ref: str,
-    source_ref: str = "HEAD",
+    base_ref: str = "HEAD",
+    target_ref: str = "origin/main",
     generator_id: str = "openai/gpt-4o-mini",
     max_diff_lines: int = 1000,
     exclude: list[str] | None = None,
@@ -71,12 +72,13 @@ def main(
     Use rigging to generate a PR description from a git diff.
     """
 
-    diff = get_diff(target_ref, source_ref, exclude=exclude)
+    diff = get_diff(base_ref, target_ref, exclude=exclude)
     diff_lines = diff.split("\n")
     if len(diff_lines) > max_diff_lines:
         diff = "\n".join(diff_lines[:max_diff_lines]) + TRUNCATION_WARNING
 
     description = asyncio.run(generate_pr_description.bind(generator_id)(diff))
+
     print(description)
 
 
