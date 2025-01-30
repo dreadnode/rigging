@@ -48,6 +48,8 @@ def _to_dict_or_str(v: str) -> dict[str, t.Any] | str:
 
 
 class RequestTransformContext(BaseModel):
+    """Context which is made available to transforms when building request bodies."""
+
     role: Role
     """Role of the last message in the sequence."""
 
