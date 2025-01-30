@@ -48,7 +48,13 @@ def _to_dict_or_str(v: str) -> dict[str, t.Any] | str:
 
 
 class RequestTransformContext(BaseModel):
-    """Context which is made available to transforms when building request bodies."""
+    """
+    Context made available to transforms when building request bodies.
+
+    - In URLs and headers, use `{{ <variable> }}` to inject values.
+    - For JSON transforms, use `$<variable>` to inject values.
+    - For Jinja transforms, use `{{ <variable> }}` to inject values.
+    """
 
     role: Role
     """Role of the last message in the sequence."""
