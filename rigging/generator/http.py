@@ -92,6 +92,12 @@ class TransformStep(BaseModel, t.Generic[TransformT]):
 
 
 class RequestSpec(BaseModel):
+    """
+    Specifies how to build a request from the messages and context.
+
+    At least one transform is required. It's output will be used as the request body.
+    """
+
     url: str
     method: str = "POST"
     headers: dict[str, str] = {}
@@ -99,11 +105,19 @@ class RequestSpec(BaseModel):
 
 
 class ResponseSpec(BaseModel):
+    """
+    Specifies how to validate a response and parse it's body into a generated message.
+
+    The final transform output will be used as the message content.
+    """
+
     valid_status_codes: list[int] = [200]
     transforms: list[TransformStep[OutputTransform]]
 
 
 class HTTPSpec(BaseModel):
+    """Defines how to build requests and parse responses for the HTTPGenerator."""
+
     request: RequestSpec
     response: ResponseSpec | None = None
 
