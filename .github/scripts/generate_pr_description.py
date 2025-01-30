@@ -48,7 +48,7 @@ def get_diff(target_ref: str, source_ref: str, *, exclude: list[str] | None = No
 
     diff_command = ["git", "diff", "--no-color", merge_base, target_ref]
     if exclude:
-        diff_command.extend(["--", ".", *[f":!{path}" for path in exclude]])
+        diff_command.extend(["--", ".", *[f":(exclude){path}" for path in exclude]])
 
     diff_text = subprocess.run(
         diff_command,
@@ -56,6 +56,7 @@ def get_diff(target_ref: str, source_ref: str, *, exclude: list[str] | None = No
         text=True,
         check=True,
     ).stdout
+
     return diff_text
 
 
