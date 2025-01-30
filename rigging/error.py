@@ -4,7 +4,10 @@ We try to avoid creating custom exceptions unless they are necessary.
 We use the built-in and pydantic exceptions as much as possible.
 """
 
+import functools
 import typing as t
+
+import typing_extensions as te
 
 if t.TYPE_CHECKING:
     from rigging.message import Message
@@ -70,3 +73,38 @@ class MissingModelError(Exception):
 
     def __init__(self, content: str):
         super().__init__(content)
+
+
+class ProcessingError(Exception):
+    """
+    Raised when an error occurs during internal generator processing.
+    """
+
+    def __init__(self, content: str):
+        super().__init__(content)
+
+
+P = te.ParamSpec("P")
+R = t.TypeVar("R")
+
+
+def raise_as(error_type: type[Exception], message: str) -> t.Callable[[t.Callable[P, R]], t.Callable[P, R]]:
+    "When the wrapped function raises an exception, `raise ... from` with the new error type."
+
+    def _raise_as(func: t.Callable[P, R]) -> t.Callable[P, R]:
+        @functools.wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                error = error_type(message)
+                raise error from e
+
+        if wrapper.__doc__ is None:
+            wrapper.__doc__ = ""
+
+        wrapper.__doc__ += f"\n\nRaises:\n    {error_type.__name__}{': ' + message}"
+
+        return wrapper
+
+    return _raise_as

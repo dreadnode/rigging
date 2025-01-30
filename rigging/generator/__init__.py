@@ -15,9 +15,11 @@ from rigging.generator.base import (
     get_identifier,
     register_generator,
 )
+from rigging.generator.http import HTTPGenerator
 from rigging.generator.litellm_ import LiteLLMGenerator
 
 register_generator("litellm", LiteLLMGenerator)
+register_generator("http", HTTPGenerator)
 register_generator("base", Generator)  # TODO: Helper while we sort out generators being required so many places.
 
 
@@ -60,5 +62,6 @@ __all__ = [
     "register_generator",
     "get_identifier",
     "LiteLLMGenerator",
+    "HTTPGenerator",
     # TODO: We can't add VLLM and Transformers here because they are lazy loaded
 ]
