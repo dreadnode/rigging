@@ -192,11 +192,48 @@ class HTTPSpec(BaseModel):
 
 
 class HTTPGenerator(Generator):
-    """Generator that uses transforms to map between HTTP APIs and the Message format."""
+    """
+    Generator to map messages to HTTP requests and back.
+
+    The generator takes a `spec` attribute which describes how to encode
+    messages into HTTP requests and decode the responses back into messages.
+
+    You can pass this spec as a python dictionary, JSON string, YAML string,
+    or a base64 encoded JSON/YAML string.
+
+    ```python
+    import rigging as rg
+
+    spec = r\"""
+    request:
+    url: "https://{{ model }}.crucible.dreadnode.io/submit"
+    headers:
+        "X-Api-Key": "{{ api_key }}"
+        "Content-Type": "application/json"
+    transforms:
+        - type: "json"
+        pattern: {
+            "data": "$content"
+        }
+    response:
+    transforms:
+        - type: "jsonpath"
+        pattern: $.flag,output,message
+    \"""
+
+    crucible = rg.get_generator("http!test,api_key=<key>")
+    crucible.spec = spec
+
+    chat = await crucible.chat("How about a flag?").run()
+
+    print(chat.conversation)
+    ```
+    """
 
     model_config = ConfigDict(validate_assignment=True)
 
     spec: HTTPSpec | None = None
+    """Specification for building/parsing HTTP interactions."""
 
     @field_validator("spec", mode="before")
     def process_spec(cls, v: t.Any) -> t.Any:
