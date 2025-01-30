@@ -31,6 +31,7 @@ def generate_pr_description(diff: str) -> t.Annotated[str, rg.Ctx("markdown")]: 
     - Prefer flat bullet lists over nested.
     - Do not include any title structure.
     - If there are no changes, just provide "No relevant changes."
+    - Order your bullet points by importance.
     </guidance>
     """
 
@@ -47,7 +48,7 @@ def get_diff(base_ref: str, source_ref: str, *, exclude: list[str] | None = None
         check=True,
     ).stdout.strip()
 
-    diff_command = ["git", "diff", "--no-color", merge_base, base_ref]
+    diff_command = ["git", "diff", "--no-color", merge_base, source_ref]
     if exclude:
         diff_command.extend(["--", ".", *[f":(exclude){path}" for path in exclude]])
 
@@ -62,8 +63,8 @@ def get_diff(base_ref: str, source_ref: str, *, exclude: list[str] | None = None
 
 
 def main(
-    source_ref: str = "HEAD",
     base_ref: str = "origin/main",
+    source_ref: str = "HEAD",
     generator_id: str = "openai/gpt-4o-mini",
     max_diff_lines: int = 1000,
     exclude: list[str] | None = None,
