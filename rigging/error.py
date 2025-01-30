@@ -7,6 +7,8 @@ We use the built-in and pydantic exceptions as much as possible.
 import functools
 import typing as t
 
+import typing_extensions as te
+
 if t.TYPE_CHECKING:
     from rigging.message import Message
 
@@ -82,7 +84,7 @@ class ProcessingError(Exception):
         super().__init__(content)
 
 
-P = t.ParamSpec("P")
+P = te.ParamSpec("P")
 R = t.TypeVar("R")
 
 
