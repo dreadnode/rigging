@@ -190,12 +190,12 @@ class HTTPSpec(BaseModel):
                 matches = [match.value for match in jsonpath_expr.find(result)]
                 if len(matches) == 0:
                     raise Exception(f"No matches found for JSONPath: {transform.pattern} from {result}")
-                result = json.dumps(matches) if len(matches) > 1 else matches[0]
+                result = json.dumps(matches) if len(matches) > 1 else str(matches[0])
 
             elif transform.type == "regex":
                 matches = re.findall(_to_str(transform.pattern), result)
                 matches = [str(match) for match in matches]
-                result = json.dumps(matches) if len(matches) > 1 else matches[0]
+                result = json.dumps(matches) if len(matches) > 1 else str(matches[0])
 
         return result
 
@@ -338,7 +338,7 @@ class HTTPGenerator(Generator):
         generated = await asyncio.gather(*coros)
 
         for i, (_messages, response) in enumerate(zip(messages, generated)):
-            trace_messages(_messages, f"Messages {i+1}/{len(messages)}")
-            trace_messages([response], f"Response {i+1}/{len(messages)}")
+            trace_messages(_messages, f"Messages {i + 1}/{len(messages)}")
+            trace_messages([response], f"Response {i + 1}/{len(messages)}")
 
         return generated

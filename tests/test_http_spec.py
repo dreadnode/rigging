@@ -212,3 +212,37 @@ def test_custom_header_templates() -> None:
     assert headers["Authorization"] == "Bearer test-key"
     assert headers["X-Request-ID"] == "default-id"
     assert headers["X-Model-Version"] == "test-model-v1"
+
+
+def test_parse_response_body_int() -> None:
+    spec = HTTPSpec(
+        request={
+            "url": "https://api.example.com/v1/chat",
+            "method": "POST",
+            "headers": {"Authorization": "Bearer {{api_key}}"},
+            "transforms": [{"type": "json", "pattern": {"model": "$model", "messages": "$messages"}}],
+        },
+        response={
+            "valid_status_codes": [200, 201],
+            "transforms": [{"type": "jsonpath", "pattern": "$.int_value"}],
+        },
+    )
+    result = spec.parse_response_body('{"int_value": 42}')
+    assert result == "42"
+
+
+def test_parse_response_body_list() -> None:
+    spec = HTTPSpec(
+        request={
+            "url": "https://api.example.com/v1/chat",
+            "method": "POST",
+            "headers": {"Authorization": "Bearer {{api_key}}"},
+            "transforms": [{"type": "json", "pattern": {"model": "$model", "messages": "$messages"}}],
+        },
+        response={
+            "valid_status_codes": [200, 201],
+            "transforms": [{"type": "jsonpath", "pattern": "foo[*].baz"}],
+        },
+    )
+    result = spec.parse_response_body('{"foo": [{"baz": 1}, {"baz": 2}]}')
+    assert result == "[1, 2]"
