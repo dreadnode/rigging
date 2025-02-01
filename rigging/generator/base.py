@@ -26,8 +26,7 @@ CallableT = t.TypeVar("CallableT", bound=t.Callable[..., t.Any])
 
 @t.runtime_checkable
 class LazyGenerator(t.Protocol):
-    def __call__(self) -> type[Generator]:
-        ...
+    def __call__(self) -> type[Generator]: ...
 
 
 g_providers: dict[str, type[Generator] | LazyGenerator] = {}
@@ -382,16 +381,14 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[MessageDict],
         params: GenerateParams | None = None,
-    ) -> ChatPipeline:
-        ...
+    ) -> ChatPipeline: ...
 
     @t.overload
     def chat(
         self,
         messages: t.Sequence[Message] | MessageDict | Message | str | None = None,
         params: GenerateParams | None = None,
-    ) -> ChatPipeline:
-        ...
+    ) -> ChatPipeline: ...
 
     def chat(
         self,
@@ -460,8 +457,7 @@ def chat(
     generator: Generator,
     messages: t.Sequence[MessageDict],
     params: GenerateParams | None = None,
-) -> ChatPipeline:
-    ...
+) -> ChatPipeline: ...
 
 
 @t.overload
@@ -469,8 +465,7 @@ def chat(
     generator: Generator,
     messages: t.Sequence[Message] | MessageDict | Message | str | None = None,
     params: GenerateParams | None = None,
-) -> ChatPipeline:
-    ...
+) -> ChatPipeline: ...
 
 
 def chat(
@@ -597,7 +592,7 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
     if "," in model:
         try:
             model, kwargs_str = model.split(",", 1)
-            kwargs = dict(arg.split("=") for arg in kwargs_str.split(","))
+            kwargs = dict(arg.split("=", 1) for arg in kwargs_str.split(","))
         except Exception as e:
             raise InvalidModelSpecifiedError(identifier) from e
 

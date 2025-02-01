@@ -75,3 +75,9 @@ def test_register_generator() -> None:
     register_generator("echo", EchoGenerator)
     generator = get_generator("echo!test")
     assert isinstance(generator, EchoGenerator)
+
+
+def test_get_generator_b64() -> None:
+    generator = get_generator("litellm!test_model,api_key=ZXhhbXBsZXRleHQ=")
+    assert isinstance(generator, LiteLLMGenerator)
+    assert generator.model == "test_model"
