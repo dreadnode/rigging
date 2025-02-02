@@ -310,7 +310,7 @@ class HTTPGenerator(Generator):
         )
 
         # Conditionally set the timeout to avoid overriding the default "unset" value
-        kwargs = {}
+        kwargs: dict[str, t.Any] = {}
         if self.spec.request.timeout is not None:
             kwargs["timeout"] = self.spec.request.timeout
         elif params.timeout is not None:
