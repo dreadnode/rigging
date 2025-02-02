@@ -101,6 +101,7 @@ class RequestSpec(BaseModel):
     url: str
     method: str = "POST"
     headers: dict[str, str] = {}
+    timeout: int | None = None
     transforms: list[TransformStep[InputTransform]] = Field(min_length=1)
 
 
@@ -308,12 +309,22 @@ class HTTPGenerator(Generator):
             model=self.model,
         )
 
+        # Conditionally set the timeout to avoid overriding the default "unset" value
+        kwargs: dict[str, t.Any] = {}
+        if self.spec.request.timeout is not None:
+            kwargs["timeout"] = self.spec.request.timeout
+        elif params.timeout is not None:
+            kwargs["timeout"] = params.timeout
+        elif self.params.timeout is not None:
+            kwargs["timeout"] = self.params.timeout
+
         async with httpx.AsyncClient() as client:
             response = await client.request(
                 self.spec.request.method,
                 self.spec.make_url(context),
                 content=self.spec.make_request_body(context),
                 headers=self.spec.make_headers(context),
+                **kwargs,
             )
 
         content = response.text
