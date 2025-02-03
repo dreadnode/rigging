@@ -1,9 +1,15 @@
 <p align="center">
-    <img src="docs/assets/rigging.png" alt="rigging" width="300" align='center'/>
+    <img
+    src="https://d1lppblt9t2x15.cloudfront.net/logos/5714928f3cdc09503751580cffbe8d02.png"
+    alt="Logo"
+    align="center"
+    width="144px"
+    height="144px"
+    />
 </p>
 
 <h3 align="center">
-Simplify using LLMs in code
+Flexible LLM library for code and agents
 </h3>
 
 <h4 align="center">
