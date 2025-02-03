@@ -13,6 +13,7 @@ from openai.lib._pydantic import to_strict_json_schema
 from pydantic import BaseModel, TypeAdapter, field_validator
 
 from rigging.tracing import tracer
+from rigging.util import deref_json
 
 if t.TYPE_CHECKING:
     from rigging.message import Message
@@ -145,7 +146,7 @@ class ApiTool:
 
             schema["properties"][name]["description"] = annotation_args[1]
 
-        return schema
+        return deref_json(schema, is_json_schema=True)
 
     @cached_property
     def definition(self) -> ToolDefinition:

@@ -21,6 +21,7 @@ from pydantic_xml import BaseXmlModel
 from pydantic_xml import attr as attr
 from pydantic_xml import element as element
 from pydantic_xml import wrapped as wrapped
+from pydantic_xml.model import XmlEntityInfo
 from pydantic_xml.typedefs import EntityLocation, NsMap
 
 from rigging.error import MissingModelError
@@ -129,6 +130,11 @@ class Model(BaseXmlModel):
         """
         field_values = list(cls.model_fields.values())
         if len(field_values) != 1:
+            return False
+
+        # If the field is a pydantic-xml wrapper like element()
+        # or attr(), we'll assume the user knows what they're doing
+        if isinstance(field_values[0], XmlEntityInfo):
             return False
 
         annotation = field_values[0].annotation

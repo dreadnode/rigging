@@ -8,6 +8,7 @@ import types
 import typing as t
 from threading import Thread
 
+import jsonref  # type: ignore [import-untyped]
 from pydantic import alias_generators
 
 R = t.TypeVar("R")
@@ -64,6 +65,18 @@ def await_(*coros: t.Coroutine[t.Any, t.Any, R]) -> R | list[R]:  # type: ignore
     if len(coros) == 1:
         return results[0]
     return results
+
+
+# JSON
+
+
+def deref_json(obj: dict[str, t.Any], *, is_json_schema: bool = False) -> dict[str, t.Any]:
+    return jsonref.replace_refs(  # type: ignore [no-any-return]
+        obj,
+        jsonschema=is_json_schema,
+        proxies=False,
+        lazy_load=False,
+    )
 
 
 # XML Formatting
