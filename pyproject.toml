@@ -8,6 +8,8 @@ repository = "https://github.com/dreadnode/rigging"
 readme = "README.md"
 packages = [{ include = "rigging" }]
 
+# Dependencies
+
 [tool.poetry.dependencies]
 python = "^3.9"
 pydantic = "^2.7.3"
@@ -71,9 +73,13 @@ mkdocs-section-index = "^0.3.9"
 pymdown-extensions = "^10.8.1"
 pygments = "^2.18.0"
 
+# Build
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+# Tests / Coverage
 
 [tool.pytest.ini_options]
 filterwarnings = ["ignore::DeprecationWarning"]
@@ -88,37 +94,23 @@ show_missing = true
 [tool.coverage.lcov]
 output = "lcov.info"
 
+# Tracing
+
 [tool.logfire]
 ignore_no_config = true
+
+# Type Checking
 
 [tool.mypy]
 plugins = "pydantic.mypy"
 strict = true
 
-[tool.ruff]
-select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
-    "I",   # isort
-    "C",   # flake8-comprehensions
-    "B",   # flake8-bugbear
-    "UP",  # pyupgrade
-    "NPY", # numpydoc
-    "TCH", # typecheck
-    "A",   # flake8-annotations
-]
-ignore = [
-    "E501",  # line too long, handled by black
-    "B008",  # do not perform function calls in argument defaults
-    "C901",  # too complex
-    "W191",  # indentation contains tabs
-    "F722",  # syntax error in forward annotation
-    "UP007", # X | Y syntax while we're still supporting 3.9
-    "UP038", # isinstance() X | Y instance ^
-    "B905",  # zip() without strict (isn't supported in 3.9)
-]
+# Formatting / Linting
 
+[tool.ruff]
+line-length = 120
+indent-width = 4
+target-version = "py310"
 exclude = [
     ".bzr",
     ".direnv",
@@ -143,15 +135,32 @@ exclude = [
     "venv",
 ]
 
-line-length = 120
-indent-width = 4
-target-version = "py310"
-
 [tool.ruff.lint]
 fixable = ["ALL"]
 unfixable = ["B"]
-
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "C",   # flake8-comprehensions
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "NPY", # numpydoc
+    "TCH", # typecheck
+    "A",   # flake8-annotations
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+    "W191",  # indentation contains tabs
+    "F722",  # syntax error in forward annotation
+    "UP007", # X | Y syntax while we're still supporting 3.9
+    "UP038", # isinstance() X | Y instance ^
+    "B905",  # zip() without strict (isn't supported in 3.9)
+]
 
 [tool.ruff.format]
 quote-style = "double"

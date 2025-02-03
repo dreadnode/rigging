@@ -247,7 +247,7 @@ class Tool:
             if signature.return_annotation is inspect.Signature.empty:
                 raise TypeError(f"Functions must have return type hints ({method_name})")
 
-            if signature.return_annotation != str:
+            if signature.return_annotation is not str:
                 raise TypeError(f"Functions must return strings ({method_name})")
 
             parameters: list[ToolParameter] = []
