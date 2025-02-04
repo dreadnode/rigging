@@ -191,7 +191,7 @@ class HTTPSpec(BaseModel):
                 matches = [match.value for match in jsonpath_expr.find(result)]
                 if len(matches) == 0:
                     raise Exception(f"No matches found for JSONPath: {transform.pattern} from {result}")
-                result = json.dumps(matches) if len(matches) > 1 else str(matches[0])
+                result = json.dumps(matches) if len(matches) > 1 else json.dumps(matches[0])
 
             elif transform.type == "regex":
                 matches = re.findall(_to_str(transform.pattern), result)
