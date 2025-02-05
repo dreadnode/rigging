@@ -5,8 +5,7 @@ site_url: https://rigging.dreadnode.io
 repo_url: https://github.com/dreadnode/rigging
 
 nav:
-  - Home:
-    - index.md
+  - index.md
   - Topics:
     - Workflow: topics/workflow.md
     - Models: topics/models.md
