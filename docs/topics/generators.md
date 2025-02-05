@@ -190,6 +190,160 @@ params by using the associated [`.with_()`][rigging.chat.ChatPipeline.with_] fun
         print(chat.last.content)
     ```
 
+## HTTP Generator
+
+The [`HTTPGenerator`][rigging.generator.http.HTTPGenerator] allows you to wrap any HTTP endpoint as a generator,
+making it easy to integrate external LLMs or AI services into your Rigging pipelines. It works by
+defining a specification that maps message content into HTTP requests and parses responses back into
+messages.
+
+The specification is assigned to the [`.spec`][rigging.generator.http.HTTPGenerator.spec] field on the generator,
+and can be applied as a Python dictionary, JSON string, YAML string, or base64 encoded JSON/YAML string.
+
+This flexibility allows you to easily share and reuse specifications across different parts of your application.
+
+```python
+import rigging as rg
+
+spec = r"""
+request:
+  url: "https://{{ model }}.crucible.dreadnode.io/submit" 
+  headers:
+    "X-Api-Key": "{{ api_key }}"
+    "Content-Type": "application/json"
+  transforms:
+    - type: "json"
+      pattern: {
+        "data": "$content"
+      }
+response:
+  transforms:
+    - type: "jsonpath"
+      pattern: $.flag,output,message
+"""
+
+crucible = rg.get_generator("http!spanglish,api_key=<key>") # (1)
+crucible.spec = spec
+
+chat = await crucible.chat("A flag please").run()
+
+print(chat.conversation)
+# [user]: A flag please
+# 
+# [assistant]: Una bandera, por favor.
+```
+
+1. Were are using the `.model` field on the generator to carry our crucible challenge
+
+!!! tip "Saving schemas"
+
+    Encoded YAML is the default storage when an HTTP generator is serialized to an indentifier using
+    [`to_identifier`][rigging.generator.Generator.to_identifier]. This also means that when we save
+    our chats to storage, they maintain their http specification.
+
+    ```py
+    print(crucible.to_identifier())
+    # http!spanglish,spec=eyJyZXF1ZXN0Ijp7InVyb...
+    ```
+
+### Specification
+
+The [specification (`HTTPSpec`)][rigging.generator.http.HTTPSpec] controls how messages are transformed around HTTP interactions. It supports:
+
+- Template-based URLs
+- Template-based header generation
+- Configurable timeouts and HTTP methods
+- Status code validation
+- Flexible body transformations for both the request and response
+
+When building requests, the following [context variables (`RequestTransformContext`)][rigging.generator.http.RequestTransformContext]
+are available in your transform patterns:
+
+- `role` - Role of the last message (user/assistant/system)
+- `content` - Content of the last message
+- `all_content` - Concatenated content of all messages
+- `messages` - List of all message objects
+- `params` - Generation parameters (temperature, max_tokens, etc.)
+- `api_key` - API key from the generator
+- `model` - Model identifier from the generator
+
+For both request and response transform chains, the previous result of each transform is
+provided to the next transform via any of `data`, `output`, `result`, or `body`.
+
+### Transforms
+
+The HTTP generator supports different types of transforms for both request building and response parsing.
+Each serves a specific purpose and has its own pattern syntax.
+
+!!! tip "Transform Chaining"
+
+    Transforms are applied in sequence, with each transform's output becoming the input for the next.
+    This allows you to build complex processing pipelines:
+    
+    ```yaml
+    transforms:
+      - type: "jsonpath"
+        pattern: "$.data"  # Extract data object
+      - type: "jinja"
+        pattern: "{{ result | tojson }}"  # Convert to string
+      - type: "regex"
+        pattern: "message: (.*)"  # Extract specific field
+    ```
+
+**Jinja (request + response)**
+
+The `jinja` transform type provides full Jinja2 template syntax. Access context variables directly
+and use Jinja2 filters and control structures.
+
+```yaml
+transforms:
+  - type: "jinja"
+    pattern: >
+      {
+        "content": "{{ all_content }}",
+        "timestamp": "{{ now() }}",
+        {% if params.temperature > 0.5 %}
+        "mode": "creative"
+        {% endif %}
+      }
+```
+
+**JSON (request only)**
+
+The `json` transform type lets you build JSON request bodies using a template object. Use `$` prefix
+to reference context variables, with dot notation for nested access:
+
+```yaml
+transforms:
+  - type: "json"
+    pattern: {
+      "messages": "$messages",
+      "temperature": "$params.temperature",
+      "content": "$content",
+      "static_field": "hello"
+    }
+```
+
+**JSONPath (response only)**
+
+The `jsonpath` transform type uses [JSONPath](https://github.com/h2non/jsonpath-ng) expressions to extract data from JSON responses:
+
+```yaml
+transforms:
+  - type: "jsonpath"
+    pattern: "$.choices[0].message.content"
+```
+
+**Regex (response only)**
+
+The `regex` transform type uses regular expressions to extract content from text responses:
+
+```yaml
+transforms:
+  - type: "regex"
+    pattern: "<output>(.*?)</output>"
+```
+
 ## Writing a Generator
 
 All generators should inherit from the [`Generator`][rigging.generator.Generator] base class, and

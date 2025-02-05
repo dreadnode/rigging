@@ -88,7 +88,10 @@ TransformT = t.TypeVar("TransformT", InputTransform, OutputTransform)
 
 class TransformStep(BaseModel, t.Generic[TransformT]):
     type: TransformT
+    """Type of transform to apply."""
+
     pattern: str | dict[str, t.Any]
+    """Pattern to use for the transform."""
 
 
 class RequestSpec(BaseModel):
@@ -99,10 +102,19 @@ class RequestSpec(BaseModel):
     """
 
     url: str
+    """URL to send the request to (Jinja templates supported)."""
+
     method: str = "POST"
+    """HTTP method to use for the request."""
+
     headers: dict[str, str] = {}
+    """Headers to include in the request (Jinja templates supported)."""
+
     timeout: int | None = None
+    """Timeout in seconds for the request."""
+
     transforms: list[TransformStep[InputTransform]] = Field(min_length=1)
+    """Transforms to apply to the messages to build the request body."""
 
 
 class ResponseSpec(BaseModel):
@@ -113,14 +125,20 @@ class ResponseSpec(BaseModel):
     """
 
     valid_status_codes: list[int] = [200]
+    """Valid status codes for the response."""
+
     transforms: list[TransformStep[OutputTransform]]
+    """Transforms to apply to the response body to generate the message content."""
 
 
 class HTTPSpec(BaseModel):
     """Defines how to build requests and parse responses for the HTTPGenerator."""
 
     request: RequestSpec
+    """Specification for building the request."""
+
     response: ResponseSpec | None = None
+    """Specification for parsing the response."""
 
     @raise_as(ProcessingError, "Error while transforming input")
     def make_request_body(self, context: RequestTransformContext) -> str:
@@ -191,7 +209,9 @@ class HTTPSpec(BaseModel):
                 matches = [match.value for match in jsonpath_expr.find(result)]
                 if len(matches) == 0:
                     raise Exception(f"No matches found for JSONPath: {transform.pattern} from {result}")
-                result = json.dumps(matches) if len(matches) > 1 else json.dumps(matches[0])
+                elif len(matches) == 1:
+                    matches = matches[0]
+                result = matches if isinstance(matches, str) else json.dumps(matches)
 
             elif transform.type == "regex":
                 matches = re.findall(_to_str(transform.pattern), result)
