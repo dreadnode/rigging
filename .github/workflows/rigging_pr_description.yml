@@ -48,5 +48,5 @@ jobs:
 
             ${{ steps.description.outputs.description }}
 
-            This summary was generated with ❤️ by [rigging](https://rigging.dreadnode.io/)
+            This summary was generated with ❤️ by [rigging](https://docs.dreadnode.io/rigging/)
           
