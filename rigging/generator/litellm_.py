@@ -121,7 +121,7 @@ class LiteLLMGenerator(Generator):
         extra = {"response_id": response.id}
         if hasattr(response, "provider"):
             extra["provider"] = response.provider
-        if choice.message.provider_specific_fields is not None:
+        if hasattr(choice.message, "provider_specific_fields") and choice.message.provider_specific_fields is not None:
             extra.update(choice.message.provider_specific_fields)
 
         return GeneratedMessage(

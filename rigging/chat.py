@@ -586,28 +586,39 @@ class ChatPipeline:
         return self
 
     def add(
-        self, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
+        self,
+        messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str,
+        *,
+        merge_strategy: t.Literal["only-user-role", "all", "none"] = "only-user-role",
     ) -> ChatPipeline:
         """
         Appends new message(s) to the internal chat before generation.
 
         Note:
-            If the last message in the chat is the same role as the first new message,
-            the content will be appended. instead of a new message being created.
+            `merge_strategy` configures behavior when the last message in the chat
+            is the same role as the first incoming message. This is useful for appending content
+            automatically to avoid duplicate messages of the same role. For backwards compatibility,
+            the default behavior is currently set to `only-user-role`. It can be set to `none` to disable
+            any merging behavior, which may become the default in the future.
 
         Args:
             messages: The messages to be added to the chat. It can be a single message or a sequence of messages.
+            merge_strategy: The strategy to use when merging message content when the roles match.
+                - "only-user-role": Only merge content of the last existing message and the first incoming message if the last message role is "user".
+                - "all": Merge content of the last existing message and the first incoming message if their roles match.
+                - "none": Keep messages independent and do not merge any content.
 
         Returns:
             The updated ChatPipeline object.
         """
         message_list = Message.fit_as_list(messages)
-        # If the last message is the same role as the first new message, append to it
-        if self.chat.all and self.chat.all[-1].role == message_list[0].role:
-            self.chat.all[-1].content += "\n" + message_list[0].content
-            message_list = message_list[1:]
-        else:
-            self.chat.generated += message_list
+
+        if merge_strategy != "none" and self.chat.all and self.chat.all[-1].role == message_list[0].role:
+            if merge_strategy == "all" or (merge_strategy == "only-user-role" and self.chat.all[-1].role == "user"):
+                self.chat.all[-1].content += "\n" + message_list[0].content
+                message_list = message_list[1:]
+
+        self.chat.generated += message_list
         return self
 
     def fork(

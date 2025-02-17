@@ -177,7 +177,7 @@ def test_chat_restart() -> None:
         [
             Message("user", "Other Stuff"),
         ],
-        generator=get_generator("gpt-3.5"),
+        generator=get_generator("base"),
     )
 
     assert len(chat.restart()) == 2
@@ -196,7 +196,7 @@ def test_chat_continue() -> None:
             Message("user", "Hello"),
             Message("assistant", "Hi there!"),
         ],
-        generator=get_generator("gpt-3.5"),
+        generator=get_generator("base"),
     )
 
     continued = chat.continue_([Message("user", "How are you?")]).chat
@@ -213,7 +213,7 @@ def test_chat_to_message_dicts() -> None:
             Message("user", "Hello"),
             Message("assistant", "Hi there!"),
         ],
-        generator=get_generator("gpt-3.5"),
+        generator=get_generator("base"),
     )
 
     assert len(chat.message_dicts) == 2
@@ -227,7 +227,7 @@ def test_chat_to_conversation() -> None:
             Message("user", "Hello"),
             Message("assistant", "Hi there!"),
         ],
-        generator=get_generator("gpt-3.5"),
+        generator=get_generator("base"),
     )
 
     assert "[user]: Hello" in chat.conversation
@@ -254,7 +254,7 @@ def test_chat_properties() -> None:
 
 
 def test_chat_pipeline_continue() -> None:
-    pipeline = ChatPipeline(get_generator("gpt-3.5"), [])
+    pipeline = ChatPipeline(get_generator("base"), [])
     continued = pipeline.fork([Message("user", "Hello")])
 
     assert continued != pipeline
@@ -263,7 +263,7 @@ def test_chat_pipeline_continue() -> None:
 
 
 def test_chat_pipeline_add() -> None:
-    pipeline = ChatPipeline(get_generator("gpt-3.5"), [Message("user", "Hello")])
+    pipeline = ChatPipeline(get_generator("base"), [Message("user", "Hello")])
     added = pipeline.add(Message("user", "There"))
 
     assert added == pipeline
@@ -282,7 +282,7 @@ def test_chat_continue_maintains_parsed_models() -> None:
             Message("user", "<person name='John'>30</person>"),
             Message("assistant", "<address><street>123 Main St</street><city>Anytown</city></address>"),
         ],
-        generator=get_generator("gpt-3.5"),
+        generator=get_generator("base"),
     )
 
     chat.all[0].parse(Person)
@@ -296,14 +296,14 @@ def test_chat_continue_maintains_parsed_models() -> None:
 
 
 def test_chat_pipeline_meta() -> None:
-    pipeline = ChatPipeline(get_generator("gpt-3.5"), [Message("user", "Hello")])
+    pipeline = ChatPipeline(get_generator("base"), [Message("user", "Hello")])
     with_meta = pipeline.meta(key="value")
     assert with_meta == pipeline
     assert with_meta.metadata == {"key": "value"}
 
 
 def test_chat_pipeline_with() -> None:
-    pipeline = ChatPipeline(get_generator("gpt-3.5"), [Message("user", "Hello")])
+    pipeline = ChatPipeline(get_generator("base"), [Message("user", "Hello")])
     with_pipeline = pipeline.with_(GenerateParams(max_tokens=123))
     assert with_pipeline == pipeline
     assert with_pipeline.params is not None
@@ -368,3 +368,110 @@ def test_message_dedent() -> None:
     assert lines[0] == "Tabbed content"
     assert lines[1] == "Line 2"
     assert lines[2] == ""
+
+
+def test_chat_pipeline_add_merge_strategy_default() -> None:
+    """Test the default merge strategy (only-user-role) behavior."""
+    pipeline = ChatPipeline(get_generator("base"), [Message("user", "Hello")])
+
+    # Test merging user messages (should merge)
+    pipeline.add(Message("user", "There"))
+    assert len(pipeline.chat) == 1
+    assert pipeline.chat.all[0].content == "Hello\nThere"
+
+    # Test adding assistant message after merged user messages
+    pipeline.add(Message("assistant", "Hi there!"))
+    assert len(pipeline.chat) == 2
+    assert pipeline.chat.all[1].content == "Hi there!"
+
+    # Test that assistant messages don't merge by default
+    pipeline.add(Message("assistant", "How are you?"))
+    assert len(pipeline.chat) == 3
+    assert pipeline.chat.all[2].content == "How are you?"
+
+
+def test_chat_pipeline_add_merge_strategy_none() -> None:
+    """Test that merge_strategy='none' prevents any message merging."""
+    pipeline = ChatPipeline(get_generator("base"), [Message("user", "Hello")])
+
+    # Test that user messages don't merge
+    pipeline.add(Message("user", "There"), merge_strategy="none")
+    assert len(pipeline.chat) == 2
+    assert pipeline.chat.all[0].content == "Hello"
+    assert pipeline.chat.all[1].content == "There"
+
+    # Test that assistant messages also don't merge
+    pipeline.add([Message("assistant", "Hi!"), Message("assistant", "How are you?")], merge_strategy="none")
+    assert len(pipeline.chat) == 4
+    assert pipeline.chat.all[2].content == "Hi!"
+    assert pipeline.chat.all[3].content == "How are you?"
+
+
+def test_chat_pipeline_add_merge_strategy_all() -> None:
+    """Test that merge_strategy='all' merges consecutive messages of the same role."""
+    pipeline = ChatPipeline(get_generator("base"), [Message("user", "Hello")])
+
+    # Test merging user messages
+    pipeline.add(Message("user", "There"), merge_strategy="all")
+    assert len(pipeline.chat) == 1
+    assert pipeline.chat.all[0].content == "Hello\nThere"
+
+    # Test merging assistant messages
+    pipeline.add(Message("assistant", "Hi!"))
+    pipeline.add(Message("assistant", "How are you?"), merge_strategy="all")
+    assert len(pipeline.chat) == 2
+    assert pipeline.chat.all[1].content == "Hi!\nHow are you?"
+
+
+def test_chat_pipeline_add_merge_strategy_multiple_messages() -> None:
+    """Test merge behavior with multiple messages in a single add call."""
+    pipeline = ChatPipeline(get_generator("base"), [Message("user", "Hello")])
+
+    # Test adding multiple messages with user first (should merge first message only)
+    pipeline.add(
+        [Message("user", "There"), Message("assistant", "Hi!"), Message("user", "Another")], merge_strategy="all"
+    )
+
+    assert len(pipeline.chat) == 3
+    assert pipeline.chat.all[0].content == "Hello\nThere"
+    assert pipeline.chat.all[1].content == "Hi!"
+    assert pipeline.chat.all[2].content == "Another"
+
+
+def test_chat_pipeline_add_merge_strategy_empty_chat() -> None:
+    """Test merge behavior when starting with an empty chat."""
+    pipeline = ChatPipeline(get_generator("base"), [])
+
+    # Test that first message is added normally regardless of strategy
+    pipeline.add(Message("user", "Hello"), merge_strategy="all")
+    assert len(pipeline.chat) == 1
+    assert pipeline.chat.all[0].content == "Hello"
+
+    pipeline.add(Message("user", "There"), merge_strategy="all")
+    assert len(pipeline.chat) == 1
+    assert pipeline.chat.all[0].content == "Hello\nThere"
+
+
+def test_chat_pipeline_add_merge_strategy_string_input() -> None:
+    """Test merge behavior with string input."""
+    pipeline = ChatPipeline(get_generator("base"), [Message("user", "Hello")])
+
+    # Test merging string input (converts to user message)
+    pipeline.add("There", merge_strategy="all")
+    assert len(pipeline.chat) == 1
+    assert pipeline.chat.all[0].content == "Hello\nThere"
+
+
+def test_chat_pipeline_add_merge_strategy_message_dict() -> None:
+    """Test merge behavior with MessageDict input."""
+    pipeline = ChatPipeline(get_generator("base"), [Message("user", "Hello")])
+
+    # Test merging MessageDict input
+    pipeline.add({"role": "user", "content": "There"}, merge_strategy="all")
+    assert len(pipeline.chat) == 1
+    assert pipeline.chat.all[0].content == "Hello\nThere"
+
+    # Test non-merging with different role
+    pipeline.add({"role": "assistant", "content": "Hi!"}, merge_strategy="all")
+    assert len(pipeline.chat) == 2
+    assert pipeline.chat.all[1].content == "Hi!"
