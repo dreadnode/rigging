@@ -3,10 +3,10 @@ This module handles tools provided externally through APIs (OpenAI, Anthropic, G
 """
 from __future__ import annotations
 
+import functools
 import inspect
 import json
 import typing as t
-import warnings
 from functools import cached_property
 
 from openai.lib._pydantic import to_strict_json_schema
@@ -113,8 +113,18 @@ class ApiTool:
             self.fn = fn.__rg_prompt__.func  # type: ignore
             self._fn_to_call = fn
 
+        # Passing a function to a TypeAdapter results in an internal
+        # call being made to the function after during validation.
+        # We want to manage the call ourselves, so we pass in a dummy function
+        # that does nothing, with a mirrored signature of the original
+        # to ensure arguments are still validated properly.
+        @functools.wraps(self.fn)
+        def empty_func(*args, **kwargs):  # type: ignore
+            pass
+
+        self.type_adapter: TypeAdapter[t.Any] = TypeAdapter(empty_func)
+
         self.signature = inspect.signature(self.fn)
-        self.type_adapter: TypeAdapter[t.Any] = TypeAdapter(self.fn)
         _ = self.schema  # Ensure schema is valid
 
     @cached_property
@@ -166,10 +176,7 @@ class ApiTool:
             args = json.loads(tool_call.function.arguments)
             span.set_attribute("arguments", args)
 
-            # For some reason, this will throw a coroutine unawaited warning
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=RuntimeWarning)
-                self.type_adapter.validate_python(args)
+            result = self.type_adapter.validate_python(args)
 
             if inspect.iscoroutinefunction(self._fn_to_call):
                 result = await self._fn_to_call(**args)
