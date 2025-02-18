@@ -80,7 +80,7 @@ class ToolCall(BaseModel):
     function: FunctionCall
 
     def __str__(self) -> str:
-        return f"{self.function.name}({self.function.arguments})"
+        return f"<ToolCall {self.function.name}({self.function.arguments})>"
 
 
 class ApiTool:

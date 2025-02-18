@@ -9,6 +9,8 @@ import litellm.types.utils
 from loguru import logger
 
 from rigging.generator.base import (
+    Fixup,
+    Fixups,
     GeneratedMessage,
     GeneratedText,
     GenerateParams,
@@ -22,6 +24,42 @@ from rigging.message import Message
 # this independently, but for now we'll
 # fix it to prevent confusion
 litellm.drop_params = True
+
+# Prevent the small debug statements
+# from being printed to the console
+litellm.suppress_debug_info = True
+
+
+class OpenAIToolsWithImageURLsFixup(Fixup):
+    # As of writing, openai doesn't support multi-part messages
+    # associated with the `tool` role. This is complicated by
+    # the fact that we need to resolve the tool call(s) in the
+    # following messages. To get around this, we'll resolve the tool
+    # call with empty content, and duplicate the multi-part data
+    # into a user message immediately following it. We also need
+    # to take care of multiple tool calls next to eachother and ensure
+    # we don't add the user message in between them.
+
+    def can_fix(self, exception: Exception) -> bool:
+        return (
+            "Image URLs are only allowed for messages with role 'user', but this message with role 'tool' contains an image URL."
+            in str(exception)
+        )
+
+    def fix(self, items: t.Sequence[Message]) -> t.Sequence[Message]:
+        updated_messages: list[Message] = []
+        append_queue: list[Message] = []
+        for message in items:
+            if message.role == "tool" and isinstance(message.all_content, list):
+                updated_messages.append(message.model_copy(deep=True, update={"all_content": "See next message"}))
+                append_queue.append(message.model_copy(deep=True, update={"role": "user"}))
+            else:
+                updated_messages.extend(append_queue)
+                append_queue = []
+                updated_messages.append(message)
+
+        updated_messages.extend(append_queue)
+        return updated_messages
 
 
 class LiteLLMGenerator(Generator):
@@ -64,6 +102,8 @@ class LiteLLMGenerator(Generator):
 
     _semaphore: asyncio.Semaphore | None = None
     _last_request_time: datetime.datetime | None = None
+
+    _fixups = Fixups(available=[OpenAIToolsWithImageURLsFixup()])
 
     @property
     def semaphore(self) -> asyncio.Semaphore:
@@ -155,12 +195,20 @@ class LiteLLMGenerator(Generator):
             if self._wrap is not None:
                 acompletion = self._wrap(acompletion)
 
-            response = await acompletion(
-                model=self.model,
-                messages=[message.to_openai_spec() for message in messages],
-                api_key=self.api_key,
-                **self.params.merge_with(params).to_dict(),
-            )
+            # Prepare messages for specific providers
+            messages = await self._apply_fixups(messages)
+
+            try:
+                response = await acompletion(
+                    model=self.model,
+                    messages=[message.to_openai_spec() for message in messages],
+                    api_key=self.api_key,
+                    **self.params.merge_with(params).to_dict(),
+                )
+            except Exception as e:
+                if self._check_fixups(e):
+                    return await self._generate_message(messages, params)
+                raise
 
             self._last_request_time = datetime.datetime.now()
             return self._parse_model_response(response)
