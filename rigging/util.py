@@ -148,3 +148,16 @@ def get_qualified_name(obj: t.Callable[..., t.Any]) -> str:
 
     # Fallback
     return obj.__class__.__qualname__
+
+
+# Formatting
+
+
+def truncate_string(content: str, max_length: int, *, sep: str = "...") -> str:
+    """Return a string at most max_length characters long."""
+    if len(content) <= max_length:
+        return content
+
+    remaining = max_length - len(sep)
+    middle = remaining // 2
+    return content[:middle] + sep + content[-middle:]

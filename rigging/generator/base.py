@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import abc
 import inspect
 import typing as t
+from dataclasses import dataclass, field
 
 from loguru import logger
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
@@ -21,15 +23,58 @@ if t.TYPE_CHECKING:
 
 CallableT = t.TypeVar("CallableT", bound=t.Callable[..., t.Any])
 
+T = t.TypeVar("T")
+
 # Global provider map
 
 
 @t.runtime_checkable
 class LazyGenerator(t.Protocol):
-    def __call__(self) -> type[Generator]: ...
+    def __call__(self) -> type[Generator]:
+        ...
 
 
 g_providers: dict[str, type[Generator] | LazyGenerator] = {}
+
+# Fixups
+
+
+class Fixup(abc.ABC):
+    """
+    Base class for fixups that apply on message sequences to correct errors.
+    """
+
+    @abc.abstractmethod
+    def can_fix(self, exception: Exception) -> bool:
+        """
+        Check if the fixup can resolve the given exception if made active.
+
+        Args:
+            exception: The exception to be checked.
+
+        Returns:
+            Whether the fixup can handle the exception.
+        """
+        ...
+
+    @abc.abstractmethod
+    def fix(self, messages: t.Sequence[Message]) -> t.Sequence[Message]:
+        """
+        Process a sequence of messages to fix them.
+
+        Args:
+            messages: The messages to be fixed.
+
+        Returns:
+            The fixed messages.
+        """
+        ...
+
+
+@dataclass
+class Fixups:
+    available: list[Fixup] = field(default_factory=list)
+    active: list[Fixup] = field(default_factory=list)
 
 
 # TODO: We also would like to support N-style
@@ -251,6 +296,8 @@ class Generator(BaseModel):
     _watch_callbacks: list[WatchCallbacks] = []
     _wrap: t.Callable[[CallableT], CallableT] | None = None
 
+    _fixups: Fixups = Fixups()
+
     def to_identifier(self, params: GenerateParams | None = None) -> str:
         """
         Converts the generator instance back into a rigging identifier string.
@@ -323,6 +370,38 @@ class Generator(BaseModel):
         self._wrap = func  # type: ignore [assignment]
         return self
 
+    def _check_fixups(self, error: Exception) -> bool:
+        """
+        Check if any fixer can handle this error.
+
+        Args:
+            error: The error to be checked.
+
+        Returns:
+            Whether a fixer was able to handle the error.
+        """
+        for fixup in self._fixups.available[:]:
+            if fixup.can_fix(error):
+                self._fixups.active.append(fixup)
+                self._fixups.available.remove(fixup)
+                return True
+        return False
+
+    async def _apply_fixups(self, messages: t.Sequence[Message]) -> t.Sequence[Message]:
+        """
+        Apply all active fixups to the messages.
+
+        Args:
+            messages: The messages to be fixed.
+
+        Returns:
+            The fixed messages.
+        """
+        current_messages = messages
+        for fixup in self._fixups.active:
+            current_messages = fixup.fix(current_messages)
+        return current_messages
+
     async def generate_messages(
         self,
         messages: t.Sequence[t.Sequence[Message]],
@@ -381,14 +460,16 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[MessageDict],
         params: GenerateParams | None = None,
-    ) -> ChatPipeline: ...
+    ) -> ChatPipeline:
+        ...
 
     @t.overload
     def chat(
         self,
         messages: t.Sequence[Message] | MessageDict | Message | str | None = None,
         params: GenerateParams | None = None,
-    ) -> ChatPipeline: ...
+    ) -> ChatPipeline:
+        ...
 
     def chat(
         self,
@@ -457,7 +538,8 @@ def chat(
     generator: Generator,
     messages: t.Sequence[MessageDict],
     params: GenerateParams | None = None,
-) -> ChatPipeline: ...
+) -> ChatPipeline:
+    ...
 
 
 @t.overload
@@ -465,7 +547,8 @@ def chat(
     generator: Generator,
     messages: t.Sequence[Message] | MessageDict | Message | str | None = None,
     params: GenerateParams | None = None,
-) -> ChatPipeline: ...
+) -> ChatPipeline:
+    ...
 
 
 def chat(
