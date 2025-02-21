@@ -40,26 +40,25 @@ class FunctionDefinition(BaseModel):
     description: t.Optional[str] = None
     parameters: t.Optional[dict[str, t.Any]] = None
 
-    # Some providers get picky about providing null or empty ({}) params.
-    # To ensure conformity, we'll always just create a hollow specification
-    # as if the function takes 0 params.
+    # Logic here is a bit hacky, but in general
+    # we want to handle cases where pydantic has
+    # generated an empty object schema for a function
+    # with no parameters, and convert it to None.
+    #
+    # This seems to be the most well-supported way
+    # across providers to indicate a function with
+    # no arguments.
+    #
+    # TODO: I've also seen cases where keys like additionalProperties
+    # have special handling, but we'll assume LiteLLM will
+    # take care of things like that for now.
     @field_validator("parameters", mode="before")
     def validate_parameters(cls, value: t.Any) -> t.Any:
-        if value is None:
-            value = {}
+        if not isinstance(value, dict):
+            return value
 
-        if isinstance(value, dict):
-            if "additionalProperties" not in value:
-                value["additionalProperties"] = False
-
-            if "required" not in value:
-                value["required"] = []
-
-            if "properties" not in value:
-                value["properties"] = {}
-
-            if "type" not in value:
-                value["type"] = "object"
+        if value.get("type") == "object" and value.get("properties") == {}:
+            return None
 
         return value
 
@@ -80,7 +79,7 @@ class ToolCall(BaseModel):
     function: FunctionCall
 
     def __str__(self) -> str:
-        return f"{self.function.name}({self.function.arguments})"
+        return f"<ToolCall {self.function.name}({self.function.arguments})>"
 
 
 class ApiTool:
