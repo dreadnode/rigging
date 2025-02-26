@@ -89,6 +89,9 @@ class ApiTool:
         # We support _fn_to_call for cases where the incoming function
         # for signature analysis and schema generation is different from
         # the function we actually want to call (generally internal-only)
+        #
+        # TODO: This is likely resolved by our __signature__ assignment
+        # and __annotations__ override below.
 
         self.fn = fn
         self._fn_to_call = _fn_to_call or fn
@@ -97,12 +100,14 @@ class ApiTool:
         # associated run function lack the context needed to construct
         # the schema at runtime - so we pass in the wrapped function for
         # attribute access and the top level Prompt.run for actual execution
+
         if isinstance(fn, Prompt):
             self.fn = fn.func  # type: ignore
             self._fn_to_call = fn.run
 
         # In the case that we are recieving a bound function which is tracking
         # an originating prompt, we can extract it from a private attribute
+
         elif hasattr(fn, "__rg_prompt__") and isinstance(fn.__rg_prompt__, Prompt):
             if fn.__name__ in ["run_many", "run_over"]:
                 raise ValueError(
@@ -112,18 +117,36 @@ class ApiTool:
             self.fn = fn.__rg_prompt__.func  # type: ignore
             self._fn_to_call = fn
 
+        self.signature = inspect.signature(self.fn)
+
         # Passing a function to a TypeAdapter results in an internal
         # call being made to the function after during validation.
         # We want to manage the call ourselves, so we pass in a dummy function
         # that does nothing, with a mirrored signature of the original
         # to ensure arguments are still validated properly.
+
         @functools.wraps(self.fn)
         def empty_func(*args, **kwargs):  # type: ignore
             pass
 
+        # We'll also reconstruct __annotations__ from the signature
+        # manually in case we are working with an object that
+        # has manually set __signature__ and the __annotations__
+        # might not be accurate. This is a bit of a hack, but
+        # we can't control how pydantic resolves annotations
+
+        annotations: dict[str, t.Any] = {}
+        for param_name, param in self.signature.parameters.items():
+            if param.annotation is not inspect.Parameter.empty:
+                annotations[param_name] = param.annotation
+
+        if self.signature.return_annotation is not inspect.Parameter.empty:
+            annotations["return"] = self.signature.return_annotation
+
+        empty_func.__annotations__ = annotations
+
         self.type_adapter: TypeAdapter[t.Any] = TypeAdapter(empty_func)
 
-        self.signature = inspect.signature(self.fn)
         _ = self.schema  # Ensure schema is valid
 
     @cached_property
