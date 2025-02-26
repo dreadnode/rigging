@@ -453,6 +453,7 @@ class Prompt(t.Generic[P, R]):
         self.output = parse_output(signature.return_annotation, error_name)
 
         self.__signature__ = signature
+        self.__name__ = self.func.__name__
 
     @property
     def docstring(self) -> str:
