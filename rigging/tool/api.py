@@ -198,12 +198,11 @@ class ApiTool:
             args = json.loads(tool_call.function.arguments)
             span.set_attribute("arguments", args)
 
-            result = self.type_adapter.validate_python(args)
+            self.type_adapter.validate_python(args)
 
-            if inspect.iscoroutinefunction(self._fn_to_call):
-                result = await self._fn_to_call(**args)
-            else:
-                result = self._fn_to_call(**args)
+            result = self._fn_to_call(**args)
+            if inspect.isawaitable(result):
+                result = await result
 
             span.set_attribute("result", result)
 
