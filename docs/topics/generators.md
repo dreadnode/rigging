@@ -202,6 +202,18 @@ and can be applied as a Python dictionary, JSON string, YAML string, or base64 e
 
 This flexibility allows you to easily share and reuse specifications across different parts of your application.
 
+### Example
+
+Given an HTTP endpoint that expects:
+
+- a JSON payload
+- an API key in the `X-Api-Key` header
+- a `data` key with a value in the payload
+  
+.. we map the value of the `content` key returned in the Rigging `Message` via `"data": "$content"` in the request transform.
+
+On the response **from** the HTTP endpoint, we expect a JSON object with either a `flag`, `output`, or `message` key, specified in the response transform.
+
 ```python
 import rigging as rg
 
@@ -343,6 +355,15 @@ transforms:
   - type: "regex"
     pattern: "<output>(.*?)</output>"
 ```
+
+### Examples
+
+Writing an HTTP Spec for a Crucible Challenge
+
+```python
+
+```
+
 
 ## Writing a Generator
 
