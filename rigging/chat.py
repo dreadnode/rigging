@@ -1399,8 +1399,11 @@ class ChatPipeline:
             for state in completed_states:
                 state.watched = True
 
-        chats = await self._post_run([s.chat for s in states if s.chat is not None], on_failed)
+        chats = [s.chat for s in states if s.chat is not None]
         span.set_attribute("chats", chats)
+        chats = await self._post_run(chats, on_failed)
+        span.set_attribute("chats", chats)
+
         return chats
 
     # Single messages
