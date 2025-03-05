@@ -116,6 +116,10 @@ class ContentImageUrl(BaseModel):
 
         return cls(image_url=cls.ImageUrl(url=url))
 
+    @classmethod
+    def from_url(cls, url: str, *, detail: t.Literal["auto", "low", "high"] = "auto") -> ContentImageUrl:
+        return cls(image_url=cls.ImageUrl(url=url, detail=detail))
+
 
 Content = t.Union[ContentText, ContentImageUrl]
 """The types of content that can be included in a message."""

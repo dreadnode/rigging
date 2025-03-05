@@ -1158,6 +1158,7 @@ class ChatPipeline:
         for callback, reset_between, drop_internal, max_rounds in self.until_callbacks:
             generated = yield from self._until(new_messages[-1], callback, reset_between, drop_internal, max_rounds)
             new_messages = new_messages[:-1] + generated
+
         return new_messages
 
     async def _watch_callback(self, chats: list[Chat]) -> None:
@@ -1355,16 +1356,25 @@ class ChatPipeline:
                         outputs = t.cast(list[Message], stop.value)
                         state.chat = self._create_chat(state, outputs, inbound, batch_mode)
                     except MessagesExhaustedMaxRoundsError as exhausted:
-                        if on_failed == "raise":
-                            raise
-                        # exhausted.messages holds the current messages when the error occured,
-                        # so we'll pass them into the chat as the last generated messages.
                         span.set_attribute("failed", True)
                         span.set_attribute("error", exhausted)
+
+                        # exhausted.messages holds the current messages when the error occured,
+                        # so we'll pass them into the chat as the last generated messages.
                         state.chat = self._create_chat(
                             state, exhausted.messages, inbound, batch_mode, failed=True, error=exhausted
                         )
+
+                        if on_failed == "raise":
+                            # Set the attribute for troubleshooting
+                            span.set_attribute("chats", [s.chat for s in states if s.chat is not None])
+                            raise
+
                     except Exception as error:
+                        span.set_attribute("failed", True)
+                        span.set_attribute("error", error)
+                        state.chat = self._create_chat(state, [], inbound, batch_mode, failed=True, error=error)
+
                         # Check to see if we should be handling any specific errors
                         # and gracefully marking the chat as failed instead of raising (.catch)
                         if (
@@ -1372,10 +1382,9 @@ class ChatPipeline:
                             or not any(isinstance(error, t) for t in self.errors_to_fail_on)
                             or any(isinstance(error, t) for t in self.errors_to_exclude)
                         ):
+                            # Set the attribute for troubleshooting
+                            span.set_attribute("chats", [s.chat for s in states if s.chat is not None])
                             raise
-                        span.set_attribute("failed", True)
-                        span.set_attribute("error", error)
-                        state.chat = self._create_chat(state, [], inbound, batch_mode, failed=True, error=error)
 
             pending_states = [s for s in pending_states if s.chat is None]
             completed_states = [s for s in states if s.chat is not None and not s.watched]
