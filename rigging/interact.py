@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import sys
+import itertools
 import typing as t
 
 from colorama import Fore, Style
@@ -14,13 +14,10 @@ if t.TYPE_CHECKING:
 
 
 async def _animate(*, delay: float = 0.5, chars: list[str] | None = None, color: str = Fore.BLUE) -> None:
-    chars = chars or ["   ", ".  ", ".. ", "..."]
-    i = 0
+    chars = itertools.cycle(chars or ["   ", ".  ", ".. ", "..."])
     while True:
-        print(f"{color}{chars[i]}{Style.RESET_ALL}", end="\r")
-        sys.stdout.flush()
+        print(f"{color}{next(chars)}{Style.RESET_ALL}", end="\r", flush=True)
         await asyncio.sleep(delay)
-        i = (i + 1) % len(chars)
 
 
 async def interact(
