@@ -84,7 +84,7 @@ export ANTHROPIC_API_KEY=...
 ...
 ```
 
-Check out [the docs](https://docs.dreadnode.io/rigging/open-source/topics/generators/#api-keys) for more.
+Check out [the docs](https://docs.dreadnode.io/open-source/rigging/topics/generators#api-keys) for more.
 
 ## Getting Started
 
