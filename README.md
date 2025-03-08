@@ -88,7 +88,7 @@ Check out [the docs](https://docs.dreadnode.io/rigging/topics/generators/#api-ke
 
 ## Getting Started
 
-**Check out the guide [in the docs](https://docs.dreadnode.io/rigging/#getting-started)**
+**Check out the guide [in the docs](https://docs.dreadnode.io/open-source/rigging/intro)**
 
 1. **Get a generator** using a connection string.
 2. Build a **chat** or **completion** pipeline
@@ -143,7 +143,7 @@ Want more?
  
 ## Documentation
 
-**[docs.dreadnode.io](https://docs.dreadnode.io/rigging)** has everything you need.
+**[docs.dreadnode.io](https://docs.dreadnode.io/open-source/rigging/intro)** has everything you need.
 
 ## Star History
 
