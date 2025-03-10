@@ -8,6 +8,7 @@ import re
 import typing as t
 from xml.etree import ElementTree as ET
 
+import typing_extensions as te
 import xmltodict  # type: ignore
 from pydantic import (
     BeforeValidator,
@@ -207,7 +208,7 @@ class Model(BaseXmlModel):
     # about migrating from pydantic-xml
 
     @classmethod
-    def from_text(cls, content: str) -> list[tuple[ModelT, slice]]:
+    def from_text(cls, content: str) -> list[tuple[te.Self, slice]]:
         """
         The core parsing method which attempts to extract and parse as many
         valid instances of a model from semi-structured text.
@@ -224,7 +225,8 @@ class Model(BaseXmlModel):
         """
         cls.ensure_valid()
 
-        pattern = r"(<([\w-]+).*?>((.*?)</\2>))"
+        tag_name = cls.__xml_tag__
+        pattern = f"(<({tag_name}).*?>((.*?)</{tag_name}>))"
         matches = [m for m in re.finditer(pattern, content, flags=re.DOTALL) if m.group(2) == cls.__xml_tag__]
 
         if not matches:
@@ -236,7 +238,7 @@ class Model(BaseXmlModel):
 
         sorted_matches = sorted(matches, key=lambda m: len(m.group(4)), reverse=True)
 
-        extracted: list[tuple[ModelT, slice]] = []
+        extracted: list[tuple[te.Self, slice]] = []
         exceptions: list[Exception] = []
         for match in sorted_matches:
             full_text, _, inner_with_end_tag, inner = match.groups()
@@ -263,7 +265,7 @@ class Model(BaseXmlModel):
                     if cls.is_simple()
                     else cls.from_xml(escape_xml(full_text))
                 )
-                extracted.append((model, slice(match.start(), match.end())))  # type: ignore [arg-type]
+                extracted.append((model, slice(match.start(), match.end())))
             except Exception as e:
                 exceptions.append(e)
                 continue
@@ -274,10 +276,11 @@ class Model(BaseXmlModel):
         if not extracted:
             raise exceptions[0]
 
-        return extracted
+        # sort back to original order
+        return sorted(extracted, key=lambda x: x[1].start)
 
     @classmethod
-    def one_from_text(cls, content: str, *, fail_on_many: bool = False) -> tuple[ModelT, slice]:
+    def one_from_text(cls, content: str, *, fail_on_many: bool = False) -> tuple[te.Self, slice]:
         """
         Finds and returns a single match from the given text content.
 
@@ -291,7 +294,7 @@ class Model(BaseXmlModel):
         Raises:
             ValidationError: If multiple matches are found and fail_on_many is True.
         """
-        matches = cls.from_text(content)  # type: ignore [var-annotated]
+        matches = cls.from_text(content)
         if fail_on_many and len(matches) > 1:
             raise ValidationError("Multiple matches found with 'fail_on_many=True'")
         return max(matches, key=lambda x: x[1].stop - x[1].start)
@@ -423,15 +426,21 @@ class DelimitedAnswer(Model):
     content: str
     _delimiters: t.ClassVar[list[str]] = [",", "-", "/", "|"]
 
+    _items: list[str] = []
+
     @property
     def items(self) -> list[str]:
         """Parsed items from the content."""
+        if self._items:
+            return self._items
+
         split_sizes: dict[str, int] = {}
         for delimiter in self._delimiters:
             split_sizes[delimiter] = len(self.content.split(delimiter))
         delimiter = max(split_sizes, key=split_sizes.get)  # type: ignore [arg-type]
         split = [i.strip(" \"'\t\r\n") for i in self.content.split(delimiter)]
-        return [s for s in split if s]
+        self._items = [s for s in split if s]
+        return self._items
 
     @field_validator("content", mode="before")
     def parse_str_to_list(cls, v: t.Any) -> t.Any:
