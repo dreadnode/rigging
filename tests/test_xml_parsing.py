@@ -177,7 +177,7 @@ def test_xml_parsing(content: str, models: list[Model]) -> None:
     print(parsed)
 
     assert len(parsed) == len(models), "Failed to parse set"
-    for (obj, _), expected in zip(parsed, models, strict=True):
+    for (obj, _), expected in zip(parsed, models):
         print(obj)
         assert (
             obj.model_dump() == expected.model_dump()
