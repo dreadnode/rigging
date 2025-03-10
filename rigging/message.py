@@ -30,6 +30,7 @@ from rigging.error import MissingModelError
 from rigging.model import Model, ModelT  # noqa: TCH001
 from rigging.parsing import try_parse_many
 from rigging.tool.api import ToolCall
+from rigging.util import truncate_string
 
 Role = t.Literal["system", "user", "assistant", "tool"]
 """The role of a message. Can be 'system', 'user', 'assistant', or 'tool'."""
@@ -84,6 +85,9 @@ class ContentText(BaseModel):
     text: str
     """The text content."""
 
+    def __str__(self) -> str:
+        return self.text
+
 
 class ContentImageUrl(BaseModel):
     """An image URL content part of a message."""
@@ -99,6 +103,9 @@ class ContentImageUrl(BaseModel):
     image_url: ImageUrl
     """The image URL content."""
 
+    def __str__(self) -> str:
+        return f"<ContentImageUrl '{truncate_string(self.image_url.url, 50)}'>"
+      
     @classmethod
     def from_file(cls, file: Path | str, *, mimetype: str | None = None) -> ContentImageUrl:
         file = Path(file)
@@ -185,9 +192,15 @@ class Message(BaseModel):
         )
 
     def __str__(self) -> str:
-        formatted = f"[{self.role}]: {self.content}"
+        formatted = f"[{self.role}]:"
+        if isinstance(self.all_content, list):
+            formatted += "\n |- " + "\n |- ".join(str(content) for content in self.all_content)
+        else:
+            formatted += f" {self.content}"
+
         for tool_call in self.tool_calls or []:
             formatted += f"\n |- {tool_call}"
+
         return formatted
 
     def __len__(self) -> int:
