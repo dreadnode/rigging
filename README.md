@@ -84,11 +84,11 @@ export ANTHROPIC_API_KEY=...
 ...
 ```
 
-Check out [the docs](https://docs.dreadnode.io/rigging/topics/generators/#api-keys) for more.
+Check out [the docs](https://docs.dreadnode.io/open-source/rigging/topics/generators#api-keys) for more.
 
 ## Getting Started
 
-**Check out the guide [in the docs](https://docs.dreadnode.io/rigging/#getting-started)**
+**Check out the guide [in the docs](https://docs.dreadnode.io/open-source/rigging/intro#getting-started)**
 
 1. **Get a generator** using a connection string.
 2. Build a **chat** or **completion** pipeline
@@ -124,14 +124,14 @@ asyncio.run(main())
 
 Want more?
 
-- Use [structured pydantic parsing](https://docs.dreadnode.io/rigging/#basic-parsing)
-- Check out [raw completions](https://docs.dreadnode.io/rigging/topics/completions/)
-- Give the LLM [access to tools](https://docs.dreadnode.io/rigging/topics/tools/)
-- Track behavior with [tracing](https://docs.dreadnode.io/rigging/topics/tracing/)
-- Play with [generation params](https://docs.dreadnode.io/rigging/topics/generators/#overload-generation-params)
-- Use [callbacks in the pipeline](https://docs.dreadnode.io/rigging/topics/callbacks-and-mapping/)
-- Scale up with [iterating and batching](https://docs.dreadnode.io/rigging/topics/iterating-and-batching/)
-- Save your work with [serialization](https://docs.dreadnode.io/rigging/topics/serialization/)
+- Use [structured pydantic parsing](https://docs.dreadnode.io/open-source/rigging/topics/chats-and-messages#parsed-parts)
+- Check out [raw completions](https://docs.dreadnode.io/open-source/rigging/topics/completions/)
+- Give the LLM [access to tools](https://docs.dreadnode.io/open-source/rigging/topics/tools/)
+- Track behavior with [tracing](https://docs.dreadnode.io/open-source/rigging/topics/tracing/)
+- Play with [generation params](https://docs.dreadnode.io/open-source/rigging/topics/generators/#overload-generation-params)
+- Use [callbacks in the pipeline](https://docs.dreadnode.io/open-source/rigging/topics/callbacks-and-mapping/)
+- Scale up with [iterating and batching](https://docs.dreadnode.io/open-source/rigging/topics/iterating-and-batching/)
+- Save your work with [serialization](https://docs.dreadnode.io/open-source/rigging/topics/serialization/)
 
 ## Examples
 
@@ -143,7 +143,7 @@ Want more?
  
 ## Documentation
 
-**[docs.dreadnode.io](https://docs.dreadnode.io/rigging)** has everything you need.
+**[docs.dreadnode.io](https://docs.dreadnode.io/open-source/rigging/intro)** has everything you need.
 
 ## Star History
 
