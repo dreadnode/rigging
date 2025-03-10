@@ -434,9 +434,6 @@ class Prompt(t.Generic[P, R]):
     _docstring: str | None = None
 
     def __post_init__(self) -> None:
-        # if not inspect.iscoroutinefunction(self.func):
-        #     raise TypeError("Prompts must wrap an async function")
-
         if self.func is None:
             return
 
@@ -454,6 +451,9 @@ class Prompt(t.Generic[P, R]):
 
         error_name = f"{self.func.__name__}() -> {signature.return_annotation}"
         self.output = parse_output(signature.return_annotation, error_name)
+
+        self.__signature__ = signature
+        self.__name__ = self.func.__name__
 
     @property
     def docstring(self) -> str:
@@ -870,7 +870,8 @@ class Prompt(t.Generic[P, R]):
             )
         return await self.bind(self.pipeline)(*args, **kwargs)
 
-    __call__ = run
+    async def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
+        return await self.run(*args, **kwargs)
 
     async def run_over(self, generators: t.Sequence[Generator | str], /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
         """

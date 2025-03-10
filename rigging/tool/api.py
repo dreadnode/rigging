@@ -40,26 +40,25 @@ class FunctionDefinition(BaseModel):
     description: t.Optional[str] = None
     parameters: t.Optional[dict[str, t.Any]] = None
 
-    # Some providers get picky about providing null or empty ({}) params.
-    # To ensure conformity, we'll always just create a hollow specification
-    # as if the function takes 0 params.
+    # Logic here is a bit hacky, but in general
+    # we want to handle cases where pydantic has
+    # generated an empty object schema for a function
+    # with no parameters, and convert it to None.
+    #
+    # This seems to be the most well-supported way
+    # across providers to indicate a function with
+    # no arguments.
+    #
+    # TODO: I've also seen cases where keys like additionalProperties
+    # have special handling, but we'll assume LiteLLM will
+    # take care of things like that for now.
     @field_validator("parameters", mode="before")
     def validate_parameters(cls, value: t.Any) -> t.Any:
-        if value is None:
-            value = {}
+        if not isinstance(value, dict):
+            return value
 
-        if isinstance(value, dict):
-            if "additionalProperties" not in value:
-                value["additionalProperties"] = False
-
-            if "required" not in value:
-                value["required"] = []
-
-            if "properties" not in value:
-                value["properties"] = {}
-
-            if "type" not in value:
-                value["type"] = "object"
+        if value.get("type") == "object" and value.get("properties") == {}:
+            return None
 
         return value
 
@@ -90,6 +89,9 @@ class ApiTool:
         # We support _fn_to_call for cases where the incoming function
         # for signature analysis and schema generation is different from
         # the function we actually want to call (generally internal-only)
+        #
+        # TODO: This is likely resolved by our __signature__ assignment
+        # and __annotations__ override below.
 
         self.fn = fn
         self._fn_to_call = _fn_to_call or fn
@@ -98,12 +100,14 @@ class ApiTool:
         # associated run function lack the context needed to construct
         # the schema at runtime - so we pass in the wrapped function for
         # attribute access and the top level Prompt.run for actual execution
+
         if isinstance(fn, Prompt):
             self.fn = fn.func  # type: ignore
             self._fn_to_call = fn.run
 
         # In the case that we are recieving a bound function which is tracking
         # an originating prompt, we can extract it from a private attribute
+
         elif hasattr(fn, "__rg_prompt__") and isinstance(fn.__rg_prompt__, Prompt):
             if fn.__name__ in ["run_many", "run_over"]:
                 raise ValueError(
@@ -113,18 +117,36 @@ class ApiTool:
             self.fn = fn.__rg_prompt__.func  # type: ignore
             self._fn_to_call = fn
 
+        self.signature = inspect.signature(self.fn)
+
         # Passing a function to a TypeAdapter results in an internal
         # call being made to the function after during validation.
         # We want to manage the call ourselves, so we pass in a dummy function
         # that does nothing, with a mirrored signature of the original
         # to ensure arguments are still validated properly.
+
         @functools.wraps(self.fn)
         def empty_func(*args, **kwargs):  # type: ignore
             pass
 
+        # We'll also reconstruct __annotations__ from the signature
+        # manually in case we are working with an object that
+        # has manually set __signature__ and the __annotations__
+        # might not be accurate. This is a bit of a hack, but
+        # we can't control how pydantic resolves annotations
+
+        annotations: dict[str, t.Any] = {}
+        for param_name, param in self.signature.parameters.items():
+            if param.annotation is not inspect.Parameter.empty:
+                annotations[param_name] = param.annotation
+
+        if self.signature.return_annotation is not inspect.Parameter.empty:
+            annotations["return"] = self.signature.return_annotation
+
+        empty_func.__annotations__ = annotations
+
         self.type_adapter: TypeAdapter[t.Any] = TypeAdapter(empty_func)
 
-        self.signature = inspect.signature(self.fn)
         _ = self.schema  # Ensure schema is valid
 
     @cached_property
@@ -176,12 +198,11 @@ class ApiTool:
             args = json.loads(tool_call.function.arguments)
             span.set_attribute("arguments", args)
 
-            result = self.type_adapter.validate_python(args)
+            self.type_adapter.validate_python(args)
 
-            if inspect.iscoroutinefunction(self._fn_to_call):
-                result = await self._fn_to_call(**args)
-            else:
-                result = self._fn_to_call(**args)
+            result = self._fn_to_call(**args)
+            if inspect.isawaitable(result):
+                result = await result
 
             span.set_attribute("result", result)
 

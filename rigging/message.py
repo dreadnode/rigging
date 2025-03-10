@@ -103,6 +103,9 @@ class ContentImageUrl(BaseModel):
     image_url: ImageUrl
     """The image URL content."""
 
+    def __str__(self) -> str:
+        return f"<ContentImageUrl '{truncate_string(self.image_url.url, 50)}'>"
+      
     @classmethod
     def from_file(cls, file: Path | str, *, mimetype: str | None = None) -> ContentImageUrl:
         file = Path(file)
@@ -120,8 +123,9 @@ class ContentImageUrl(BaseModel):
 
         return cls(image_url=cls.ImageUrl(url=url))
 
-    def __str__(self) -> str:
-        return f"<ContentImageUrl '{truncate_string(self.image_url.url, 50)}'>"
+    @classmethod
+    def from_url(cls, url: str, *, detail: t.Literal["auto", "low", "high"] = "auto") -> ContentImageUrl:
+        return cls(image_url=cls.ImageUrl(url=url, detail=detail))
 
 
 Content = t.Union[ContentText, ContentImageUrl]

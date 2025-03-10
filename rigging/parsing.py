@@ -128,4 +128,4 @@ def try_parse_many(text: str, *types: type[ModelT], fail_on_missing: bool = Fals
             if fail_on_missing:
                 raise e
 
-    return parsed
+    return sorted(parsed, key=lambda x: x[1].start)
