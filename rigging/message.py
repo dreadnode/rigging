@@ -105,7 +105,7 @@ class ContentImageUrl(BaseModel):
 
     def __str__(self) -> str:
         return f"<ContentImageUrl '{truncate_string(self.image_url.url, 50)}'>"
-      
+
     @classmethod
     def from_file(cls, file: Path | str, *, mimetype: str | None = None) -> ContentImageUrl:
         file = Path(file)
@@ -262,10 +262,13 @@ class Message(BaseModel):
         # under a generic Model class. This can result
         # from deserialization and will break our
         # overlapping part check later.
+        #
+        # We'll remove them from our parsed parts list,
+        # but keep them in the content for reparsing.
 
-        for part in self.parts:
+        for part in self.parts[:]:
             if part.model.__class__ == Model:
-                self._remove_part(part)
+                self.parts.remove(part)
         return self
 
     def to_openai_spec(self) -> dict[str, t.Any]:
