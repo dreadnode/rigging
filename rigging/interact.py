@@ -14,9 +14,9 @@ if t.TYPE_CHECKING:
 
 
 async def _animate(*, delay: float = 0.5, chars: list[str] | None = None, color: str = Fore.BLUE) -> None:
-    chars = itertools.cycle(chars or ["   ", ".  ", ".. ", "..."])
+    cycle = itertools.cycle(chars or ["   ", ".  ", ".. ", "..."])
     while True:
-        print(f"{color}{next(chars)}{Style.RESET_ALL}", end="\r", flush=True)
+        print(f"{color}{next(cycle)}{Style.RESET_ALL}", end="\r", flush=True)
         await asyncio.sleep(delay)
 
 
