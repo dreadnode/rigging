@@ -335,6 +335,25 @@ def test_chat_strip() -> None:
     assert len(stripped.all[1].parts) == 0
 
 
+def test_chat_serialize() -> None:
+    chat = Chat(
+        [
+            Message("user", "<person name='John'>30</person>"),
+            Message("assistant", "<address><street>123 Main St</street><city>Anytown</city></address>"),
+        ]
+    )
+
+    assert len(chat) == 2
+
+    chat.all[0].parse(Person)
+    chat.all[1].parse(Address)
+
+    serialized = chat.model_dump_json()
+    deserialized = Chat.model_validate_json(serialized)
+
+    assert chat.conversation == deserialized.conversation
+
+
 def test_double_parse() -> None:
     msg = Message("user", "<person name='John'>30</person>")
     msg.parse(Person)

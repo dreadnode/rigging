@@ -654,6 +654,9 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
     provider: str = list(g_providers.keys())[0]
     model: str = identifier
 
+    if not identifier:
+        raise InvalidModelSpecifiedError(identifier)
+
     # Split provider, model, and kwargs
 
     if "!" in identifier:

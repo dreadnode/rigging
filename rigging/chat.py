@@ -116,7 +116,9 @@ class Chat(BaseModel):
 
         if "generator_id" in kwargs and generator is None:
             # TODO: Should we move params to self.params?
-            generator = get_generator(kwargs.pop("generator_id"))
+            generator_id = kwargs.pop("generator_id")
+            if generator_id:
+                generator = get_generator(generator_id)
 
         # We can't deserialize an error
         if isinstance(kwargs.get("error"), str):
