@@ -19,7 +19,7 @@ from rigging.tool import ApiTool, Tool
 from rigging.util import await_
 
 # TODO: Migrate to importlib for this
-__version__ = "2.2.8"
+__version__ = "2.3.0"
 
 __all__ = [
     "get_generator",

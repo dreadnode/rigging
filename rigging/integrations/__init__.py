@@ -1,6 +1,6 @@
-from .robopages import RoboPagesTool, robopages
+from .robopages import RobopagesApiTool, robopages
 
 __all__ = [
-    "RoboPagesTool",
+    "RobopagesApiTool",
     "robopages",
 ]
