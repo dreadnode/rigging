@@ -1,4 +1,4 @@
-from rigging import data, error, generator, model, parsing, watchers
+from rigging import data, error, generator, integrations, logging, model, parsing, tool, watchers
 from rigging.chat import Chat, ChatPipeline, MapChatCallback, ThenChatCallback
 from rigging.completion import Completion, CompletionPipeline, MapCompletionCallback, ThenCompletionCallback
 from rigging.generator import (
@@ -53,6 +53,9 @@ __all__ = [
     "model",
     "error",
     "parsing",
+    "tool",
+    "integrations",
+    "logging",
     "await_",
     "interact",
     "ThenChatCallback",
