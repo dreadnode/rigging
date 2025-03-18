@@ -19,7 +19,7 @@ class RobopagesApiTool(ApiTool):
     Overload of the ApiTool class to support making tool calls through a Robopages server.
     """
 
-    def __init__(self, url: str, name: str, description: str, parameters: dict[str, t.Any] | None) -> None:
+    def __init__(self, url: str, name: str, description: str, parameters: t.Optional[dict[str, t.Any]] = None) -> None:
         self._url = urlparse(url)._replace(path="").geturl()
         self._name = name
         self._description = description
