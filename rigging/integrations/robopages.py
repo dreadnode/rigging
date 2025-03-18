@@ -113,8 +113,8 @@ def robopages(url: str, *, tool_type: t.Literal["native"]) -> list[Tool]:
 
 
 def robopages(
-    url: str, *, tool_type: ToolType = "api", name_filter: str | None = None
-) -> list[RobopagesApiTool] | list[Tool]:
+    url: str, *, tool_type: ToolType = "api", name_filter: t.Optional[str] = None
+) -> t.Union[list[RobopagesApiTool], list[Tool]]:
     """
     Create a list of tools from a Robopages server.
 
