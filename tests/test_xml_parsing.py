@@ -87,12 +87,12 @@ class Wrapped(Model):
         pytest.param(
             "<question> Should I answer between <answer> tags? </question> <answer>hello</answer>",
             [Question(content=" Should I answer between <answer> tags? "), Answer(content="hello")],
-            id="question_with_answer_tag",
+            id="question_with_answer_tag_1",
         ),
         pytest.param(
             "<question> Should I answer between <answer> tags? </question> <answer>hello</answer>",
             [Question(content=" Should I answer between <answer> tags? "), Answer(content="hello")],
-            id="question_with_answer_tag",
+            id="question_with_answer_tag_2",
         ),
         pytest.param(
             "<question-answer><question>hello</question><answer>world</answer></question-answer>",

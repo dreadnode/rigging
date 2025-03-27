@@ -1,11 +1,14 @@
-from __future__ import annotations
-
 import gc
 import typing as t
 
 import torch
-import transformers  # type: ignore
-from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenizer, TextGenerationPipeline
+import transformers
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    PreTrainedTokenizer,
+    TextGenerationPipeline,
+)
 
 from rigging.generator.base import (
     GeneratedMessage,
@@ -70,7 +73,13 @@ class TransformersGenerator(Generator):
         if self._llm is None:
             llm_kwargs = self.model_dump(
                 exclude_unset=True,
-                include={"torch_dtype", "device_map", "trust_remote_code", "load_in_8bit", "load_in_4bit"},
+                include={
+                    "torch_dtype",
+                    "device_map",
+                    "trust_remote_code",
+                    "load_in_8bit",
+                    "load_in_4bit",
+                },
             )
             self._llm = AutoModelForCausalLM.from_pretrained(self.model, **llm_kwargs)
         return self._llm
@@ -98,12 +107,11 @@ class TransformersGenerator(Generator):
     def from_obj(
         cls,
         model: str,
-        llm: AutoModelForCausalLM,
         tokenizer: PreTrainedTokenizer,
         *,
         pipeline: TextGenerationPipeline | None = None,
         params: GenerateParams | None = None,
-    ) -> TransformersGenerator:
+    ) -> "TransformersGenerator":
         """
         Create a new instance of TransformersGenerator from an already loaded model and tokenizer.
 
@@ -116,16 +124,16 @@ class TransformersGenerator(Generator):
             The TransformersGenerator instance.
         """
         instance = cls(model=model, params=params or GenerateParams())
-        instance._llm = model
-        instance._tokenizer = tokenizer
-        instance._pipeline = pipeline
+        instance._llm = model  # noqa: SLF001
+        instance._tokenizer = tokenizer  # noqa: SLF001
+        instance._pipeline = pipeline  # noqa: SLF001
         return instance
 
-    def load(self) -> TransformersGenerator:
+    def load(self) -> "TransformersGenerator":
         _ = self.pipeline
         return self
 
-    def unload(self) -> TransformersGenerator:
+    def unload(self) -> "TransformersGenerator":
         del self._pipeline
         del self._llm
         del self._tokenizer
@@ -160,14 +168,14 @@ class TransformersGenerator(Generator):
 
     async def generate_messages(
         self,
-        messages: t.Sequence[t.Sequence[Message]],
+        messages: t.Sequence[t.Sequence["Message"]],
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[GeneratedMessage]:
         message_dicts = [[m.to_openai_spec() for m in _messages] for _messages in messages]
         outputs = self._generate(message_dicts, params)
         generated = [o.to_generated_message() for o in outputs]
 
-        for i, (in_messages, out_message) in enumerate(zip(messages, generated)):
+        for i, (in_messages, out_message) in enumerate(zip(messages, generated, strict=False)):
             trace_messages(in_messages, f"Messages {i+1}/{len(in_messages)}")
             trace_messages([out_message], f"Response {i+1}/{len(in_messages)}")
 
@@ -180,7 +188,7 @@ class TransformersGenerator(Generator):
     ) -> t.Sequence[GeneratedText]:
         generated = self._generate(texts, params)
 
-        for i, (text, response) in enumerate(zip(texts, generated)):
+        for i, (text, response) in enumerate(zip(texts, generated, strict=False)):
             trace_str(text, f"Text {i+1}/{len(texts)}")
             trace_str(response, f"Generated {i+1}/{len(texts)}")
 

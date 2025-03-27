@@ -11,7 +11,7 @@ packages = [{ include = "rigging" }]
 # Dependencies
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = "^3.10"
 pydantic = "^2.7.3"
 pydantic-xml = "^2.11.0"
 loguru = "^0.7.2"
@@ -37,6 +37,7 @@ click = { version = "^8.1.7", optional = true }
 httpx = { version = "^0.27.0", optional = true }
 aiodocker = { version = "^0.22.2", optional = true }
 websockets = { version = "^13.0", optional = true }
+mcp = "^1.5.0"
 
 [tool.poetry.extras]
 tracing = ["logfire"]
@@ -109,62 +110,31 @@ strict = true
 # Formatting / Linting
 
 [tool.ruff]
-line-length = 120
-indent-width = 4
 target-version = "py310"
-exclude = [
-    ".bzr",
-    ".direnv",
-    ".eggs",
-    ".git",
-    ".git-rewrite",
-    ".hg",
-    ".mypy_cache",
-    ".nox",
-    ".pants.d",
-    ".pytype",
-    ".ruff_cache",
-    ".svn",
-    ".tox",
-    ".venv",
-    "__pypackages__",
-    "_build",
-    "buck-out",
-    "build",
-    "dist",
-    "node_modules",
-    "venv",
+line-length = 100
+extend-exclude = [
+    "*.ipynb", # jupyter notebooks
+    "tests/*"
 ]
 
 [tool.ruff.lint]
-fixable = ["ALL"]
-unfixable = ["B"]
-dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
-select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
-    "I",   # isort
-    "C",   # flake8-comprehensions
-    "B",   # flake8-bugbear
-    "UP",  # pyupgrade
-    "NPY", # numpydoc
-    "TCH", # typecheck
-    "A",   # flake8-annotations
-]
+select = [ "ALL" ]
 ignore = [
-    "E501",  # line too long, handled by black
-    "B008",  # do not perform function calls in argument defaults
-    "C901",  # too complex
-    "W191",  # indentation contains tabs
-    "F722",  # syntax error in forward annotation
-    "UP007", # X | Y syntax while we're still supporting 3.9
-    "UP038", # isinstance() X | Y instance ^
-    "B905",  # zip() without strict (isn't supported in 3.9)
+    "E501",     # line too long (we make best effort)
+    "TRY003",   # long messages in exception classes
+    "EM",       # picky message construction for exceptions
+    "C90",      # mccabe complexity
+    "A002",     # shadowing built-in
+    "D",        # docstrings
+    "ANN",      # annotations (handled by mypy)
+    "PLR0913",  # too many arguments
+    "ERA001",   # commented out code
+    "FIX002",   # contains todo, consider fixing
+    "TD002",    # TODO
+    "TD003",    # TODO
+    "PLR0911",  # too many return statements
+    "FBT003",   # boolean positional in function call
 ]
 
 [tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
 skip-magic-trailing-comma = false
-line-ending = "auto"

@@ -1,6 +1,11 @@
-from rigging import data, error, generator, integrations, logging, model, parsing, tool, watchers
+from rigging import data, error, generator, logging, model, parsing, watchers
 from rigging.chat import Chat, ChatPipeline, MapChatCallback, ThenChatCallback
-from rigging.completion import Completion, CompletionPipeline, MapCompletionCallback, ThenCompletionCallback
+from rigging.completion import (
+    Completion,
+    CompletionPipeline,
+    MapCompletionCallback,
+    ThenCompletionCallback,
+)
 from rigging.generator import (
     GeneratedMessage,
     GeneratedText,
@@ -15,7 +20,7 @@ from rigging.interact import interact
 from rigging.message import ContentImageUrl, ContentText, Message, MessageDict, Messages
 from rigging.model import Model, attr, element, wrapped
 from rigging.prompt import Ctx, Prompt, prompt
-from rigging.tool import ApiTool, Tool
+from rigging.tool import Tool, mcp, robopages, tool
 from rigging.util import await_
 
 # TODO: Migrate to importlib for this
@@ -29,7 +34,6 @@ __all__ = [
     "ContentText",
     "ContentImageUrl",
     "Tool",
-    "ApiTool",
     "Model",
     "attr",
     "element",
@@ -54,7 +58,6 @@ __all__ = [
     "error",
     "parsing",
     "tool",
-    "integrations",
     "logging",
     "await_",
     "interact",
@@ -63,6 +66,8 @@ __all__ = [
     "ThenCompletionCallback",
     "MapCompletionCallback",
     "generator",
+    "mcp",
+    "robopages",
 ]
 
 from loguru import logger

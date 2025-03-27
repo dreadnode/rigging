@@ -2,23 +2,20 @@
 Common watcher callback makers for use with generators, chats, and completions.
 """
 
-from __future__ import annotations
-
 import json
-import os
 import typing as t
 from pathlib import Path
+
+from elasticsearch import AsyncElasticsearch
+from mypy_boto3_s3 import S3Client
 
 from rigging.data import chats_to_elastic, flatten_chats, s3_object_exists
 
 if t.TYPE_CHECKING:
-    from elasticsearch import AsyncElasticsearch
-    from mypy_boto3_s3 import S3Client
-
     from rigging.chat import Chat, WatchChatCallback
 
 
-def write_chats_to_jsonl(file: str | Path, *, replace: bool = False) -> WatchChatCallback:
+def write_chats_to_jsonl(file: str | Path, *, replace: bool = False) -> "WatchChatCallback":
     """
     Create a watcher to write each chat as a single JSON line appended to a file.
 
@@ -38,21 +35,21 @@ def write_chats_to_jsonl(file: str | Path, *, replace: bool = False) -> WatchCha
     file = Path(file)
     replaced: bool = False
 
-    async def _write_chats_to_jsonl(chats: list[Chat]) -> None:
+    async def _write_chats_to_jsonl(chats: "list[Chat]") -> None:
         nonlocal replaced
 
         if file.exists() and replace and not replaced:
-            os.remove(file)
+            Path.unlink(file)
             replaced = True
 
         with file.open("a") as f:
             for chat in chats:
-                f.write(chat.model_dump_json() + "\n")
+                f.write(chat.model_dump_json(exclude_none=True) + "\n")
 
     return _write_chats_to_jsonl
 
 
-def write_messages_to_jsonl(file: str | Path, *, replace: bool = False) -> WatchChatCallback:
+def write_messages_to_jsonl(file: str | Path, *, replace: bool = False) -> "WatchChatCallback":
     """
     Create a watcher to flatten chats to individual messages (like Dataframes) and append to a file.
 
@@ -67,11 +64,11 @@ def write_messages_to_jsonl(file: str | Path, *, replace: bool = False) -> Watch
     file = Path(file)
     replaced: bool = False
 
-    async def _write_messages_to_jsonl(chats: list[Chat]) -> None:
+    async def _write_messages_to_jsonl(chats: "list[Chat]") -> None:
         nonlocal replaced
 
         if file.exists() and replace and not replaced:
-            os.remove(file)
+            Path.unlink(file)
             replaced = True
 
         with file.open("a") as f:
@@ -82,8 +79,12 @@ def write_messages_to_jsonl(file: str | Path, *, replace: bool = False) -> Watch
 
 
 def write_chats_to_elastic(
-    client: AsyncElasticsearch, index: str, *, create_index: bool = True, **kwargs: t.Any
-) -> WatchChatCallback:
+    client: AsyncElasticsearch,
+    index: str,
+    *,
+    create_index: bool = True,
+    **kwargs: t.Any,
+) -> "WatchChatCallback":
     """
     Create a watcher to write each chat to an ElasticSearch index.
 
@@ -98,13 +99,19 @@ def write_chats_to_elastic(
         or [rigging.generator.Generator.watch][].
     """
 
-    async def _write_chats_to_elastic(chats: list[Chat]) -> None:
+    async def _write_chats_to_elastic(chats: "list[Chat]") -> None:
         await chats_to_elastic(chats, index, client, create_index=create_index, **kwargs)
 
     return _write_chats_to_elastic
 
 
-def write_chats_to_s3(client: S3Client, bucket: str, key: str, replace: bool = False) -> WatchChatCallback:
+def write_chats_to_s3(
+    client: S3Client,
+    bucket: str,
+    key: str,
+    *,
+    replace: bool = False,
+) -> "WatchChatCallback":
     """
     Create a watcher to write each chat to an Amazon S3 bucket.
 
@@ -121,7 +128,7 @@ def write_chats_to_s3(client: S3Client, bucket: str, key: str, replace: bool = F
 
     replaced: bool = False
 
-    async def _write_chats_to_s3(chats: list[Chat]) -> None:
+    async def _write_chats_to_s3(chats: "list[Chat]") -> None:
         nonlocal replaced
 
         content: str = ""

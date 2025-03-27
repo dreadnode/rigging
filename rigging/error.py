@@ -24,6 +24,15 @@ class UnknownToolError(Exception):
         """The name of the tool which was unknown."""
 
 
+class ToolDefinitionError(Exception):
+    """
+    Raised when a tool cannot be properly defined.
+    """
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
 class ExhaustedMaxRoundsError(Exception):
     """
     Raised when the maximum number of rounds is exceeded while generating.
@@ -88,7 +97,10 @@ P = te.ParamSpec("P")
 R = t.TypeVar("R")
 
 
-def raise_as(error_type: type[Exception], message: str) -> t.Callable[[t.Callable[P, R]], t.Callable[P, R]]:
+def raise_as(
+    error_type: type[Exception],
+    message: str,
+) -> t.Callable[[t.Callable[P, R]], t.Callable[P, R]]:
     "When the wrapped function raises an exception, `raise ... from` with the new error type."
 
     def _raise_as(func: t.Callable[P, R]) -> t.Callable[P, R]:
@@ -96,7 +108,7 @@ def raise_as(error_type: type[Exception], message: str) -> t.Callable[[t.Callabl
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             try:
                 return func(*args, **kwargs)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 error = error_type(message)
                 raise error from e
 

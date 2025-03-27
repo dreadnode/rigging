@@ -1,4 +1,6 @@
 import json
+import typing as t
+from pathlib import Path
 
 import pytest
 
@@ -8,7 +10,7 @@ from rigging.message import Message
 
 
 @pytest.fixture
-def sample_chats():
+def sample_chats() -> list[Chat]:
     chat1 = Chat(messages=[Message(role="user", content="Hello"), Message(role="assistant", content="Hi there!")])
     chat2 = Chat(
         messages=[Message(role="user", content="How are you?"), Message(role="assistant", content="I'm doing well!")]
@@ -17,7 +19,7 @@ def sample_chats():
 
 
 @pytest.mark.asyncio
-async def test_write_chats_to_jsonl(tmp_path, sample_chats):
+async def test_write_chats_to_jsonl(tmp_path: Path, sample_chats: list[Chat]) -> None:
     output_file = tmp_path / "chats.jsonl"
     watcher = rg.watchers.write_chats_to_jsonl(output_file)
 
@@ -40,7 +42,7 @@ async def test_write_chats_to_jsonl(tmp_path, sample_chats):
 
 
 @pytest.mark.asyncio
-async def test_write_chats_to_jsonl_append(tmp_path, sample_chats):
+async def test_write_chats_to_jsonl_append(tmp_path: Path, sample_chats: list[Chat]) -> None:
     output_file = tmp_path / "chats.jsonl"
     watcher = rg.watchers.write_chats_to_jsonl(output_file)
 
@@ -56,7 +58,7 @@ async def test_write_chats_to_jsonl_append(tmp_path, sample_chats):
 
 
 @pytest.mark.asyncio
-async def test_write_chats_to_jsonl_replace(tmp_path, sample_chats):
+async def test_write_chats_to_jsonl_replace(tmp_path: Path, sample_chats: list[Chat]) -> None:
     output_file = tmp_path / "chats.jsonl"
 
     # write initial content
@@ -104,39 +106,39 @@ class MockS3Client:
         def __init__(self, content: str):
             self.content = content
 
-        def read(self):
+        def read(self) -> bytes:
             return self.content.encode()
 
-    def __init__(self):
-        self.buckets = {"test-bucket": {}}
+    def __init__(self) -> None:
+        self.buckets: dict[str, t.Any] = {"test-bucket": {}}
 
-    def head_object(self, Bucket: str, Key: str):
+    def head_object(self, Bucket: str, Key: str) -> t.Any:
         if Bucket not in self.buckets:
             raise self.exceptions.ClientError("404")
         if Key not in self.buckets[Bucket]:
             raise self.exceptions.ClientError("404")
         return self.buckets[Bucket][Key]
 
-    def get_object(self, Bucket: str, Key: str):
+    def get_object(self, Bucket: str, Key: str) -> t.Any:
         if Bucket not in self.buckets:
             raise self.exceptions.ClientError("404")
         if Key not in self.buckets[Bucket]:
             raise self.exceptions.ClientError("404")
         return {"Body": MockS3Client.Body(self.buckets[Bucket][Key])}
 
-    def delete_object(self, Bucket: str, Key: str):
+    def delete_object(self, Bucket: str, Key: str) -> None:
         if Bucket not in self.buckets:
             raise self.exceptions.ClientError("404")
         if Key not in self.buckets[Bucket]:
             raise self.exceptions.ClientError("404")
         del self.buckets[Bucket][Key]
 
-    def put_object(self, Bucket: str, Key: str, Body: str):
+    def put_object(self, Bucket: str, Key: str, Body: str) -> None:
         self.buckets[Bucket][Key] = Body
 
 
 @pytest.mark.asyncio
-async def test_write_chats_to_s3(sample_chats):
+async def test_write_chats_to_s3(sample_chats: list[Chat]) -> None:
     s3_mock_client = MockS3Client()
 
     bucket = "test-bucket"
@@ -146,7 +148,7 @@ async def test_write_chats_to_s3(sample_chats):
     for chat in sample_chats[:1]:
         expected_content += chat.model_dump_json() + "\n"
 
-    watcher = rg.watchers.write_chats_to_s3(s3_mock_client, bucket, key)
+    watcher = rg.watchers.write_chats_to_s3(s3_mock_client, bucket, key)  # type: ignore [arg-type]
 
     # write first batch
     await watcher(sample_chats[:1])
@@ -165,7 +167,7 @@ async def test_write_chats_to_s3(sample_chats):
     assert got["Body"].read() == expected_content.encode()
 
     # create a new watcher with replace=True
-    watcher = rg.watchers.write_chats_to_s3(s3_mock_client, bucket, key, replace=True)
+    watcher = rg.watchers.write_chats_to_s3(s3_mock_client, bucket, key, replace=True)  # type: ignore [arg-type]
 
     # write a single chat
     await watcher(sample_chats[:1])

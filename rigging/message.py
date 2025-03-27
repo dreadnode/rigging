@@ -2,8 +2,6 @@
 This module covers core message objects and handling.
 """
 
-from __future__ import annotations
-
 import base64
 import copy
 import mimetypes
@@ -27,13 +25,16 @@ from pydantic import (
 )
 
 from rigging.error import MissingModelError
-from rigging.model import Model, ModelT  # noqa: TCH001
+from rigging.model import Model, ModelT
 from rigging.parsing import try_parse_many
-from rigging.tool.api import ToolCall
+from rigging.tool.api import ApiToolCall
 from rigging.util import truncate_string
 
 Role = t.Literal["system", "user", "assistant", "tool"]
 """The role of a message. Can be 'system', 'user', 'assistant', or 'tool'."""
+
+EPHERMAL_CACHE_CONTROL = {"type": "ephemeral"}
+"""Cache control entry for ephemeral messages."""
 
 
 # Helper type for messages structured
@@ -73,7 +74,7 @@ class ParsedMessagePart(BaseModel):
         if isinstance(value, slice):
             return value
         if not isinstance(value, list):
-            raise ValueError("slice must be a list or a slice")
+            raise TypeError("slice must be a list or a slice")
         return slice(value[0], value[1])
 
 
@@ -84,6 +85,8 @@ class ContentText(BaseModel):
     """The type of content (always `text`)."""
     text: str
     """The text content."""
+    cache_control: dict[str, str] | None = None
+    """Cache control entry for prompt caching."""
 
     def __str__(self) -> str:
         return self.text
@@ -102,12 +105,31 @@ class ContentImageUrl(BaseModel):
     """The type of content (always `image_url`)."""
     image_url: ImageUrl
     """The image URL content."""
+    cache_control: dict[str, str] | None = None
+    """Cache control entry for prompt caching."""
 
     def __str__(self) -> str:
         return f"<ContentImageUrl '{truncate_string(self.image_url.url, 50)}'>"
 
     @classmethod
-    def from_file(cls, file: Path | str, *, mimetype: str | None = None) -> ContentImageUrl:
+    def from_file(
+        cls,
+        file: Path | str,
+        *,
+        mimetype: str | None = None,
+        detail: t.Literal["auto", "low", "high"] = "auto",
+    ) -> "ContentImageUrl":
+        """
+        Creates a ContentImageUrl object from a file.
+
+        Args:
+            file: The file to create the content from.
+            mimetype: The mimetype of the file. If not provided, it will be guessed.
+
+        Returns:
+            The created ContentImageUrl object.
+        """
+
         file = Path(file)
         if not file.exists():
             raise FileNotFoundError(f"File '{file}' does not exist")
@@ -121,14 +143,53 @@ class ContentImageUrl(BaseModel):
         encoded = base64.b64encode(file.read_bytes()).decode()
         url = f"data:{mimetype};base64,{encoded}"
 
-        return cls(image_url=cls.ImageUrl(url=url))
+        return cls(image_url=cls.ImageUrl(url=url, detail=detail))
 
     @classmethod
-    def from_url(cls, url: str, *, detail: t.Literal["auto", "low", "high"] = "auto") -> ContentImageUrl:
+    def from_bytes(
+        cls,
+        data: bytes,
+        mimetype: str,
+        *,
+        detail: t.Literal["auto", "low", "high"] = "auto",
+    ) -> "ContentImageUrl":
+        """
+        Creates a ContentImageUrl object from raw bytes.
+
+        Args:
+            data: The raw bytes of the image.
+            mimetype: The mimetype of the image.
+            detail: The detail level of the image.
+
+        Returns:
+            The created ContentImageUrl
+        """
+
+        encoded = base64.b64encode(data).decode()
+        url = f"data:{mimetype};base64,{encoded}"
+        return cls(image_url=cls.ImageUrl(url=url, detail=detail))
+
+    @classmethod
+    def from_url(
+        cls,
+        url: str,
+        *,
+        detail: t.Literal["auto", "low", "high"] = "auto",
+    ) -> "ContentImageUrl":
+        """
+        Creates a ContentImageUrl object from a URL.
+
+        Args:
+            url: The URL of the image.
+            detail: The detail level of the image.
+
+        Returns:
+            The created ContentImageUrl object.
+        """
         return cls(image_url=cls.ImageUrl(url=url, detail=detail))
 
 
-Content = t.Union[ContentText, ContentImageUrl]
+Content = ContentText | ContentImageUrl
 """The types of content that can be included in a message."""
 ContentTypes = (ContentText, ContentImageUrl)
 
@@ -143,8 +204,8 @@ class Message(BaseModel):
 
         For interface stability, `content` will remain a property
         accessor for the text of a message, but the "real" content
-        is available in `all_content`. During serialization, we rename
-        `all_content` to `content` for compatibility.
+        is available in `content_parts`. During serialization, we rename
+        `content_parts` to `content` for compatibility.
     """
 
     uuid: UUID = Field(default_factory=uuid4, repr=False)
@@ -153,9 +214,9 @@ class Message(BaseModel):
     """The role of the message."""
     parts: list[ParsedMessagePart] = Field(default_factory=list)
     """The parsed message parts."""
-    all_content: str | list[Content] = Field("", repr=False)
+    content_parts: list[Content] = Field([], repr=False)
     """Interior str content or structured content parts."""
-    tool_calls: list[ToolCall] | None = Field(None)
+    tool_calls: list[ApiToolCall] | None = Field(None)
     """The tool calls associated with the message."""
     tool_call_id: str | None = Field(None)
     """Associated call id if this message is a response to a tool call."""
@@ -163,10 +224,11 @@ class Message(BaseModel):
     def __init__(
         self,
         role: Role,
-        content: str | list[str | Content] | None = None,
+        content: str | t.Sequence[str | Content] | None = None,
         parts: t.Sequence[ParsedMessagePart] | None = None,
-        tool_calls: list[ToolCall] | list[dict[str, t.Any]] | None = None,
+        tool_calls: t.Sequence[ApiToolCall] | t.Sequence[dict[str, t.Any]] | None = None,
         tool_call_id: str | None = None,
+        cache_control: t.Literal["ephemeral"] | dict[str, str] | None = None,
         **kwargs: t.Any,
     ):
         # TODO: We default to an empty string, but this technically isn't
@@ -174,17 +236,25 @@ class Message(BaseModel):
         if content is None:
             content = ""
 
-        if isinstance(content, str):
-            content = dedent(content)
-        else:
-            content = [ContentText(text=dedent(part)) if isinstance(part, str) else part for part in content]
+        content = [content] if isinstance(content, str) else content
+        content_parts = [
+            ContentText(text=dedent(part)) if isinstance(part, str) else part for part in content
+        ]
 
-        if tool_calls is not None and not all(isinstance(call, ToolCall) for call in tool_calls):
-            tool_calls = [ToolCall.model_validate(call) if isinstance(call, dict) else call for call in tool_calls]
+        if tool_calls is not None and not all(isinstance(call, ApiToolCall) for call in tool_calls):
+            tool_calls = [
+                ApiToolCall.model_validate(call) if isinstance(call, dict) else call
+                for call in tool_calls
+            ]
+
+        if cache_control is not None and content_parts:
+            content_parts[-1].cache_control = (
+                cache_control if isinstance(cache_control, dict) else EPHERMAL_CACHE_CONTROL
+            )
 
         super().__init__(
             role=role,
-            all_content=content,
+            content_parts=content_parts,
             parts=parts or [],
             tool_calls=tool_calls,
             tool_call_id=tool_call_id,
@@ -193,10 +263,11 @@ class Message(BaseModel):
 
     def __str__(self) -> str:
         formatted = f"[{self.role}]:"
-        if isinstance(self.all_content, list):
-            formatted += "\n |- " + "\n |- ".join(str(content) for content in self.all_content)
+
+        if len(self.content_parts) == 1 and isinstance(self.content_parts[0], ContentText):
+            formatted += f" {self.content_parts[0].text}"
         else:
-            formatted += f" {self.content}"
+            formatted += "\n |- " + "\n |- ".join(str(content) for content in self.content_parts)
 
         for tool_call in self.tool_calls or []:
             formatted += f"\n |- {tool_call}"
@@ -215,21 +286,43 @@ class Message(BaseModel):
     @model_serializer(mode="wrap")
     def rename_content(self, handler: SerializerFunctionWrapHandler) -> t.Any:
         serialized = handler(self)
-        if "all_content" in serialized:
-            serialized["content"] = serialized.pop("all_content")
+        if "content_parts" in serialized:
+            serialized["content"] = serialized.pop("content_parts")
+
+            # Some backwards compatibility for single text content
+            # which we'll load straight into the content value as opposed
+            # to a list of content parts.
+            if (
+                len(serialized["content"]) == 1
+                and list(serialized["content"][0].keys()) == ["type", "text"]
+                and serialized["content"][0].get("type") == "text"
+            ):
+                serialized["content"] = serialized["content"][0]["text"]
+
         return serialized
+
+    @property
+    def all_content(self) -> str | list[Content]:
+        """
+        Returns all content parts of the message or the single text content part as a string.
+
+        Deprecated:
+            Use `.content_parts` instead
+        """
+        if len(self.content_parts) == 1 and isinstance(self.content_parts[0], ContentText):
+            return self.content_parts[0].text
+        return self.content_parts
 
     @property
     def content(self) -> str:
         """
-        The content of the message.
+        The content of the message as a string.
 
-        If the interior of the message content is stored as a list of Content objects,
-        this property will return the concatenated text of any ContentText parts.
+        If you need to access the structured content parts, use `.content_parts`.
         """
-        if isinstance(self.all_content, str):
-            return self.all_content
-        return "\n".join([content.text for content in self.all_content if isinstance(content, ContentText)])
+        return "\n".join(
+            [content.text for content in self.content_parts if isinstance(content, ContentText)],
+        )
 
     @content.setter
     def content(self, value: str) -> None:
@@ -246,16 +339,20 @@ class Message(BaseModel):
         # when content is changed.
         self.parts = []
 
-        if isinstance(self.all_content, list):
-            text_parts = [c for c in self.all_content if isinstance(c, ContentText)]
-            if len(text_parts) == 1:
-                text_parts[0].text = value
-                return
+        text_parts = [c for c in self.content_parts if isinstance(c, ContentText)]
 
-        self.all_content = dedent(value)
+        # If we have a single text part, we can just update it
+        if len(text_parts) == 1:
+            text_parts[0].text = value
+            return
+
+        # Otherwise we need to remove text parts without
+        # removing other content parts
+        other_parts = [c for c in self.content_parts if not isinstance(c, ContentText)]
+        self.content_parts = [*other_parts, ContentText(text=value)]
 
     @model_validator(mode="after")
-    def validate_parts(self) -> Message:
+    def validate_parts(self) -> "Message":
         from rigging.model import Model
 
         # TODO: For now, we don't want to keep parts
@@ -279,19 +376,32 @@ class Message(BaseModel):
         Returns:
             The serialized message.
         """
-        # `all_content` will be moved to `content`
-        return self.model_dump(include={"role", "all_content", "tool_calls", "tool_call_id"}, exclude_none=True)
+        # `content_parts` will be moved to `content`
+        obj = self.model_dump(
+            include={"role", "content_parts", "tool_calls", "tool_call_id"},
+            exclude_none=True,
+        )
 
-    def force_str_content(self) -> Message:
-        """
-        Forces the content of the message to be a string by stripping
-        any structured content parts like images.
+        # Walk content parts and add a `\n` to the end of any text parts
+        # which are followed by another text part (if not already present).
+        #
+        # This prevents model API behaviors from just concatenating the text
+        # parts together without any separation which confuses the model.
 
-        Returns:
-            The modified message.
-        """
-        self.all_content = self.content
-        return self
+        for i, current in enumerate(obj.get("content", [])):
+            if i == len(obj["content"]) - 1:
+                break
+
+            next_ = obj["content"][i + 1]
+
+            if (
+                current.get("type") == "text"
+                and next_.get("type") == "text"
+                and not current.get("text", "").endswith("\n")
+            ):
+                current["text"] += "\n"
+
+        return obj
 
     # TODO: In general the add/remove/sync_part methods are
     # overly complicated. We should probably just update content,
@@ -299,28 +409,41 @@ class Message(BaseModel):
     #
     # I don't like all this manual slice recalculation logic, seems brittle.
 
-    def _remove_part(self, part: ParsedMessagePart) -> str:
-        if not isinstance(self.all_content, str):
-            raise NotImplementedError("Managing parsed parts from multi-content messages is not supported")
+    def _remove_part(self, part: ParsedMessagePart) -> None:
+        text_parts = [p for p in self.content_parts if isinstance(p, ContentText)]
+        if len(text_parts) > 1:
+            raise NotImplementedError(
+                "Managing parsed parts in messages with multiple content text parts is not supported",
+            )
+
+        if len(text_parts) == 0:
+            raise ValueError("No text content to remove part from")
+
+        text_part = text_parts[0]
 
         removed_length = part.slice_.stop - part.slice_.start
-        self.all_content = self.all_content[: part.slice_.start] + self.all_content[part.slice_.stop :]
+        text_part.text = text_part.text[: part.slice_.start] + text_part.text[part.slice_.stop :]
         self.parts.remove(part)
 
         # Update slices of any parts that come after the removed part
         for other_part in self.parts:
             if other_part.slice_.start > part.slice_.start:
                 other_part.slice_ = slice(
-                    other_part.slice_.start - removed_length, other_part.slice_.stop - removed_length
+                    other_part.slice_.start - removed_length,
+                    other_part.slice_.stop - removed_length,
                 )
-
-        return self.all_content
 
     def _add_part(self, part: ParsedMessagePart) -> None:
         for existing in self.parts:
-            if part.slice_ == existing.slice_ and part.model.xml_tags() == existing.model.xml_tags():
+            if (
+                part.slice_ == existing.slice_
+                and part.model.xml_tags() == existing.model.xml_tags()
+            ):
                 return  # We clearly already have this part defined
-            if max(part.slice_.start, existing.slice_.start) < min(part.slice_.stop, existing.slice_.stop):
+            if max(part.slice_.start, existing.slice_.start) < min(
+                part.slice_.stop,
+                existing.slice_.stop,
+            ):
                 raise ValueError("Incoming part overlaps with an existing part")
         self.parts.append(part)
 
@@ -329,15 +452,24 @@ class Message(BaseModel):
     # to watch for the total size of our message shifting and update the slices
     # of the following parts accordingly. In other words, as A expands, B which
     # follows will have a new start slice and end slice.
+
     def _sync_parts(self) -> None:
-        if not isinstance(self.all_content, str):
-            raise NotImplementedError("Managing parsed parts from multi-content messages is not supported")
+        text_parts = [p for p in self.content_parts if isinstance(p, ContentText)]
+        if len(text_parts) > 1:
+            raise NotImplementedError(
+                "Managing parsed parts in messages with multiple content text parts is not supported",
+            )
+
+        if len(text_parts) == 0:
+            raise ValueError("No text content to remove part from")
+
+        text_part = text_parts[0]
 
         self.parts = sorted(self.parts, key=lambda p: p.slice_.start)
 
         shift = 0
         for part in self.parts:
-            existing = self.all_content[part.slice_]
+            existing = text_part.text[part.slice_]
 
             # Adjust for any previous shifts
             part.slice_ = slice(part.slice_.start + shift, part.slice_.stop + shift)
@@ -351,8 +483,10 @@ class Message(BaseModel):
             old_length = part.slice_.stop - part.slice_.start
             new_length = len(xml_content)
 
-            self.all_content = (
-                self.all_content[: part.slice_.start] + xml_content + self.all_content[part.slice_.stop :]
+            text_part.text = (
+                text_part.text[: part.slice_.start]
+                + xml_content
+                + text_part.text[part.slice_.stop :]
             )
             part.slice_ = slice(part.slice_.start, part.slice_.start + new_length)
 
@@ -360,11 +494,46 @@ class Message(BaseModel):
 
         self.parts = sorted(self.parts, key=lambda p: p.slice_.start)
 
-    def clone(self) -> Message:
+    def clone(self) -> "Message":
         """Creates a copy of the message."""
-        return Message(self.role, self.content, parts=copy.deepcopy(self.parts))
+        return Message(
+            self.role,
+            copy.deepcopy(self.content_parts),
+            parts=copy.deepcopy(self.parts),
+        )
 
-    def apply(self, **kwargs: str) -> Message:
+    def cache(self, cache_control: dict[str, str] | bool = True) -> "Message":  # noqa: FBT002
+        """
+        Update cache control settings for this message.
+
+        Args:
+            cache_control: The cache control settings to
+                apply to the message. If `False`, all cache
+                control settings will be removed. If `True`,
+                the default ephemeral cache control will be applied.
+                If a dictionary, it will be applied as the cache control settings.
+
+        Returns:
+            The updated message.
+        """
+
+        for part in self.content_parts:
+            part.cache_control = None
+
+        if cache_control is False:
+            return self
+
+        if cache_control is True:
+            cache_control = EPHERMAL_CACHE_CONTROL
+
+        if not isinstance(cache_control, dict):
+            raise TypeError(f"Invalid cache control: {cache_control}")
+
+        self.content_parts[-1].cache_control = cache_control
+
+        return self
+
+    def apply(self, **kwargs: str) -> "Message":
         """
         Applies the given keyword arguments with string templating to the content of the message.
 
@@ -381,7 +550,12 @@ class Message(BaseModel):
         new.content = template.safe_substitute(**kwargs)
         return new
 
-    def strip(self, model_type: type[Model], *, fail_on_missing: bool = False) -> list[ParsedMessagePart]:
+    def strip(
+        self,
+        model_type: type[Model],
+        *,
+        fail_on_missing: bool = False,
+    ) -> list[ParsedMessagePart]:
         """
         Removes and returns a list of ParsedMessagePart objects from the message that match the specified model type.
 
@@ -402,7 +576,9 @@ class Message(BaseModel):
                 removed.append(part)
 
         if not removed and fail_on_missing:
-            raise TypeError(f"Could not find <{model_type.__xml_tag__}> ({model_type.__name__}) in message")
+            raise TypeError(
+                f"Could not find <{model_type.__xml_tag__}> ({model_type.__name__}) in message",
+            )
 
         return removed
 
@@ -459,7 +635,10 @@ class Message(BaseModel):
         return self.try_parse_set(model_type, minimum=minimum, fail_on_missing=True)
 
     def try_parse_set(
-        self, model_type: type[ModelT], minimum: int | None = None, fail_on_missing: bool = False
+        self,
+        model_type: type[ModelT],
+        minimum: int | None = None,
+        fail_on_missing: bool = False,  # noqa: FBT001, FBT002 (historical)
     ) -> list[ModelT]:
         """
         Tries to parse a set of models from the message content.
@@ -510,7 +689,11 @@ class Message(BaseModel):
             MissingModelError: If a model type is missing and `fail_on_missing` is True.
         """
         model: ModelT
-        parsed: list[tuple[ModelT, slice]] = try_parse_many(self.content, *types, fail_on_missing=fail_on_missing)
+        parsed: list[tuple[ModelT, slice]] = try_parse_many(
+            self.content,
+            *types,
+            fail_on_missing=fail_on_missing,
+        )
         for model, slice_ in parsed:
             self._add_part(ParsedMessagePart(model=model, slice_=slice_))
         self._sync_parts()
@@ -518,8 +701,11 @@ class Message(BaseModel):
 
     @classmethod
     def from_model(
-        cls: type[Message], models: Model | t.Sequence[Model], role: Role = "user", suffix: str | None = None
-    ) -> Message:
+        cls: type["Message"],
+        models: Model | t.Sequence[Model],
+        role: Role = "user",
+        suffix: str | None = None,
+    ) -> "Message":
         """
         Create a Message object from one or more Model objects.
 
@@ -546,24 +732,30 @@ class Message(BaseModel):
 
     @classmethod
     def fit_as_list(
-        cls, messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str
-    ) -> list[Message]:
+        cls,
+        messages: t.Sequence[MessageDict]
+        | t.Sequence["Message"]
+        | MessageDict
+        | "Message"
+        | Content
+        | str,
+    ) -> list["Message"]:
         """Helper function to convert various common types to a strict list of Message objects."""
-        if isinstance(messages, (Message, dict, str)):
+        if isinstance(messages, (Message, dict, str, *ContentTypes)):
             return [cls.fit(messages)]
         return [cls.fit(message) for message in messages]
 
     @classmethod
-    def fit(cls, message: t.Union[Message, MessageDict, str]) -> Message:
+    def fit(cls, message: t.Union["Message", MessageDict, Content, str]) -> "Message":
         """Helper function to convert various common types to a Message object."""
-        if isinstance(message, str):
-            return cls(role="user", content=message)
+        if isinstance(message, (str, *ContentTypes)):
+            return cls(role="user", content=[message])
         return cls(**message) if isinstance(message, dict) else message.model_copy(deep=True)
 
     @classmethod
-    def apply_to_list(cls, messages: t.Sequence[Message], **kwargs: str) -> list[Message]:
+    def apply_to_list(cls, messages: t.Sequence["Message"], **kwargs: str) -> list["Message"]:
         """Helper function to apply keyword arguments to a list of Message objects."""
         return [message.apply(**kwargs) for message in messages]
 
 
-Messages = t.Union[t.Sequence[MessageDict], t.Sequence[Message]]
+Messages = t.Sequence[MessageDict] | t.Sequence[Message]

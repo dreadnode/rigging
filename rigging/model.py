@@ -2,34 +2,36 @@
 Models are the core datatypes for structured parsing.
 """
 
-from __future__ import annotations
-
+import contextlib
+import dataclasses
+import inspect
 import re
 import typing as t
-from xml.etree import ElementTree as ET
+from xml.etree import ElementTree as ET  # noqa: N817
 
 import typing_extensions as te
-import xmltodict  # type: ignore
+import xmltodict  # type: ignore [import-untyped]
 from pydantic import (
+    BaseModel,
     BeforeValidator,
+    Field,
     SerializationInfo,
     ValidationError,
-    create_model,
     field_serializer,
     field_validator,
 )
+from pydantic import create_model as create_pydantic_model
 from pydantic_xml import BaseXmlModel
-from pydantic_xml import attr as attr
-from pydantic_xml import element as element
-from pydantic_xml import wrapped as wrapped
+from pydantic_xml import attr as attr  # noqa: PLC0414
+from pydantic_xml import create_model as create_pydantic_xml_model
+from pydantic_xml import element as element  # noqa: PLC0414
+from pydantic_xml import wrapped as wrapped  # noqa: PLC0414
+from pydantic_xml.element import SearchMode  # type: ignore [attr-defined]
 from pydantic_xml.model import XmlEntityInfo
 from pydantic_xml.typedefs import EntityLocation, NsMap
 
 from rigging.error import MissingModelError
 from rigging.util import escape_xml, to_xml_tag, unescape_xml
-
-if t.TYPE_CHECKING:
-    from pydantic_xml.element import SearchMode  # type: ignore [attr-defined]
 
 #
 # Core XML serializable models for messages
@@ -99,14 +101,35 @@ class Model(BaseXmlModel):
         """
         tree = self.to_xml_tree()
         ET.indent(tree, "  ")
-        pretty_encoded_xml = ET.tostring(tree, short_empty_elements=False, encoding="utf-8").decode()
+        pretty_encoded_xml = str(
+            ET.tostring(
+                tree,
+                short_empty_elements=False,
+                encoding="utf-8",
+            ).decode(),
+        )
 
-        if self.__class__.is_simple():
-            # We only expect to use this in our "simple"
-            # models, but I'd like a better long-term solution
-            return unescape_xml(pretty_encoded_xml)
-        else:
-            return pretty_encoded_xml  # type: ignore [no-any-return]
+        # If this is a complex model, we'll return exactly what we get
+        if not self.__class__.is_simple() and not self.__class__.is_simple_with_attrs():
+            return pretty_encoded_xml
+
+        # Otherwise we can try to do some cleaning by unescaping and
+        # re-indenting the XML (helpful for nested-xml)
+
+        pretty_encoded_xml = unescape_xml(pretty_encoded_xml)
+
+        with contextlib.suppress(ET.ParseError):
+            tree = ET.fromstring(pretty_encoded_xml)  # noqa: S314
+            ET.indent(tree, "  ")
+            pretty_encoded_xml = str(
+                ET.tostring(
+                    tree,
+                    short_empty_elements=False,
+                    encoding="utf-8",
+                ).decode(),
+            )
+
+        return pretty_encoded_xml
 
     def __str__(self) -> str:
         return self.to_pretty_xml()
@@ -136,6 +159,32 @@ class Model(BaseXmlModel):
         # If the field is a pydantic-xml wrapper like element()
         # or attr(), we'll assume the user knows what they're doing
         if isinstance(field_values[0], XmlEntityInfo):
+            return False
+
+        annotation = field_values[0].annotation
+        if t.get_origin(annotation) == t.Annotated:
+            annotation = t.get_args(annotation)[0]
+
+        return annotation in BASIC_TYPES
+
+    @classmethod
+    def is_simple_with_attrs(cls) -> bool:
+        """
+        Check if the model would otherwise be marked as "simple", but has other fields which are
+        all attributes. If so, we can do some parsing magic below and make sure our non-element
+        field is updated with the extracted content properly, while pydantic-xml takes care
+        of the attributes.
+
+        Returns:
+            True if the model is simple with attrs, False otherwise.
+        """
+        field_values = list(cls.model_fields.values())
+
+        none_entity_fields = [f for f in field_values if not isinstance(f, XmlEntityInfo)]
+        entity_fields = [f for f in field_values if isinstance(f, XmlEntityInfo)]
+        attr_fields = [f for f in entity_fields if f.location == EntityLocation.ATTRIBUTE]
+
+        if len(none_entity_fields) != 1 or len(attr_fields) != len(entity_fields):
             return False
 
         annotation = field_values[0].annotation
@@ -181,7 +230,11 @@ class Model(BaseXmlModel):
         properties = schema["properties"]
         structure = {cls.__xml_tag__: {field: None for field in properties}}
         xml_string = xmltodict.unparse(
-            structure, pretty=True, full_document=False, indent="  ", short_empty_elements=True
+            structure,
+            pretty=True,
+            full_document=False,
+            indent="  ",
+            short_empty_elements=True,
         )
         return t.cast(str, xml_string)  # Bad type hints in xmltodict
 
@@ -195,7 +248,9 @@ class Model(BaseXmlModel):
         if len(cls.model_fields) == 1:
             field_info = next(iter(cls.model_fields.values()))
             if hasattr(field_info, "location") and field_info.location == EntityLocation.ATTRIBUTE:
-                raise ValueError(f"Model '{cls.__name__}' has a single attr() field which is not supported")
+                raise ValueError(
+                    f"Model '{cls.__name__}' has a single attr() field which is not supported",
+                )
 
     # Attempt to extract this object from an arbitrary string
     # which may contain other XML elements or text, returns
@@ -227,7 +282,11 @@ class Model(BaseXmlModel):
 
         tag_name = cls.__xml_tag__
         pattern = f"(<({tag_name}).*?>((.*?)</{tag_name}>))"
-        matches = [m for m in re.finditer(pattern, content, flags=re.DOTALL) if m.group(2) == cls.__xml_tag__]
+        matches = [
+            m
+            for m in re.finditer(pattern, content, flags=re.DOTALL)
+            if m.group(2) == cls.__xml_tag__
+        ]
 
         if not matches:
             raise MissingModelError(f"Failed to find '{cls.xml_tags()}' in message")
@@ -255,7 +314,10 @@ class Model(BaseXmlModel):
             inner_match: re.Match[str] | None = match
             while inner_match is not None:
                 inner_matches = re.finditer(pattern, inner_with_end_tag, flags=re.DOTALL)
-                inner_match = next((m for m in inner_matches if m.group(2) == cls.__xml_tag__), None)
+                inner_match = next(
+                    (m for m in inner_matches if m.group(2) == cls.__xml_tag__),
+                    None,
+                )
                 if inner_match is not None:
                     full_text, _, inner_with_end_tag, inner = inner_match.groups()
 
@@ -265,8 +327,21 @@ class Model(BaseXmlModel):
                     if cls.is_simple()
                     else cls.from_xml(escape_xml(full_text))
                 )
+
+                # If our model is relatively simple (only attributes and a single non-element field)
+                # we should go back and update our non-element field with the extracted content.
+
+                if cls.is_simple_with_attrs():
+                    name, field = next(
+                        (name, field)
+                        for name, field in cls.model_fields.items()
+                        if not isinstance(field, XmlEntityInfo)
+                    )
+                    if field.annotation in BASIC_TYPES:
+                        model.__dict__[name] = field.annotation(unescape_xml(inner))
+
                 extracted.append((model, slice(match.start(), match.end())))
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 exceptions.append(e)
                 continue
 
@@ -308,7 +383,10 @@ PrimitiveT = t.TypeVar("PrimitiveT", int, str, float, bool)
 
 
 class Primitive(Model, t.Generic[PrimitiveT]):
-    content: t.Annotated[PrimitiveT, BeforeValidator(lambda x: x.strip() if isinstance(x, str) else x)]
+    content: t.Annotated[
+        PrimitiveT,
+        BeforeValidator(lambda x: x.strip() if isinstance(x, str) else x),
+    ]
 
 
 def make_primitive(
@@ -343,16 +421,210 @@ def make_primitive(
         return value
 
     if strip_content:
-        type_ = t.Annotated[type_, BeforeValidator(lambda x: x.strip() if isinstance(x, str) else x)]  # type: ignore
+        type_ = t.Annotated[
+            type_,
+            BeforeValidator(lambda x: x.strip() if isinstance(x, str) else x),
+        ]  # type: ignore [assignment]
 
-    return create_model(
+    return create_pydantic_model(
         name,
-        __base__=Primitive[type_],  # type: ignore
+        __base__=Primitive[type_],  # type: ignore [valid-type, arg-type]
         __doc__=doc,
         __cls_kwargs__={"tag": tag},
         content=(type_, ...),
-        __validators__={"content_validator": field_validator("content")(_validate)} if validator else {},
+        __validators__={"content_validator": field_validator("content")(_validate)}
+        if validator
+        else {},
     )
+
+
+#
+# Conversion from JSON schemas
+#
+
+FieldType = t.Any  # aliases for my sanity
+FieldInfo = t.Any
+
+
+def _process_field(field_name: str, field_schema: dict[str, t.Any]) -> tuple[FieldType, FieldInfo]:
+    """Process a field schema and return appropriate type and field info."""
+    field_info: FieldInfo = {}
+
+    # enums
+    if "enum" in field_schema:
+        return t.Literal[tuple(field_schema["enum"])], field_info
+
+    # arrays
+    if field_schema.get("type") == "array":
+        item_schema = field_schema["items"]
+        item_type, _ = _process_field(f"{field_name}Item", item_schema)
+
+        if item_schema.get("type") == "object":
+            return list[item_type], wrapped(field_name, **field_info)  # type: ignore [valid-type]
+
+        return list[item_type], wrapped(field_name, element("item", **field_info))  # type: ignore [valid-type]
+
+    # objects
+    if field_schema.get("type") == "object":
+        # dictionaries
+        additional_schema = field_schema.get("additionalProperties")
+        if additional_schema:
+            dict_type, _ = _process_field(f"{field_name}Item", additional_schema)
+            return dict[str, dict_type], field_info  # type: ignore [valid-type]
+
+        # Otherwise a nested model
+        return make_from_schema(
+            field_schema,
+            field_schema.get("title"),
+            allow_primitive=True,
+        ), field_info
+
+    # unions
+    for union_type in ["anyOf", "oneOf", "allOf"]:
+        if union_type in field_schema:
+            types = [
+                _process_field(field_name, sub_schema)[0] for sub_schema in field_schema[union_type]
+            ]
+            return t.Union[tuple(types)], field_info  # noqa: UP007
+
+    type_mapping: dict[str, FieldType] = {
+        "string": str,
+        "integer": int,
+        "number": float,
+        "boolean": bool,
+        "null": type(None),
+        "object": dict,
+        "array": list,
+    }
+
+    # tuples
+    field_type = field_schema.get("type", "string")
+    if isinstance(field_type, list):
+        types = [type_mapping.get(t, t.Any) for t in field_type]
+        return t.Union[tuple(types)], field_info  # noqa: UP007
+
+    # primitives
+    return type_mapping.get(field_type, t.Any), field_info
+
+
+def make_from_schema(
+    schema: dict[str, t.Any],
+    name: str | None = None,
+    *,
+    allow_primitive: bool = False,
+) -> type[Model]:
+    """
+    Helper to build a Rigging model dynamically from a JSON schema.
+
+    Note:
+        There are plenty of edge cases this doesn't handle, consider this
+        very experimental and only suitable for simple schemas.
+
+    Args:
+        schema: The JSON schema to build the model from.
+        model_name: The name of the model (otherwise inferred from the schema).
+
+    Returns:
+        The Pydantic model class.
+    """
+    properties = schema.get("properties", {})
+    required = set(schema.get("required", []))
+    fields: dict[str, tuple[FieldType, FieldInfo]] = {}
+
+    # If we only have one property and the caller allows it,
+    # make the model "simple/primitive" by not using the element() wrapper
+    field_cls = Field if len(properties) == 1 and allow_primitive else element
+
+    for field_name, field_schema in properties.items():
+        field_type, field_info = _process_field(field_name, field_schema)
+
+        fields[field_name] = (
+            field_type,
+            field_cls(
+                default=... if field_name in required else None,
+                description=field_schema.get("description", ""),
+                title=field_schema.get("title", ""),
+                **field_info,
+            )
+            if isinstance(field_info, dict)
+            else field_info,
+        )
+
+    name = name or schema.get("title", "SchemaModel")
+    return create_pydantic_xml_model(name, __base__=Model, **fields)  # type: ignore [arg-type]
+
+
+#
+# Conversion from callable signatures
+#
+
+
+def _safe_issubclass(cls: t.Any, class_or_tuple: t.Any) -> bool:
+    """Safely check if a class is a subclass of another class or tuple."""
+    try:
+        return isinstance(cls, type) and issubclass(cls, class_or_tuple)
+    except TypeError:
+        return False
+
+
+def _is_complex_type(typ: t.Any) -> bool:
+    """Check if a type is a complex type (class-based, not primitive)."""
+    try:
+        return _safe_issubclass(typ, (str, int, float, bool, bytes)) and typ is not t.Any
+    except TypeError:
+        return False
+
+
+def make_from_signature(signature: inspect.Signature, name: str | None = None) -> type[Model]:
+    fields = {}
+    for param_name, param in signature.parameters.items():
+        param_type = param.annotation
+        param_origin = t.get_origin(param_type)
+        param_args = t.get_args(param_type)
+
+        # Sanity checks
+        for type_ in (param_type, param_origin, *param_args):
+            if _safe_issubclass(type_, BaseModel) and not _safe_issubclass(type_, BaseXmlModel):
+                raise ValueError(
+                    f"Function arguments which are Pydantic models must inherit from `BaseXmlModel` ({param_name})",
+                )
+
+            if dataclasses.is_dataclass(type_):
+                raise ValueError(
+                    f"Function arguments which are dataclasses are not supported ({param_name})",
+                )
+
+        # Extract description from Annotated types
+        description = ""
+        if param_origin is t.Annotated:
+            param_type = param_args[0]  # The actual type
+            if len(param_args) > 1 and isinstance(param_args[1], str):
+                description = param_args[1]  # The description
+
+        # Add default value if available
+        default = ... if param.default is inspect.Parameter.empty else param.default
+        field = element(default=default, description=description)
+
+        # Handle List types (really just for the wrapped() component)
+        if param_origin is list or param_origin is t.List:  # noqa: UP006
+            item_tag = "item"
+
+            if (
+                param_args
+                and _is_complex_type(param_args[0])
+                and param_name.endswith("s")
+                and (singular := param_name[:-1])
+            ):
+                item_tag = singular
+
+            field = wrapped(
+                param_name,
+                element(tag=item_tag, default=default, description=description),
+            )
+
+        fields[param_name] = (param_type, field)
+
+    return create_pydantic_xml_model(name, __base__=Model, **fields)  # type: ignore [arg-type]
 
 
 #
@@ -364,6 +636,7 @@ class ErrorModel(Model, tag="error"):
     content: str
 
     @field_validator("content", mode="before")
+    @classmethod
     def parse_exception(cls, value: t.Any) -> t.Any:
         if isinstance(value, Exception):
             return str(value)
@@ -426,39 +699,34 @@ class DelimitedAnswer(Model):
     content: str
     _delimiters: t.ClassVar[list[str]] = [",", "-", "/", "|"]
 
-    _items: list[str] = []
-
     @property
     def items(self) -> list[str]:
         """Parsed items from the content."""
-        if self._items:
-            return self._items
-
         split_sizes: dict[str, int] = {}
         for delimiter in self._delimiters:
             split_sizes[delimiter] = len(self.content.split(delimiter))
         delimiter = max(split_sizes, key=split_sizes.get)  # type: ignore [arg-type]
         split = [i.strip(" \"'\t\r\n") for i in self.content.split(delimiter)]
-        self._items = [s for s in split if s]
-        return self._items
+        return [s for s in split if s]
 
     @field_validator("content", mode="before")
+    @classmethod
     def parse_str_to_list(cls, v: t.Any) -> t.Any:
         if not isinstance(v, str):
-            raise ValueError(f"Cannot parse content as a delimited list: {v}")
+            raise TypeError(f"Cannot parse content as a delimited list: {v}")
         return v
 
 
 class CommaDelimitedAnswer(DelimitedAnswer):
     "Comma delimited answer (,)"
 
-    _delimiters = [","]
+    _delimiters: t.ClassVar = [","]
 
 
 class NewlineDelimitedAnswer(DelimitedAnswer):
     "Newline delimited answer (\n)"
 
-    _delimiters = ["\n"]
+    _delimiters: t.ClassVar = ["\n"]
 
 
 class YesNoAnswer(Model):
@@ -468,15 +736,16 @@ class YesNoAnswer(Model):
     """The boolean value of the answer."""
 
     @field_validator("boolean", mode="before")
+    @classmethod
     def parse_str_to_bool(cls, v: t.Any) -> t.Any:
         if isinstance(v, str):
             simple = v.strip().lower()
             if any(simple.startswith(s) for s in ["yes", "true"]):
                 return True
-            elif any(simple.startswith(s) for s in ["no", "false"]):
+            if any(simple.startswith(s) for s in ["no", "false"]):
                 return False
         raise ValueError(f"Cannot parse '{v}' as a boolean")
 
     @field_serializer("boolean")
-    def serialize_bool_to_str(self, v: bool, _info: SerializationInfo) -> str:
+    def serialize_bool_to_str(self, v: bool, _info: SerializationInfo) -> str:  # noqa: FBT001
         return "yes" if v else "no"

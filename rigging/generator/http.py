@@ -1,14 +1,13 @@
-from __future__ import annotations
-
 import asyncio
 import base64
+import contextlib
 import json
 import re
 import typing as t
 
 import httpx
 import jinja2
-import jsonpath_ng  # type: ignore
+import jsonpath_ng  # type: ignore [import-untyped]
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 from ruamel.yaml import YAML
 
@@ -21,7 +20,7 @@ from rigging.generator.base import (
 )
 from rigging.message import Message, Role
 
-# TODO:
+# TODO: Look at:
 # - Add request retry mechanics
 # - Add request timeout mechanics
 # - Add maximum concurrent requests
@@ -154,9 +153,9 @@ class HTTPSpec(BaseModel):
                         for part in parts:
                             val = val[part]
                         return val
-                    elif isinstance(obj, dict):
+                    if isinstance(obj, dict):
                         return {k: replace_vars(v) for k, v in obj.items()}
-                    elif isinstance(obj, list):
+                    if isinstance(obj, list):
                         return [replace_vars(v) for v in obj]
                     return obj
 
@@ -172,14 +171,17 @@ class HTTPSpec(BaseModel):
                         "data": _result,
                         "output": _result,
                         "body": _result,
-                    }
+                    },
                 )
 
-                template = jinja2.Template(_to_str(transform.pattern), undefined=jinja2.StrictUndefined)
+                template = jinja2.Template(
+                    _to_str(transform.pattern),
+                    undefined=jinja2.StrictUndefined,
+                )
                 result = template.render(**merged_context)
 
         if result is None:
-            raise Exception("No valid input transform found")
+            raise RuntimeError("No valid input transform found")
 
         return result
 
@@ -192,7 +194,10 @@ class HTTPSpec(BaseModel):
 
         for transform in self.response.transforms:
             if transform.type == "jinja":
-                template = jinja2.Template(_to_str(transform.pattern), undefined=jinja2.StrictUndefined)
+                template = jinja2.Template(
+                    _to_str(transform.pattern),
+                    undefined=jinja2.StrictUndefined,
+                )
                 _result = _to_dict_or_str(result)
                 result = template.render(
                     # Duplicates here for convenience
@@ -208,8 +213,10 @@ class HTTPSpec(BaseModel):
                     result = json.loads(result)
                 matches = [match.value for match in jsonpath_expr.find(result)]
                 if len(matches) == 0:
-                    raise Exception(f"No matches found for JSONPath: {transform.pattern} from {result}")
-                elif len(matches) == 1:
+                    raise RuntimeError(
+                        f"No matches found for JSONPath: {transform.pattern} from {result}",
+                    )
+                if len(matches) == 1:
                     matches = matches[0]
                 result = matches if isinstance(matches, str) else json.dumps(matches)
 
@@ -279,27 +286,22 @@ class HTTPGenerator(Generator):
     """Specification for building/parsing HTTP interactions."""
 
     @field_validator("spec", mode="before")
+    @classmethod
     def process_spec(cls, v: t.Any) -> t.Any:
         if not isinstance(v, str):
             return v
 
         # Check if the string is base64 encoded
-        try:
+        with contextlib.suppress(Exception):
             v = base64.b64decode(v).decode()
-        except Exception:
-            pass
 
         # Try to load as JSON
-        try:
+        with contextlib.suppress(json.JSONDecodeError):
             return json.loads(v)
-        except json.JSONDecodeError:
-            pass
 
         # Try to load as YAML
-        try:
+        with contextlib.suppress(Exception):
             return YAML(typ="safe").load(v)
-        except Exception:
-            pass
 
         return v
 
@@ -349,15 +351,23 @@ class HTTPGenerator(Generator):
 
         content = response.text
 
-        if self.spec.response is not None:
-            if response.status_code not in self.spec.response.valid_status_codes:
-                raise ProcessingError(f"Received invalid status code: {response.status_code} for {response.url}")
+        if (
+            self.spec.response is not None
+            and response.status_code not in self.spec.response.valid_status_codes
+        ):
+            raise ProcessingError(
+                f"Received invalid status code: {response.status_code} for {response.url}",
+            )
 
         return GeneratedMessage(
             message=Message(role="assistant", content=self.spec.parse_response_body(content)),
             stop_reason="stop",
             usage=None,
-            extra={"status_code": response.status_code, "url": response.url, "headers": response.headers},
+            extra={
+                "status_code": response.status_code,
+                "url": response.url,
+                "headers": response.headers,
+            },
         )
 
     async def generate_messages(
@@ -365,10 +375,13 @@ class HTTPGenerator(Generator):
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[GeneratedMessage]:
-        coros = [self._generate_message(_messages, _params) for _messages, _params in zip(messages, params)]
+        coros = [
+            self._generate_message(_messages, _params)
+            for _messages, _params in zip(messages, params, strict=False)
+        ]
         generated = await asyncio.gather(*coros)
 
-        for i, (_messages, response) in enumerate(zip(messages, generated)):
+        for i, (_messages, response) in enumerate(zip(messages, generated, strict=False)):
             trace_messages(_messages, f"Messages {i + 1}/{len(messages)}")
             trace_messages([response], f"Response {i + 1}/{len(messages)}")
 

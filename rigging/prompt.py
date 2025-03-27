@@ -2,8 +2,6 @@
 Treat empty function signatures as prompts for structured chat interfaces.
 """
 
-from __future__ import annotations
-
 import asyncio
 import dataclasses
 import inspect
@@ -19,7 +17,7 @@ from rigging.chat import Chat, ChatPipeline
 from rigging.generator.base import GenerateParams, Generator, get_generator
 from rigging.message import Message
 from rigging.model import Model, SystemErrorModel, ValidationErrorModel, make_primitive
-from rigging.tool.api import ApiTool
+from rigging.tool import Tool
 from rigging.tracing import tracer
 from rigging.util import escape_xml, get_qualified_name, to_snake, to_xml_tag
 
@@ -59,7 +57,7 @@ class Ctx:
 # Utilities
 
 
-def unwrap_annotated(annotation: t.Any) -> tuple[t.Any, t.Optional[Ctx]]:
+def unwrap_annotated(annotation: t.Any) -> tuple[t.Any, Ctx | None]:
     if t.get_origin(annotation) is t.Annotated:
         base_type, *meta = t.get_args(annotation)
         for m in meta:
@@ -70,13 +68,16 @@ def unwrap_annotated(annotation: t.Any) -> tuple[t.Any, t.Optional[Ctx]]:
 
 
 def get_undeclared_variables(template: str) -> set[str]:
-    env = Environment()
+    env = Environment()  # noqa: S701
     parsed_template = env.parse(template)
     return meta.find_undeclared_variables(parsed_template)
 
 
 def make_parameter(
-    annotation: t.Any, *, name: str = "nested", kind: inspect._ParameterKind = inspect.Parameter.POSITIONAL_OR_KEYWORD
+    annotation: t.Any,
+    *,
+    name: str = "nested",
+    kind: inspect._ParameterKind = inspect.Parameter.POSITIONAL_OR_KEYWORD,
 ) -> inspect.Parameter:
     return inspect.Parameter(name=name, kind=kind, annotation=annotation)
 
@@ -111,8 +112,8 @@ class Input:
 @dataclasses.dataclass
 class BasicInput(Input):
     def to_str(self, value: t.Any) -> str:
-        if not isinstance(value, (int, float, str, bool)):
-            raise ValueError(f"Value must be a basic type, got: {type(value)}")
+        if not isinstance(value, int | float | str | bool):
+            raise TypeError(f"Value must be a basic type, got: {type(value)}")
         return str(value)
 
 
@@ -120,7 +121,7 @@ class BasicInput(Input):
 class ModelInput(Input):
     def to_str(self, value: t.Any) -> str:
         if not isinstance(value, Model):
-            raise ValueError(f"Value must be a Model instance, got: {type(value)}")
+            raise TypeError(f"Value must be a Model instance, got: {type(value)}")
         return value.to_pretty_xml()
 
     def to_xml(self, value: t.Any) -> str:
@@ -141,8 +142,8 @@ class DictInput(Input):
 
     def to_str(self, value: t.Any) -> str:
         if not isinstance(value, dict):
-            raise ValueError(f"Value must be a dictionary, got: {type(value)}")
-        if not all(isinstance(k, str) for k in value.keys()):
+            raise TypeError(f"Value must be a dictionary, got: {type(value)}")
+        if not all(isinstance(k, str) for k in value):
             raise ValueError("Dictionary keys must be strings")
         return "\n".join(f"<{k}>{self.interior.to_str(v)}</{k}>" for k, v in value.items())
 
@@ -172,20 +173,26 @@ def parse_parameter(param: inspect.Parameter, error_name: str) -> Input:
 
         arg_type, arg_context = unwrap_annotated(args[0])
         return ListInput(
-            param.name, arg_context or context or Ctx(), parse_parameter(make_parameter(arg_type), error_name)
+            param.name,
+            arg_context or context or Ctx(),
+            parse_parameter(make_parameter(arg_type), error_name),
         )
 
-    elif t.get_origin(annotation) is dict:
+    if t.get_origin(annotation) is dict:
         if param.name == "nested":
             raise TypeError(f"Nested dict parameters are not supported: {error_name}")
 
         args = t.get_args(annotation)
-        if not args or len(args) != 2:
+        if not args or len(args) != 2:  # noqa: PLR2004
             raise TypeError(f"Dict param must be fully typed: {error_name}")
         if args[0] is not str:
             raise TypeError(f"Dict param keys must be strings: {error_name}")
 
-        return DictInput(param.name, context or Ctx(), parse_parameter(make_parameter(args[1]), error_name))
+        return DictInput(
+            param.name,
+            context or Ctx(),
+            parse_parameter(make_parameter(args[1]), error_name),
+        )
 
     if inspect.isclass(annotation) and issubclass(annotation, Model):
         return ModelInput(param.name, context or Ctx())
@@ -215,7 +222,8 @@ class Output:
 
     def to_format(self) -> str:
         tag = self.context.tag or self.tag
-        assert not isinstance(self.context.example, Model)
+        if isinstance(self.context.example, Model):
+            raise NotImplementedError("Model examples are not supported for this output")
         return self._prefix(f"<{tag}>{escape_xml(self.context.example or '')}</{tag}>")
 
     def from_chat(self, chat: Chat) -> t.Any:
@@ -233,8 +241,8 @@ class BasicOutput(Output):
     type_: type[t.Any]  # TODO: We should be able to scope this down
 
     def from_chat(self, chat: Chat) -> t.Any:
-        Temp = make_primitive("Model", self.type_, tag=self.context.tag or self.tag)
-        return chat.last.parse(Temp).content
+        model_cls = make_primitive("Model", self.type_, tag=self.context.tag or self.tag)
+        return chat.last.parse(model_cls).content
 
 
 @dataclasses.dataclass
@@ -243,8 +251,8 @@ class BasicListOutput(BasicOutput):
         return "Produce the following output for each item (use xml tags):"
 
     def from_chat(self, chat: Chat) -> t.Any:
-        Model = make_primitive("Model", self.type_, tag=self.context.tag or self.tag)
-        return [m.content for m in chat.last.parse_set(Model)]
+        model_cls = make_primitive("Model", self.type_, tag=self.context.tag or self.tag)
+        return [m.content for m in chat.last.parse_set(model_cls)]
 
 
 @dataclasses.dataclass
@@ -308,7 +316,7 @@ class DataclassOutput(TupleOutput):
         return self.type_(*super().from_chat(chat))
 
 
-def parse_output(annotation: t.Any, error_name: str, *, allow_nested: bool = True) -> Output:
+def parse_output(annotation: t.Any, error_name: str, *, allow_nested: bool = True) -> Output:  # noqa: PLR0912
     from rigging.chat import Chat
 
     if annotation in [None, inspect.Parameter.empty]:
@@ -335,10 +343,18 @@ def parse_output(annotation: t.Any, error_name: str, *, allow_nested: bool = Tru
         arg_type, arg_context = unwrap_annotated(args[0])
 
         if arg_type in [int, float, str, bool]:
-            return BasicListOutput(id=arg_type.__name__, context=arg_context or context or Ctx(), type_=arg_type)
+            return BasicListOutput(
+                id=arg_type.__name__,
+                context=arg_context or context or Ctx(),
+                type_=arg_type,
+            )
 
         if inspect.isclass(arg_type) and issubclass(arg_type, Model):
-            return ModelListOutput(id=arg_type.__name__, context=arg_context or context or Ctx(), type_=arg_type)
+            return ModelListOutput(
+                id=arg_type.__name__,
+                context=arg_context or context or Ctx(),
+                type_=arg_type,
+            )
 
     if t.get_origin(annotation) is tuple:
         if not allow_nested:
@@ -354,7 +370,7 @@ def parse_output(annotation: t.Any, error_name: str, *, allow_nested: bool = Tru
             raise TypeError(
                 f"Tuple return annotations must have unique internal types\n"
                 "or use Annotated[..., Ctx(tag=...)] overrides to\n"
-                f"make them differentiable ({error_name})"
+                f"make them differentiable ({error_name})",
             )
 
         return TupleOutput(id="tuple", context=context or Ctx(), interiors=tuple_interiors)
@@ -371,8 +387,16 @@ def parse_output(annotation: t.Any, error_name: str, *, allow_nested: bool = Tru
             interior_annotations.append(t.Annotated[field_annotation, Ctx(**ctx_dict)])
 
         dataclass_interiors: list[Output] = []
-        for field, field_annotation in zip(dataclasses.fields(annotation), interior_annotations):
-            interior = parse_output(field_annotation, f"{error_name}#{field.name}", allow_nested=False)
+        for field, field_annotation in zip(
+            dataclasses.fields(annotation),
+            interior_annotations,
+            strict=False,
+        ):
+            interior = parse_output(
+                field_annotation,
+                f"{error_name}#{field.name}",
+                allow_nested=False,
+            )
             if interior is None:
                 raise TypeError(f"Dataclass field type is invalid ({error_name}#{field.name}")
             dataclass_interiors.append(interior)
@@ -381,11 +405,14 @@ def parse_output(annotation: t.Any, error_name: str, *, allow_nested: bool = Tru
             raise TypeError(
                 f"Dataclass return annotations must have unique internal types\n"
                 "or use Annotated[..., Ctx(tag=...)] overrides to\n"
-                f"make them differentiable ({error_name})"
+                f"make them differentiable ({error_name})",
             )
 
         return DataclassOutput(
-            id=annotation.__name__, type_=annotation, context=context or Ctx(), interiors=dataclass_interiors
+            id=annotation.__name__,
+            type_=annotation,
+            context=context or Ctx(),
+            interiors=dataclass_interiors,
         )
 
     # This has to come after our list/tuple checks as they pass isclass
@@ -420,12 +447,14 @@ class Prompt(t.Generic[P, R]):
     output: Output = dataclasses.field(default_factory=lambda: ChatOutput(id="chat", context=Ctx()))
     """The structured output handler for the prompt."""
 
-    watch_callbacks: list[WatchChatCallback] = dataclasses.field(default_factory=list)
+    watch_callbacks: "list[WatchChatCallback]" = dataclasses.field(default_factory=list)
     """Callbacks to be passed any chats produced while executing this prompt."""
     params: GenerateParams | None = None
     """The parameters to be used when generating chats for this prompt."""
-    api_tools: list[ApiTool] = dataclasses.field(default_factory=list)
+    tools: list[Tool] = dataclasses.field(default_factory=list)
     """The API tools to be made available when generating chats for this prompt."""
+    system_prompt: str | None = None
+    """A system prompt fragment to be injected into the messages before generation."""
 
     _generator_id: str | None = None
     _generator: Generator | None = None
@@ -437,7 +466,11 @@ class Prompt(t.Generic[P, R]):
         if self.func is None:
             return
 
-        signature = inspect.signature(self.func)
+        # We include eval_str here to help with __future__ annotations
+        # usage, but it may cause issues and I haven't had time to fully
+        # dig into implications.
+
+        signature = inspect.signature(self.func, eval_str=True)
         undeclared = get_undeclared_variables(self.docstring)
 
         for param in signature.parameters.values():
@@ -461,7 +494,7 @@ class Prompt(t.Generic[P, R]):
         if self._docstring is None:
             # Guidance is taken from https://github.com/outlines-dev/outlines/blob/main/outlines/prompts.py
             docstring = self.func.__doc__ or DEFAULT_DOC.format(
-                func_name=self.func.__name__ if self.func else "function"
+                func_name=self.func.__name__ if self.func else "function",
             )
             docstring = inspect.cleandoc(docstring)
             self._docstring = re.sub(r"(?![\r\n])(\b\s+)", " ", docstring)
@@ -526,20 +559,20 @@ class Prompt(t.Generic[P, R]):
                 Message.from_model(
                     ValidationErrorModel(content=str(e)),
                     suffix="Rewrite your entire message with all the required elements.",
-                )
+                ),
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             should_continue = True
             generated.append(
                 Message.from_model(
                     SystemErrorModel(content=str(e)),
                     suffix="Rewrite your entire message with all the required elements.",
-                )
+                ),
             )
 
         return (should_continue, generated)
 
-    def clone(self, *, skip_callbacks: bool = False) -> Prompt[P, R]:
+    def clone(self, *, skip_callbacks: bool = False) -> "Prompt[P, R]":
         """
         Creates a deep copy of this prompt.
 
@@ -556,12 +589,13 @@ class Prompt(t.Generic[P, R]):
             attempt_recovery=self.attempt_recovery,
             drop_dialog=self.drop_dialog,
             max_rounds=self.max_rounds,
+            system_prompt=self.system_prompt,
         )
         if not skip_callbacks:
             new.watch_callbacks = self.watch_callbacks.copy()
         return new
 
-    def with_(self, params: t.Optional[GenerateParams] = None, **kwargs: t.Any) -> Prompt[P, R]:
+    def with_(self, params: GenerateParams | None = None, **kwargs: t.Any) -> "Prompt[P, R]":
         """
         Assign specific generation parameter overloads for this prompt.
 
@@ -580,8 +614,11 @@ class Prompt(t.Generic[P, R]):
     # creating a prompt from other code.
 
     def set_(
-        self, attempt_recovery: bool | None = None, drop_dialog: bool | None = None, max_rounds: int | None = None
-    ) -> Prompt[P, R]:
+        self,
+        attempt_recovery: bool | None = None,
+        drop_dialog: bool | None = None,
+        max_rounds: int | None = None,
+    ) -> "Prompt[P, R]":
         """
         Helper to allow updates to the parsing configuration.
 
@@ -598,7 +635,7 @@ class Prompt(t.Generic[P, R]):
         self.max_rounds = max_rounds or self.max_rounds
         return self
 
-    def watch(self, *callbacks: WatchChatCallback) -> Prompt[P, R]:
+    def watch(self, *callbacks: "WatchChatCallback") -> "Prompt[P, R]":
         """
         Registers a callback to monitor any chats produced for this prompt
 
@@ -648,7 +685,7 @@ class Prompt(t.Generic[P, R]):
         Pass the arguments to the jinja2 template and render the full prompt.
         """
 
-        env = Environment(
+        env = Environment(  # noqa: S701
             trim_blocks=True,
             lstrip_blocks=True,
             keep_trailing_newline=True,
@@ -670,9 +707,12 @@ class Prompt(t.Generic[P, R]):
         """
         Attempt to parse the output from a chat into the expected return type.
         """
-        return self.output.from_chat(chat)  # type: ignore
+        return self.output.from_chat(chat)  # type: ignore [no-any-return]
 
-    def bind(self, other: ChatPipeline | Generator | Chat | str) -> t.Callable[P, t.Coroutine[t.Any, t.Any, R]]:
+    def bind(
+        self,
+        other: ChatPipeline | Generator | Chat | str,
+    ) -> t.Callable[P, t.Coroutine[t.Any, t.Any, R]]:
         """
         Binds the prompt to a pipeline, generator, or chat and returns a scoped run callable.
 
@@ -693,19 +733,20 @@ class Prompt(t.Generic[P, R]):
         pipeline = self._resolve_to_pipeline(other)
         if pipeline.on_failed == "skip":
             raise NotImplementedError(
-                "pipeline.on_failed='skip' cannot be used for prompt methods that return one object"
+                "pipeline.on_failed='skip' cannot be used for prompt methods that return one object",
             )
 
         async def run(*args: P.args, **kwargs: P.kwargs) -> R:
             results = await self.bind_many(pipeline)(1, *args, **kwargs)
             return results[0]
 
-        run.__rg_prompt__ = self  # type: ignore
+        run.__rg_prompt__ = self  # type: ignore [attr-defined]
 
         return run
 
     def bind_many(
-        self, other: ChatPipeline | Generator | Chat | str
+        self,
+        other: ChatPipeline | Generator | Chat | str,
     ) -> t.Callable[Concatenate[int, P], t.Coroutine[t.Any, t.Any, list[R]]]:
         """
         Binds the prompt to a pipeline, generator, or chat and returns a scoped run_many callable.
@@ -726,7 +767,9 @@ class Prompt(t.Generic[P, R]):
         """
         pipeline = self._resolve_to_pipeline(other)
         if pipeline.on_failed == "include" and not isinstance(self.output, ChatOutput):
-            raise NotImplementedError("pipeline.on_failed='include' cannot be used with prompts that process outputs")
+            raise NotImplementedError(
+                "pipeline.on_failed='include' cannot be used with prompts that process outputs",
+            )
 
         async def run_many(count: int, /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
             name = get_qualified_name(self.func) if self.func else "<generated>"
@@ -739,7 +782,7 @@ class Prompt(t.Generic[P, R]):
                 content = self.render(*args, **kwargs)
                 _pipeline = (
                     pipeline.fork(content)
-                    .using_api_tools(*self.api_tools)
+                    .using(*self.tools)
                     .until(
                         self._until_parsed,
                         attempt_recovery=self.attempt_recovery,
@@ -748,12 +791,16 @@ class Prompt(t.Generic[P, R]):
                     )
                     .with_(self.params)
                 )
+
+                if self.system_prompt:
+                    _pipeline.chat.inject_system_content(self.system_prompt)
+
                 chats = await _pipeline.run_many(count)
 
                 # TODO: I can't remember why we don't just pass the watch_callbacks to the pipeline
                 # Maybe it has something to do with uniqueness and merging?
 
-                def wrap_watch_callback(callback: WatchChatCallback) -> WatchChatCallback:
+                def wrap_watch_callback(callback: "WatchChatCallback") -> "WatchChatCallback":
                     async def traced_watch_callback(chats: list[Chat]) -> None:
                         callback_name = get_qualified_name(callback)
                         with tracer.span(
@@ -777,13 +824,17 @@ class Prompt(t.Generic[P, R]):
                 span.set_attribute("results", results)
                 return results
 
-        run_many.__rg_prompt__ = self  # type: ignore
+        run_many.__rg_prompt__ = self  # type: ignore [attr-defined]
 
         return run_many
 
     def bind_over(
-        self, other: ChatPipeline | Generator | Chat | str | None = None
-    ) -> t.Callable[Concatenate[t.Sequence[Generator | str], P], t.Coroutine[t.Any, t.Any, list[R]]]:
+        self,
+        other: ChatPipeline | Generator | Chat | str | None = None,
+    ) -> t.Callable[
+        Concatenate[t.Sequence[Generator | str], P],
+        t.Coroutine[t.Any, t.Any, list[R]],
+    ]:
         """
         Binds the prompt to a pipeline, generator, or chat and returns a scoped run_over callable.
 
@@ -804,18 +855,27 @@ class Prompt(t.Generic[P, R]):
         include_original = other is not None
 
         if other is None:
-            pipeline = get_generator("base!base").chat().catch(on_failed="skip")  # TODO: Clean this up
+            pipeline = (
+                get_generator("base!base").chat().catch(on_failed="skip")
+            )  # TODO: Clean this up
         else:
             pipeline = self._resolve_to_pipeline(other)
 
         if pipeline.on_failed == "include" and not isinstance(self.output, ChatOutput):
-            raise NotImplementedError("pipeline.on_failed='include' cannot be used with prompts that process outputs")
+            raise NotImplementedError(
+                "pipeline.on_failed='include' cannot be used with prompts that process outputs",
+            )
 
-        async def run_over(generators: t.Sequence[Generator | str], /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
+        async def run_over(
+            generators: t.Sequence[Generator | str],
+            /,
+            *args: P.args,
+            **kwargs: P.kwargs,
+        ) -> list[R]:
             content = self.render(*args, **kwargs)
             _pipeline = (
                 pipeline.fork(content)
-                .using_api_tools(*self.api_tools)
+                .using(*self.tools)
                 .until(
                     self._until_parsed,
                     attempt_recovery=self.attempt_recovery,
@@ -824,14 +884,22 @@ class Prompt(t.Generic[P, R]):
                 )
                 .with_(self.params)
             )
+
+            if self.system_prompt:
+                _pipeline.chat.inject_system_content(self.system_prompt)
+
             chats = await _pipeline.run_over(*generators, include_original=include_original)
 
-            coros = [watch(chats) for watch in self.watch_callbacks if watch not in pipeline.watch_callbacks]
+            coros = [
+                watch(chats)
+                for watch in self.watch_callbacks
+                if watch not in pipeline.watch_callbacks
+            ]
             await asyncio.gather(*coros)
 
             return [self.process(chat) for chat in chats]
 
-        run_over.__rg_prompt__ = self  # type: ignore
+        run_over.__rg_prompt__ = self  # type: ignore [attr-defined]
 
         return run_over
 
@@ -849,7 +917,7 @@ class Prompt(t.Generic[P, R]):
         """
         if self.pipeline is None:
             raise RuntimeError(
-                "Prompt cannot be executed as a standalone function without being assigned a pipeline or generator"
+                "Prompt cannot be executed as a standalone function without being assigned a pipeline or generator",
             )
         return await self.bind_many(self.pipeline)(count, *args, **kwargs)
 
@@ -866,14 +934,20 @@ class Prompt(t.Generic[P, R]):
         """
         if self.pipeline is None:
             raise RuntimeError(
-                "Prompt cannot be executed as a standalone function without being assigned a pipeline or generator"
+                "Prompt cannot be executed as a standalone function without being assigned a pipeline or generator",
             )
         return await self.bind(self.pipeline)(*args, **kwargs)
 
     async def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         return await self.run(*args, **kwargs)
 
-    async def run_over(self, generators: t.Sequence[Generator | str], /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
+    async def run_over(
+        self,
+        generators: t.Sequence[Generator | str],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> list[R]:
         """
         Executes the prompt process across multiple generators.
 
@@ -886,7 +960,7 @@ class Prompt(t.Generic[P, R]):
             The implementation currently skips any failed chats and only
             processes successful chats. This may change in the future.
 
-        Parameters:
+        Args:
             generators: A sequence of generators to be used for the generation process.
 
         Returns:
@@ -906,7 +980,8 @@ def prompt(
     pipeline: ChatPipeline | None = None,
     generator: Generator | None = None,
     generator_id: str | None = None,
-    tools: list[ApiTool | t.Callable[..., t.Any]] | None = None,
+    tools: list[Tool | t.Callable[..., t.Any]] | None = None,
+    system_prompt: str | None = None,
 ) -> t.Callable[[t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R]], Prompt[P, R]]:
     ...
 
@@ -919,7 +994,8 @@ def prompt(
     pipeline: ChatPipeline | None = None,
     generator: Generator | None = None,
     generator_id: str | None = None,
-    tools: list[ApiTool | t.Callable[..., t.Any]] | None = None,
+    tools: list[Tool | t.Callable[..., t.Any]] | None = None,
+    system_prompt: str | None = None,
 ) -> Prompt[P, R]:
     ...
 
@@ -932,7 +1008,8 @@ def prompt(
     pipeline: ChatPipeline | None = None,
     generator: Generator | None = None,
     generator_id: str | None = None,
-    tools: list[ApiTool | t.Callable[..., t.Any]] | None = None,
+    tools: list[Tool | t.Callable[..., t.Any]] | None = None,
+    system_prompt: str | None = None,
 ) -> Prompt[P, R]:
     ...
 
@@ -944,8 +1021,12 @@ def prompt(
     pipeline: ChatPipeline | None = None,
     generator: Generator | None = None,
     generator_id: str | None = None,
-    tools: list[ApiTool | t.Callable[..., t.Any]] | None = None,
-) -> t.Callable[[t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R]], Prompt[P, R]] | Prompt[P, R]:
+    tools: list[Tool | t.Callable[..., t.Any]] | None = None,
+    system_prompt: str | None = None,
+) -> (
+    t.Callable[[t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R]], Prompt[P, R]]
+    | Prompt[P, R]
+):
     """
     Convert a hollow function into a Prompt, which can be called directly or passed a
     chat pipeline to execute the function and parse the outputs.
@@ -1001,7 +1082,8 @@ def prompt(
         pipeline: An optional pipeline to use for the prompt.
         generator: An optional generator to use for the prompt.
         generator_id: An optional generator id to use for the prompt.
-        tools: An optional list of API tools to make available to the prompt (Native tools are not currently supported).
+        tools: An optional list of tools to make available during generation (can be other prompts).
+        system_prompt: An optional system prompt fragment to inject into the messages before generation.
 
     Returns:
         A prompt instance or a function that can be used to create a prompt.
@@ -1009,13 +1091,18 @@ def prompt(
     if sum(arg is not None for arg in (pipeline, generator, generator_id)) > 1:
         raise ValueError("Only one of pipeline, generator, or generator_id can be provided")
 
-    def make_prompt(func: t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R]) -> Prompt[P, R]:
+    def make_prompt(
+        func: t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R],
+    ) -> Prompt[P, R]:
         return Prompt[P, R](
-            func=func,  # type: ignore
+            func=func,  # type: ignore [arg-type]
             _generator_id=generator_id,
             _pipeline=pipeline,
             _generator=generator,
-            api_tools=[tool if isinstance(tool, ApiTool) else ApiTool(tool) for tool in tools] if tools else [],
+            system_prompt=system_prompt,
+            tools=[tool if isinstance(tool, Tool) else Tool.from_callable(tool) for tool in tools]
+            if tools
+            else [],
         )
 
     if func is not None:
@@ -1029,12 +1116,20 @@ def make_prompt(content: str, return_type: type[R], *, ctx: Ctx | None = None) -
 
 
 @t.overload
-def make_prompt(content: str, return_type: None = None, *, ctx: Ctx | None = None) -> Prompt[..., str]:
+def make_prompt(
+    content: str,
+    return_type: None = None,
+    *,
+    ctx: Ctx | None = None,
+) -> Prompt[..., str]:
     ...
 
 
 def make_prompt(
-    content: str, return_type: type[R] | None = None, *, ctx: Ctx | None = None
+    content: str,
+    return_type: type[R] | None = None,
+    *,
+    ctx: Ctx | None = None,
 ) -> Prompt[..., R] | Prompt[..., str]:
     """
     Create a prompt at runtime from a basic string and return type (experimental).
@@ -1059,6 +1154,9 @@ def make_prompt(
     Returns:
         The constructed Prompt
     """
-    return_type = return_type or str  # type: ignore
-    output = parse_output(t.Annotated[return_type, ctx] if ctx is not None else return_type, "make_prompt(<return>)")
+    return_type = return_type or str  # type: ignore [assignment]
+    output = parse_output(
+        t.Annotated[return_type, ctx] if ctx is not None else return_type,
+        "make_prompt(<return>)",
+    )
     return Prompt(output=output, _docstring=content)

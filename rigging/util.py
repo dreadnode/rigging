@@ -1,4 +1,6 @@
-from __future__ import annotations
+"""
+Common utilities used throughout the library.
+"""
 
 import asyncio
 import functools
@@ -29,7 +31,7 @@ def _run_loop(loop: asyncio.AbstractEventLoop) -> None:
 
 
 def _get_event_loop() -> asyncio.AbstractEventLoop:
-    global g_event_loop
+    global g_event_loop  # noqa: PLW0603
 
     if g_event_loop is None:
         g_event_loop = asyncio.new_event_loop()
@@ -84,9 +86,7 @@ def deref_json(obj: dict[str, t.Any], *, is_json_schema: bool = False) -> dict[s
 
 def escape_xml(xml_string: str) -> str:
     """Escape XML special characters in a string."""
-    prepared = re.sub(r"&(?!(?:amp|lt|gt|apos|quot);)", "&amp;", xml_string)
-
-    return prepared
+    return re.sub(r"&(?!(?:amp|lt|gt|apos|quot);)", "&amp;", xml_string)
 
 
 def unescape_xml(xml_string: str) -> str:
@@ -95,9 +95,7 @@ def unescape_xml(xml_string: str) -> str:
     unescaped = re.sub(r"&lt;", "<", unescaped)
     unescaped = re.sub(r"&gt;", ">", unescaped)
     unescaped = re.sub(r"&apos;", "'", unescaped)
-    unescaped = re.sub(r"&quot;", '"', unescaped)
-
-    return unescaped
+    return re.sub(r"&quot;", '"', unescaped)
 
 
 def to_snake(text: str) -> str:
@@ -143,8 +141,7 @@ def get_qualified_name(obj: t.Callable[..., t.Any]) -> str:
     if callable(obj):
         if isinstance(obj, type):
             return obj.__qualname__
-        else:
-            return f"{obj.__class__.__qualname__}.__call__"
+        return f"{obj.__class__.__qualname__}.__call__"
 
     # Fallback
     return obj.__class__.__qualname__

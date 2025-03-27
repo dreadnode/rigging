@@ -2,8 +2,6 @@
 Completions work with isolated strings of text pre and post generation.
 """
 
-from __future__ import annotations
-
 import asyncio
 import string
 import typing as t
@@ -18,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from rigging.error import CompletionExhaustedMaxRoundsError
 from rigging.generator import GenerateParams, Generator, get_generator
-from rigging.generator.base import GeneratedText, StopReason, Usage  # noqa: TCH001
+from rigging.generator.base import GeneratedText, StopReason, Usage
 from rigging.parsing import parse_many
 from rigging.tracing import Span, tracer
 from rigging.util import get_qualified_name
@@ -56,17 +54,17 @@ class Completion(BaseModel):
 
     stop_reason: StopReason = Field(default="unknown")
     """The reason the generation stopped."""
-    usage: t.Optional[Usage] = Field(None, repr=False)
+    usage: Usage | None = Field(None, repr=False)
     """The usage statistics for the generation if available."""
     extra: dict[str, t.Any] = Field(default_factory=dict, repr=False)
     """Any additional information from the generation."""
 
-    generator: t.Optional[Generator] = Field(None, exclude=True, repr=False)
+    generator: Generator | None = Field(None, exclude=True, repr=False)
     """The generator associated with the completion."""
-    params: t.Optional[GenerateParams] = Field(None, exclude=True, repr=False)
+    params: GenerateParams | None = Field(None, exclude=True, repr=False)
     """Any additional generation params used for this completion."""
 
-    error: t.Optional[Exception] = Field(None, exclude=True, repr=False)
+    error: Exception | None = Field(None, exclude=True, repr=False)
     """Holds any exception that was caught during the generation pipeline."""
     failed: bool = Field(False, exclude=False, repr=False)
     """
@@ -86,7 +84,7 @@ class Completion(BaseModel):
         self,
         text: str,
         generated: str,
-        generator: t.Optional[Generator] = None,
+        generator: Generator | None = None,
         **kwargs: t.Any,
     ):
         """
@@ -117,7 +115,12 @@ class Completion(BaseModel):
         """Returns both the text and the generation."""
         return self.text + self.generated
 
-    def restart(self, *, generator: t.Optional[Generator] = None, include_all: bool = False) -> CompletionPipeline:
+    def restart(
+        self,
+        *,
+        generator: Generator | None = None,
+        include_all: bool = False,
+    ) -> "CompletionPipeline":
         """
         Attempt to convert back to a CompletionPipeline for further generation.
 
@@ -139,7 +142,7 @@ class Completion(BaseModel):
             raise ValueError("Cannot restart a completion without an associated generator")
         return generator.complete(text, self.params)
 
-    def fork(self, text: str, *, include_all: bool = False) -> CompletionPipeline:
+    def fork(self, text: str, *, include_all: bool = False) -> "CompletionPipeline":
         """
         Forks the completion by creating calling [rigging.completion.Completion.restart][] and appends the specified text.
 
@@ -151,11 +154,11 @@ class Completion(BaseModel):
         """
         return self.restart(include_all=include_all).add(text)
 
-    def continue_(self, text: str) -> CompletionPipeline:
+    def continue_(self, text: str) -> "CompletionPipeline":
         """Alias for the [rigging.completion.Completion.fork][] with `include_all=True`."""
         return self.fork(text, include_all=True)
 
-    def clone(self, *, only_messages: bool = False) -> Completion:
+    def clone(self, *, only_messages: bool = False) -> "Completion":
         """Creates a deep copy of the completion."""
         new = Completion(self.text, self.generated, self.generator)
         if not only_messages:
@@ -167,7 +170,7 @@ class Completion(BaseModel):
             new.failed = self.failed
         return new
 
-    def meta(self, **kwargs: t.Any) -> Completion:
+    def meta(self, **kwargs: t.Any) -> "Completion":
         """
         Updates the metadata of the completion with the provided key-value pairs.
 
@@ -243,8 +246,8 @@ class CompletionPipeline:
         generator: Generator,
         text: str,
         *,
-        params: t.Optional[GenerateParams] = None,
-        watch_callbacks: t.Optional[list[WatchCompletionCallback]] = None,
+        params: GenerateParams | None = None,
+        watch_callbacks: list[WatchCompletionCallback] | None = None,
     ):
         self.generator: Generator = generator
         """The generator object responsible for generating the completion."""
@@ -260,7 +263,7 @@ class CompletionPipeline:
 
         ExhuastedMaxRounds is implicitly included.
         """
-        self.on_failed: FailMode = "raise"
+        self.on_failed: "FailMode" = "raise"
         """How to handle failures in the pipeline unless overriden in calls."""
 
         # (callback, all_text, max_rounds)
@@ -273,7 +276,11 @@ class CompletionPipeline:
     def __len__(self) -> int:
         return len(self.text)
 
-    def with_(self, params: t.Optional[GenerateParams] = None, **kwargs: t.Any) -> CompletionPipeline:
+    def with_(
+        self,
+        params: GenerateParams | None = None,
+        **kwargs: t.Any,
+    ) -> "CompletionPipeline":
         """
         Assign specific generation parameter overloads for this completion.
 
@@ -298,7 +305,11 @@ class CompletionPipeline:
         self.params = params
         return self
 
-    def catch(self, *errors: type[Exception], on_failed: FailMode | None = None) -> CompletionPipeline:
+    def catch(
+        self,
+        *errors: type[Exception],
+        on_failed: "FailMode | None" = None,
+    ) -> "CompletionPipeline":
         """
         Adds exceptions to catch during generation when including or skipping failures.
 
@@ -313,7 +324,11 @@ class CompletionPipeline:
         self.on_failed = on_failed or self.on_failed
         return self
 
-    def watch(self, *callbacks: WatchCompletionCallback, allow_duplicates: bool = False) -> CompletionPipeline:
+    def watch(
+        self,
+        *callbacks: WatchCompletionCallback,
+        allow_duplicates: bool = False,
+    ) -> "CompletionPipeline":
         """
         Registers a callback to monitor any completions produced.
 
@@ -336,7 +351,7 @@ class CompletionPipeline:
                 self.watch_callbacks.append(callback)
         return self
 
-    def then(self, callback: ThenCompletionCallback) -> CompletionPipeline:
+    def then(self, callback: ThenCompletionCallback) -> "CompletionPipeline":
         """
         Registers a callback to be executed after the generation process completes.
 
@@ -360,7 +375,7 @@ class CompletionPipeline:
         self.then_callbacks.append(callback)
         return self
 
-    def map(self, callback: MapCompletionCallback) -> CompletionPipeline:
+    def map(self, callback: MapCompletionCallback) -> "CompletionPipeline":
         """
         Registers a callback to be executed after the generation process completes.
 
@@ -384,7 +399,7 @@ class CompletionPipeline:
         self.map_callbacks.append(callback)
         return self
 
-    def add(self, text: str) -> CompletionPipeline:
+    def add(self, text: str) -> "CompletionPipeline":
         """
         Appends new text to the internal text before generation.
 
@@ -397,7 +412,7 @@ class CompletionPipeline:
         self.text += text
         return self
 
-    def fork(self, text: str) -> CompletionPipeline:
+    def fork(self, text: str) -> "CompletionPipeline":
         """
         Creates a new instance of `CompletionPipeline` by forking the current completion and adding the specified text.
 
@@ -411,7 +426,7 @@ class CompletionPipeline:
         """
         return self.clone().add(text)
 
-    def clone(self, *, only_text: bool = False) -> CompletionPipeline:
+    def clone(self, *, only_text: bool = False) -> "CompletionPipeline":
         """
         Creates a clone of the current `CompletionPipeline` instance.
 
@@ -437,7 +452,7 @@ class CompletionPipeline:
             new.map_callbacks = self.map_callbacks.copy()
         return new
 
-    def meta(self, **kwargs: t.Any) -> CompletionPipeline:
+    def meta(self, **kwargs: t.Any) -> "CompletionPipeline":
         """
         Updates the metadata of the completion with the provided key-value pairs.
 
@@ -450,7 +465,7 @@ class CompletionPipeline:
         self.metadata.update(kwargs)
         return self
 
-    def apply(self, **kwargs: str) -> CompletionPipeline:
+    def apply(self, **kwargs: str) -> "CompletionPipeline":
         """
         Applies keyword arguments to the text using string template substitution.
 
@@ -474,7 +489,7 @@ class CompletionPipeline:
         *,
         use_all_text: bool = False,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
-    ) -> CompletionPipeline:
+    ) -> "CompletionPipeline":
         """
         Registers a callback to participate in validating the generation process.
 
@@ -505,10 +520,10 @@ class CompletionPipeline:
 
     def until_parsed_as(
         self,
-        *types: type[ModelT],
+        *types: type["ModelT"],
         use_all_text: bool = False,
         max_rounds: int = DEFAULT_MAX_ROUNDS,
-    ) -> CompletionPipeline:
+    ) -> "CompletionPipeline":
         """
         Adds the specified types to the list of types which should successfully parse
         before the generation process completes.
@@ -522,12 +537,15 @@ class CompletionPipeline:
             The updated CompletionPipeline object.
         """
         self.until_types += types
-        if next((c for c in self.until_callbacks if c[0] == self._until_parse_callback), None) is None:
+        if (
+            next((c for c in self.until_callbacks if c[0] == self._until_parse_callback), None)
+            is None
+        ):
             self.until_callbacks.append((self._until_parse_callback, use_all_text, max_rounds))
 
         return self
 
-    def wrap(self, func: t.Callable[[CallableT], CallableT]) -> CompletionPipeline:
+    def wrap(self, func: t.Callable[[CallableT], CallableT]) -> "CompletionPipeline":
         """
         Helper for [rigging.generator.base.Generator.wrap][].
 
@@ -542,8 +560,9 @@ class CompletionPipeline:
 
     def _until_parse_callback(self, text: str) -> bool:
         try:
+            # TODO: try_parse_many here?
             parse_many(text, *self.until_types)
-        except Exception:
+        except Exception:  # noqa: BLE001
             return True
         return False
 
@@ -596,7 +615,11 @@ class CompletionPipeline:
 
         return generated
 
-    async def _post_run(self, completions: list[Completion], on_failed: FailMode) -> list[Completion]:
+    async def _post_run(
+        self,
+        completions: list[Completion],
+        on_failed: "FailMode",
+    ) -> list[Completion]:
         if on_failed == "skip":
             completions = [c for c in completions if not c.failed]
 
@@ -614,14 +637,18 @@ class CompletionPipeline:
             ):
                 completions = await map_callback(completions)
                 if not all(isinstance(c, Completion) for c in completions):
-                    raise ValueError(f".map() callback must return a Completion object or None ({callback_name})")
+                    raise ValueError(
+                        f".map() callback must return a Completion object or None ({callback_name})",
+                    )
 
         def wrap_then_callback(callback: ThenCompletionCallback) -> ThenCompletionCallback:
             callback_name = get_qualified_name(callback)
 
             async def traced_then_callback(completion: Completion) -> Completion | None:
                 with tracer.span(
-                    f"Then with {callback_name}()", callback=callback_name, completion_id=str(completion.uuid)
+                    f"Then with {callback_name}()",
+                    callback=callback_name,
+                    completion_id=str(completion.uuid),
                 ):
                     return await callback(completion)
 
@@ -632,15 +659,23 @@ class CompletionPipeline:
             new_completions = await asyncio.gather(*coros)
             if not all(isinstance(c, Completion) or c is None for c in new_completions):
                 raise ValueError(
-                    f".then() callback must return a Completion object or None ({get_qualified_name(then_callback)})"
+                    f".then() callback must return a Completion object or None ({get_qualified_name(then_callback)})",
                 )
 
-            completions = [new or completion for new, completion in zip(new_completions, completions)]
+            completions = [
+                new or completion
+                for new, completion in zip(new_completions, completions, strict=False)
+            ]
 
         return completions
 
     def _create_completion(
-        self, state: RunState, output: str, inbound: GeneratedText, failed: bool = False, error: Exception | None = None
+        self,
+        state: RunState,
+        output: str,
+        inbound: GeneratedText,
+        failed: bool = False,  # noqa: FBT001, FBT002
+        error: Exception | None = None,
     ) -> Completion:
         return Completion(
             self.text,
@@ -667,7 +702,9 @@ class CompletionPipeline:
         )
 
     def _fit_params(
-        self, count: int, params: t.Sequence[t.Optional[GenerateParams] | None] | None = None
+        self,
+        count: int,
+        params: t.Sequence[GenerateParams | None] | None = None,
     ) -> list[GenerateParams]:
         params = [None] * count if params is None else list(params)
         if len(params) != count:
@@ -677,15 +714,21 @@ class CompletionPipeline:
         return [(p or GenerateParams()) for p in params]
 
     def _initialize_states(
-        self, count: int, params: t.Sequence[t.Optional[GenerateParams]] | None = None
+        self,
+        count: int,
+        params: t.Sequence[GenerateParams | None] | None = None,
     ) -> list[RunState]:
         states = [RunState(self.text, p, self._process()) for p in self._fit_params(count, params)]
         for state in states:
             next(state.processor)
         return states
 
-    async def _run(
-        self, span: Span, states: list[RunState], on_failed: FailMode, batch_mode: bool = False
+    async def _run(  # noqa: PLR0912
+        self,
+        span: Span,
+        states: list[RunState],
+        on_failed: "FailMode",
+        batch_mode: bool = False,  # noqa: FBT001, FBT002
     ) -> list[Completion]:
         pending_states = states
         while pending_states:
@@ -694,8 +737,10 @@ class CompletionPipeline:
                     [(self.text + s.text) if batch_mode else s.text for s in pending_states],
                     [s.params for s in pending_states],
                 )
-            except Exception as e:
-                if on_failed == "raise" or not any(isinstance(e, t) for t in self.errors_to_fail_on):
+            except Exception as e:  # noqa: BLE001
+                if on_failed == "raise" or not any(
+                    isinstance(e, t) for t in self.errors_to_fail_on
+                ):
                     raise
 
                 span.set_attribute("failed", True)
@@ -704,7 +749,7 @@ class CompletionPipeline:
                 for state in pending_states:
                     state.completion = self._create_failed_completion(state, e)
             else:
-                for inbound, state in zip(inbounds, pending_states):
+                for inbound, state in zip(inbounds, pending_states, strict=False):
                     output: str = ""
                     failed: bool = False
                     error: Exception | None = None
@@ -720,8 +765,10 @@ class CompletionPipeline:
                         output = exhausted.completion
                         failed = True
                         error = exhausted
-                    except Exception as e:
-                        if on_failed == "raise" or not any(isinstance(e, t) for t in self.errors_to_fail_on):
+                    except Exception as e:  # noqa: BLE001
+                        if on_failed == "raise" or not any(
+                            isinstance(e, t) for t in self.errors_to_fail_on
+                        ):
                             raise
                         failed = True
                         error = e
@@ -730,27 +777,43 @@ class CompletionPipeline:
                         span.set_attribute("failed", True)
                         span.set_attribute("error", error)
 
-                    state.completion = self._create_completion(state, output, inbound, failed, error)
+                    state.completion = self._create_completion(
+                        state,
+                        output,
+                        inbound,
+                        failed,
+                        error,
+                    )
 
             pending_states = [s for s in pending_states if s.completion is None]
             to_watch_states = [s for s in states if s.completion is not None and not s.watched]
 
-            await self._watch_callback([s.completion for s in to_watch_states if s.completion is not None])
+            await self._watch_callback(
+                [s.completion for s in to_watch_states if s.completion is not None],
+            )
 
             for state in to_watch_states:
                 state.watched = True
 
-        completions = await self._post_run([s.completion for s in states if s.completion is not None], on_failed)
+        completions = await self._post_run(
+            [s.completion for s in states if s.completion is not None],
+            on_failed,
+        )
         span.set_attribute("completions", completions)
         return completions
 
-    async def run(self, *, allow_failed: bool = False, on_failed: FailMode | None = None) -> Completion:
+    async def run(
+        self,
+        *,
+        allow_failed: bool = False,
+        on_failed: "FailMode | None" = None,
+    ) -> Completion:
         """
         Execute the generation process to produce the final chat.
 
-        Parameters:
+        Args:
             allow_failed: Ignore any errors and potentially
-                return the chat in a failed state.
+                return the chat in a failed state
             on_failed: The behavior when a message fails to generate.
                 (this is used as an alternative to allow_failed)
 
@@ -762,7 +825,7 @@ class CompletionPipeline:
 
         if on_failed == "skip":
             raise ValueError(
-                "Cannot use 'skip' mode with single completion generation (pass allow_failed=True or on_failed='include'/'raise')"
+                "Cannot use 'skip' mode with single completion generation (pass allow_failed=True or on_failed='include'/'raise')",
             )
 
         on_failed = on_failed or self.on_failed
@@ -783,13 +846,13 @@ class CompletionPipeline:
         self,
         count: int,
         *,
-        params: t.Sequence[t.Optional[GenerateParams]] | None = None,
-        on_failed: FailMode | None = None,
+        params: t.Sequence[GenerateParams | None] | None = None,
+        on_failed: "FailMode | None" = None,
     ) -> list[Completion]:
         """
         Executes the generation process multiple times with the same inputs.
 
-        Parameters:
+        Args:
             count: The number of times to execute the generation process.
             params: A sequence of parameters to be used for each execution.
             on_failed: How to handle failures in the pipeline unless overriden in calls.
@@ -813,9 +876,9 @@ class CompletionPipeline:
     async def run_batch(
         self,
         many: t.Sequence[str],
-        params: t.Sequence[t.Optional[GenerateParams]] | None = None,
+        params: t.Sequence[GenerateParams | None] | None = None,
         *,
-        on_failed: FailMode = "raise",
+        on_failed: "FailMode" = "raise",
     ) -> list[Completion]:
         """
         Executes the generation process accross multiple input messages.
@@ -823,7 +886,7 @@ class CompletionPipeline:
         Note:
             Anything already in this pending completion will be prepended to the text.
 
-        Parameters:
+        Args:
             many: A sequence of texts to generate with.
             params: A sequence of parameters to be used for each text.
             on_failed: How to handle failures in the pipeline unless overriden in calls.
@@ -834,7 +897,9 @@ class CompletionPipeline:
         on_failed = on_failed or self.on_failed
         params = self._fit_params(len(many), params)
 
-        states: list[RunState] = [RunState(m, p, self._process()) for m, p in zip(many, params)]
+        states: list[RunState] = [
+            RunState(m, p, self._process()) for m, p in zip(many, params, strict=False)
+        ]
         for state in states:
             next(state.processor)
 
@@ -849,7 +914,10 @@ class CompletionPipeline:
     # Generator iteration
 
     async def run_over(
-        self, *generators: Generator | str, include_original: bool = True, on_failed: FailMode | None = None
+        self,
+        *generators: Generator | str,
+        include_original: bool = True,
+        on_failed: "FailMode | None" = None,
     ) -> list[Completion]:
         """
         Executes the generation process across multiple generators.
@@ -857,7 +925,7 @@ class CompletionPipeline:
         For each generator, this pipeline is cloned and the generator is replaced
         before the run call. All callbacks and parameters are preserved.
 
-        Parameters:
+        Args:
             *generators: A sequence of generators to be used for the generation process.
             include_original: Whether to include the original generator in the list of runs.
             on_failed: The behavior when a message fails to generate.
@@ -867,7 +935,9 @@ class CompletionPipeline:
         """
         on_failed = on_failed or self.on_failed
 
-        _generators: list[Generator] = [g if isinstance(g, Generator) else get_generator(g) for g in generators]
+        _generators: list[Generator] = [
+            g if isinstance(g, Generator) else get_generator(g) for g in generators
+        ]
         if include_original:
             _generators.append(self.generator)
 
