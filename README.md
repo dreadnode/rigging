@@ -140,7 +140,8 @@ Want more?
 - OverTheWire Bandit Agent: [**bandit.py**](examples/bandit.py)
 - Damn Vulnerable Restaurant Agent: [**dvra.py**](examples/dvra.py)
 - RAG Pipeline: [**rag.py**](examples/rag.py) (from [kyleavery](https://github.com/kyleavery/))
- 
+- Integrating dreadnode-owned [robopages](https://github.com/dreadnode/robopages-cli) as a tool server (basic nmap scan example): [**rigging_example.py**](https://github.com/dreadnode/robopages-cli/blob/main/examples/rigging_example.py)
+
 ## Documentation
 
 **[docs.dreadnode.io](https://docs.dreadnode.io/open-source/rigging/intro)** has everything you need.
