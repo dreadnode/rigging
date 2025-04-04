@@ -338,7 +338,7 @@ class Model(BaseXmlModel):
                         if not isinstance(field, XmlEntityInfo)
                     )
                     if field.annotation in BASIC_TYPES:
-                        model.__dict__[name] = field.annotation(unescape_xml(inner))
+                        model.__dict__[name] = field.annotation(unescape_xml(inner).strip())
 
                 extracted.append((model, slice(match.start(), match.end())))
             except Exception as e:  # noqa: BLE001
@@ -698,16 +698,21 @@ class DelimitedAnswer(Model):
 
     content: str
     _delimiters: t.ClassVar[list[str]] = [",", "-", "/", "|"]
+    _items: list[str] | None = None
 
     @property
     def items(self) -> list[str]:
         """Parsed items from the content."""
+        if self._items is not None:
+            return self._items
+
         split_sizes: dict[str, int] = {}
         for delimiter in self._delimiters:
             split_sizes[delimiter] = len(self.content.split(delimiter))
         delimiter = max(split_sizes, key=split_sizes.get)  # type: ignore [arg-type]
         split = [i.strip(" \"'\t\r\n") for i in self.content.split(delimiter)]
-        return [s for s in split if s]
+        self._items = [s for s in split if s]
+        return self._items
 
     @field_validator("content", mode="before")
     @classmethod

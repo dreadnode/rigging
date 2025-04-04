@@ -251,33 +251,34 @@ class HTTPGenerator(Generator):
     You can pass this spec as a python dictionary, JSON string, YAML string,
     or a base64 encoded JSON/YAML string.
 
-    ```python
-    import rigging as rg
+    Example:
+        ```
+        import rigging as rg
 
-    spec = r\"""
-    request:
-    url: "https://{{ model }}.crucible.dreadnode.io/submit"
-    headers:
-        "X-Api-Key": "{{ api_key }}"
-        "Content-Type": "application/json"
-    transforms:
-        - type: "json"
-        pattern: {
-            "data": "$content"
-        }
-    response:
-    transforms:
-        - type: "jsonpath"
-        pattern: $.flag,output,message
-    \"""
+        spec = r\"""
+        request:
+        url: "https://{{ model }}.crucible.dreadnode.io/submit"
+        headers:
+            "X-Api-Key": "{{ api_key }}"
+            "Content-Type": "application/json"
+        transforms:
+            - type: "json"
+            pattern: {
+                "data": "$content"
+            }
+        response:
+        transforms:
+            - type: "jsonpath"
+            pattern: $.flag,output,message
+        \"""
 
-    crucible = rg.get_generator("http!test,api_key=<key>")
-    crucible.spec = spec
+        crucible = rg.get_generator("http!test,api_key=<key>")
+        crucible.spec = spec
 
-    chat = await crucible.chat("How about a flag?").run()
+        chat = await crucible.chat("How about a flag?").run()
 
-    print(chat.conversation)
-    ```
+        print(chat.conversation)
+        ```
     """
 
     model_config = ConfigDict(validate_assignment=True)
@@ -377,11 +378,11 @@ class HTTPGenerator(Generator):
     ) -> t.Sequence[GeneratedMessage]:
         coros = [
             self._generate_message(_messages, _params)
-            for _messages, _params in zip(messages, params, strict=False)
+            for _messages, _params in zip(messages, params, strict=True)
         ]
         generated = await asyncio.gather(*coros)
 
-        for i, (_messages, response) in enumerate(zip(messages, generated, strict=False)):
+        for i, (_messages, response) in enumerate(zip(messages, generated, strict=True)):
             trace_messages(_messages, f"Messages {i + 1}/{len(messages)}")
             trace_messages([response], f"Response {i + 1}/{len(messages)}")
 

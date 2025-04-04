@@ -8,6 +8,7 @@ import rigging as rg
 from rigging.chat import Chat
 
 # mypy: disable-error-code=empty-body
+# ruff: noqa: S101, PLR2004, ARG001, PT011, SLF001
 
 
 def test_prompt_render_docstring_parse() -> None:
@@ -54,7 +55,7 @@ def test_basic_prompt_render() -> None:
     Produce the following output (use xml tags):
 
     <str></str>
-    """
+    """,
     )
 
 
@@ -72,7 +73,7 @@ def test_prompt_render_with_docstring_variables() -> None:
     Produce the following output (use xml tags):
 
     <str></str>
-    """
+    """,
     )
 
 
@@ -101,7 +102,7 @@ def test_prompt_render_with_model_output() -> None:
       <name/>
       <age/>
     </person>
-    """
+    """,
     )
 
 
@@ -121,7 +122,7 @@ def test_prompt_render_with_list_output() -> None:
     Produce the following output for each item (use xml tags):
 
     <int></int>
-    """
+    """,
     )
 
 
@@ -143,7 +144,7 @@ def test_prompt_render_with_tuple_output() -> None:
     <str></str>
 
     <int></int>
-    """
+    """,
     )
 
 
@@ -165,7 +166,7 @@ def test_prompt_render_with_tuple_output_ctx() -> None:
     <id></id>
 
     <int></int>
-    """
+    """,
     )
 
 
@@ -197,7 +198,7 @@ def test_prompt_render_with_dataclass_output() -> None:
     <email></email>
 
     <age></age>
-    """
+    """,
     )
 
 
@@ -213,7 +214,7 @@ def test_prompt_render_with_chat_return() -> None:
     Do something.
 
     <input>bar</input>
-    """
+    """,
     )
 
 
@@ -246,7 +247,7 @@ def test_prompt_render_ctx_in_dataclass() -> None:
     <email>[test@email.com]</email>
 
     <override></override>
-    """
+    """,
     )
 
 

@@ -328,15 +328,16 @@ class Generator(BaseModel):
             *callbacks: The callback functions to be executed.
             allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
 
-        ```
-        async def log(chats: list[Chat]) -> None:
-            ...
-
-        await pipeline.watch(log).run()
-        ```
-
         Returns:
             The current instance of the chat.
+
+        Example:
+            ```
+            async def log(chats: list[Chat]) -> None:
+                ...
+
+            await pipeline.watch(log).run()
+            ```
         """
         for callback in callbacks:
             if allow_duplicates or callback not in self._watch_callbacks:
@@ -422,7 +423,7 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[GeneratedMessage]:
+    ) -> t.Sequence[GeneratedMessage | BaseException]:
         """
         Generate a batch of messages using the specified parameters.
 
@@ -445,7 +446,7 @@ class Generator(BaseModel):
         self,
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[GeneratedText]:
+    ) -> t.Sequence[GeneratedText | BaseException]:
         """
         Generate a batch of text completions using the generator.
 
@@ -505,7 +506,7 @@ class Generator(BaseModel):
             params: Optional parameters for generating responses.
 
         Returns:
-            chat pipeline to run.
+            The chat pipeline to run.
         """
         from rigging.chat import ChatPipeline, WatchChatCallback
 
@@ -596,8 +597,7 @@ def chat(
 
     Args:
         generator: The generator to use for creating the chat.
-        messages:
-            The messages to include in the chat. Can be a single message or a sequence of messages.
+        messages: The messages to include in the chat. Can be a single message or a sequence of messages.
         params: Additional parameters for generating the chat.
 
     Returns:
@@ -762,6 +762,9 @@ def register_generator(provider: str, generator_cls: type[Generator] | LazyGener
     Args:
         provider: The name of the provider.
         generator_cls: The generator class to register.
+
+    Returns:
+        None
     """
     global g_providers  # noqa: PLW0602
     g_providers[provider] = generator_cls
@@ -786,7 +789,7 @@ def trace_messages(
     logger.trace("---")
 
 
-def trace_str(content: str | GeneratedText, title: str) -> None:
+def trace_str(content: str | GeneratedText | BaseException, title: str) -> None:
     """
     Helper function to trace log a string.
 

@@ -114,7 +114,6 @@ target-version = "py310"
 line-length = 100
 extend-exclude = [
     "*.ipynb", # jupyter notebooks
-    "tests/*"
 ]
 
 [tool.ruff.lint]

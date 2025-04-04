@@ -173,7 +173,7 @@ def mcp(
         An MCP client context manager.
 
     Example:
-        ```python
+        ```
         with mcp("stdio", command="uv", args=["run", "weather-mcp"]) as mcp:
             chat = (
                 await get_generator("gpt-4o")
@@ -208,7 +208,7 @@ def mcp(
         An MCP client context manager.
 
     Example:
-        ```python
+        ```
         with mcp("sse", url="http://localhost:8000/weather") as mcp:
             chat = (
                 await get_generator("gpt-4o")

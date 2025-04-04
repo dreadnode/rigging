@@ -1,9 +1,12 @@
 import json
+
 import pytest
 from pydantic import ValidationError
 
 from rigging.error import ProcessingError
 from rigging.generator.http import HTTPSpec, RequestTransformContext
+
+# ruff: noqa: S101, PLR2004, ARG001, PT011, SLF001
 
 
 def get_basic_context() -> RequestTransformContext:
@@ -24,8 +27,10 @@ def test_basic_json_transform() -> None:
             "url": "https://api.example.com/v1/chat",
             "method": "POST",
             "headers": {"Authorization": "Bearer {{api_key}}"},
-            "transforms": [{"type": "json", "pattern": {"model": "$model", "messages": "$messages"}}],
-        }
+            "transforms": [
+                {"type": "json", "pattern": {"model": "$model", "messages": "$messages"}},
+            ],
+        },
     )
 
     ctx = get_basic_context()
@@ -59,9 +64,9 @@ def test_complex_jinja_transform() -> None:
                         }
                     }
                     """,
-                }
+                },
             ],
-        }
+        },
     )
 
     ctx = get_basic_context()
@@ -95,7 +100,7 @@ def test_chained_transforms() -> None:
                     """,
                 },
             ],
-        }
+        },
     )
 
     ctx = get_basic_context()
@@ -140,7 +145,10 @@ def test_response_parsing() -> None:
 
 def test_regex_response_transform() -> None:
     spec = HTTPSpec(
-        request={"url": "https://api.example.com/chat", "transforms": [{"type": "json", "pattern": {}}]},
+        request={
+            "url": "https://api.example.com/chat",
+            "transforms": [{"type": "json", "pattern": {}}],
+        },
         response={"transforms": [{"type": "regex", "pattern": r"content:\s*'([^']*)'"}]},
     )
 
@@ -151,11 +159,12 @@ def test_regex_response_transform() -> None:
 
 def test_invalid_transform_type() -> None:
     with pytest.raises(ValidationError):
-        spec = HTTPSpec(
-            request={"url": "https://api.example.com/chat", "transforms": [{"type": "invalid", "pattern": {}}]}
+        HTTPSpec(
+            request={
+                "url": "https://api.example.com/chat",
+                "transforms": [{"type": "invalid", "pattern": {}}],
+            },
         )
-        ctx = get_basic_context()
-        spec.make_request_body(ctx)
 
 
 def test_missing_variable_in_template() -> None:
@@ -163,7 +172,7 @@ def test_missing_variable_in_template() -> None:
         request={
             "url": "https://api.example.com/chat",
             "transforms": [{"type": "jinja", "pattern": "{{missing_variable}}"}],
-        }
+        },
     )
 
     ctx = get_basic_context()
@@ -179,11 +188,14 @@ def test_nested_json_transforms() -> None:
                 {
                     "type": "json",
                     "pattern": {
-                        "conversation": {"messages": "$messages", "metadata": {"model": "$model", "params": "$params"}}
+                        "conversation": {
+                            "messages": "$messages",
+                            "metadata": {"model": "$model", "params": "$params"},
+                        },
                     },
-                }
+                },
             ],
-        }
+        },
     )
 
     ctx = get_basic_context()
@@ -204,7 +216,7 @@ def test_custom_header_templates() -> None:
                 "X-Model-Version": "{{model}}-{{params.version|default('v1')}}",
             },
             "transforms": [{"type": "json", "pattern": {}}],
-        }
+        },
     )
 
     ctx = get_basic_context()
@@ -221,7 +233,9 @@ def test_parse_response_body_int() -> None:
             "url": "https://api.example.com/v1/chat",
             "method": "POST",
             "headers": {"Authorization": "Bearer {{api_key}}"},
-            "transforms": [{"type": "json", "pattern": {"model": "$model", "messages": "$messages"}}],
+            "transforms": [
+                {"type": "json", "pattern": {"model": "$model", "messages": "$messages"}},
+            ],
         },
         response={
             "valid_status_codes": [200, 201],
@@ -238,7 +252,9 @@ def test_parse_response_body_list() -> None:
             "url": "https://api.example.com/v1/chat",
             "method": "POST",
             "headers": {"Authorization": "Bearer {{api_key}}"},
-            "transforms": [{"type": "json", "pattern": {"model": "$model", "messages": "$messages"}}],
+            "transforms": [
+                {"type": "json", "pattern": {"model": "$model", "messages": "$messages"}},
+            ],
         },
         response={
             "valid_status_codes": [200, 201],
@@ -255,7 +271,9 @@ def test_parse_single_value_response_body() -> None:
             "url": "https://api.example.com/v1/chat",
             "method": "POST",
             "headers": {"Authorization": "Bearer {{api_key}}"},
-            "transforms": [{"type": "json", "pattern": {"model": "$model", "messages": "$messages"}}],
+            "transforms": [
+                {"type": "json", "pattern": {"model": "$model", "messages": "$messages"}},
+            ],
         },
         response={
             "valid_status_codes": [200, 201],
@@ -266,14 +284,15 @@ def test_parse_single_value_response_body() -> None:
     assert result == "1"
 
 
-
 def test_jsonpath_transform_into_json() -> None:
     spec = HTTPSpec(
         request={
             "url": "https://api.example.com/v1/chat",
             "method": "POST",
             "headers": {"Authorization": "Bearer {{api_key}}"},
-            "transforms": [{"type": "json", "pattern": {"model": "$model", "messages": "$messages"}}],
+            "transforms": [
+                {"type": "json", "pattern": {"model": "$model", "messages": "$messages"}},
+            ],
         },
         response={
             "valid_status_codes": [200, 201],

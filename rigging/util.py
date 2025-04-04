@@ -158,3 +158,16 @@ def truncate_string(content: str, max_length: int, *, sep: str = "...") -> str:
     remaining = max_length - len(sep)
     middle = remaining // 2
     return content[:middle] + sep + content[-middle:]
+
+
+# List utilities
+
+
+def flatten_list(nested_list: t.Iterable[t.Iterable[t.Any] | t.Any]) -> list[t.Any]:
+    flattened = []
+    for item in nested_list:
+        if isinstance(item, list):
+            flattened.extend(flatten_list(item))
+        else:
+            flattened.append(item)
+    return flattened

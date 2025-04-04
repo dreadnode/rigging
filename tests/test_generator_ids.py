@@ -1,8 +1,17 @@
 import pytest
 
 from rigging.error import InvalidModelSpecifiedError
-from rigging.generator import GenerateParams, LiteLLMGenerator, get_generator, get_identifier, register_generator
-from tests.test_generation import EchoGenerator
+from rigging.generator import (
+    GenerateParams,
+    LiteLLMGenerator,
+    get_generator,
+    get_identifier,
+    register_generator,
+)
+
+from .generators import EchoGenerator
+
+# ruff: noqa: S101, PLR2004, ARG001, PT011, SLF001
 
 
 @pytest.mark.parametrize("identifier", ["test_model", "litellm!test_model"])
@@ -19,11 +28,14 @@ def test_get_generator_invalid_provider(identifier: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "identifier, valid_params",
+    ("identifier", "valid_params"),
     [
         ("litellm!test_model,max_tokens=123,top_p=10", GenerateParams(max_tokens=123, top_p=10)),
         ("litellm!test_model,temperature=0.5", GenerateParams(temperature=0.5)),
-        ("test_model,temperature=1.0,max_tokens=100", GenerateParams(max_tokens=100, temperature=1.0)),
+        (
+            "test_model,temperature=1.0,max_tokens=100",
+            GenerateParams(max_tokens=100, temperature=1.0),
+        ),
     ],
 )
 def test_get_generator_with_params(identifier: str, valid_params: GenerateParams) -> None:
@@ -54,14 +66,18 @@ def test_get_identifier_no_extra() -> None:
     assert "extra" not in identifier
 
 
-@pytest.mark.parametrize("identifier", ["litellm:invalid,stuff:test,t1/123", "litellm:invalid,stuff:test,t1/123"])
+@pytest.mark.parametrize(
+    "identifier",
+    ["litellm:invalid,stuff:test,t1/123", "bad:invalid,stuff:test,t1//;;123:"],
+)
 def test_get_generator_invalid_structure_format(identifier: str) -> None:
     with pytest.raises(InvalidModelSpecifiedError):
         get_generator(identifier)
 
 
 @pytest.mark.parametrize(
-    "identifier", ["litellm:model,bad_param=123,temperature=1.0", "litellm:model,temperature=True"]
+    "identifier",
+    ["litellm:model,bad_param=123,temperature=1.0", "litellm:model,temperature=True"],
 )
 def test_get_generator_invalid_params(identifier: str) -> None:
     with pytest.raises(InvalidModelSpecifiedError):
