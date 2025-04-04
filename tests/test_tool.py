@@ -14,6 +14,8 @@ from rigging.tool.api import ApiFunctionDefinition, ApiToolDefinition
 from rigging.tool.base import Tool
 from rigging.tool.native import JsonInXmlToolCall, XmlToolCall, XmlToolDefinition
 
+# ruff: noqa: S101, PLR2004, ARG001, PT011, SLF001, FBT001, FBT002
+
 
 def test_tool_from_simple_callable() -> None:
     """Test creating a tool from a simple callable."""
@@ -61,7 +63,12 @@ def test_tool_decorator() -> None:
 def test_api_definition_generation() -> None:
     """Test that tools correctly generate API definitions."""
 
-    def complex_function(name: str, age: int, tags: list[str] = ["default"], active: bool = True) -> dict[str, t.Any]:  # noqa: B006
+    def complex_function(
+        name: str,
+        age: int,
+        tags: list[str] = ["default"],  # noqa: B006
+        active: bool = True,
+    ) -> dict[str, t.Any]:
         """Process user data with complex parameters."""
         return {"name": name, "age": age, "tags": tags, "active": active}
 
@@ -189,22 +196,21 @@ def test_tool_model_creation() -> None:
 class TestToolHandleCall:
     """Test suite for tool call handling."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def sample_tool(self) -> Tool:
         def calculator(a: int, b: int, operation: str = "add") -> int:
             """Perform math operations."""
             if operation == "add":
                 return a + b
-            elif operation == "multiply":
+            if operation == "multiply":
                 return a * b
-            elif operation == "subtract":
+            if operation == "subtract":
                 return a - b
-            else:
-                raise ValueError(f"Unknown operation: {operation}")
+            raise ValueError(f"Unknown operation: {operation}")
 
         return Tool.from_callable(calculator)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_api_tool_call(self, sample_tool: Tool) -> None:
         """Test handling API format tool calls."""
         from rigging.tool.api import ApiFunctionCall, ApiToolCall
@@ -212,17 +218,19 @@ class TestToolHandleCall:
         tool_call = ApiToolCall(
             id="call123",
             function=ApiFunctionCall(
-                name="calculator", arguments=json.dumps({"a": 5, "b": 3, "operation": "multiply"})
+                name="calculator",
+                arguments=json.dumps({"a": 5, "b": 3, "operation": "multiply"}),
             ),
         )
 
-        response = await sample_tool.handle_tool_call(tool_call)
+        message = await sample_tool.handle_tool_call(tool_call)
 
-        assert response.role == "tool"
-        assert response.tool_call_id == "call123"
-        assert response.content == "15"
+        assert message is not None
+        assert message.role == "tool"
+        assert message.tool_call_id == "call123"
+        assert message.content == "15"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_xml_tool_call(self, sample_tool: Tool) -> None:
         """Test handling XML format tool calls."""
         tool_call = XmlToolCall(
@@ -232,24 +240,29 @@ class TestToolHandleCall:
                 <a>10</a>
                 <b>2</b>
                 <operation>subtract</operation>
-            """
+            """,
             ).strip(),
         )
 
-        response = await sample_tool.handle_tool_call(tool_call)
+        message = await sample_tool.handle_tool_call(tool_call)
 
-        assert response.role == "user"
-        assert response.content == '<tool-result name="calculator">8</tool-result>'
+        assert message is not None
+        assert message.role == "user"
+        assert message.content == '<tool-result name="calculator">8</tool-result>'
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_json_xml_tool_call(self, sample_tool: Tool) -> None:
         """Test handling JSON-in-XML format tool calls."""
-        tool_call = JsonInXmlToolCall(name="calculator", parameters=json.dumps({"a": 4, "b": 4, "operation": "add"}))
+        tool_call = JsonInXmlToolCall(
+            name="calculator",
+            parameters=json.dumps({"a": 4, "b": 4, "operation": "add"}),
+        )
 
-        response = await sample_tool.handle_tool_call(tool_call)
+        message = await sample_tool.handle_tool_call(tool_call)
 
-        assert response.role == "user"
-        assert response.content == '<tool-result name="calculator">8</tool-result>'
+        assert message is not None
+        assert message.role == "user"
+        assert message.content == '<tool-result name="calculator">8</tool-result>'
 
 
 def test_make_from_signature() -> None:
@@ -257,7 +270,6 @@ def test_make_from_signature() -> None:
 
     def test_func(name: str, age: int, tags: list[str] = []) -> None:  # noqa: B006
         """Test function for signature extraction."""
-        pass
 
     signature = inspect.signature(test_func)
     model_class = make_from_signature(signature, "TestParams")

@@ -10,6 +10,7 @@ import typing as t
 import typing_extensions as te
 
 if t.TYPE_CHECKING:
+    from rigging.chat import PipelineStep
     from rigging.message import Message
 
 
@@ -64,6 +65,19 @@ class CompletionExhaustedMaxRoundsError(ExhaustedMaxRoundsError):
         super().__init__(max_rounds)
         self.completion = completion
         """The completion which was being generated when the exception occured."""
+
+
+class MaxDepthError(Exception):
+    """
+    Raised when the maximum depth is exceeded while generating.
+    """
+
+    def __init__(self, max_depth: int, step: "PipelineStep", reference: str):
+        super().__init__(f"Exceeded max depth ({max_depth}) while generating ('{reference}')")
+        self.max_depth = max_depth
+        """The maximum depth of nested pipeline generations which was exceeded."""
+        self.step = step
+        """The pipeline step which cause the depth error."""
 
 
 class InvalidModelSpecifiedError(Exception):

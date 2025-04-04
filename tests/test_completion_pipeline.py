@@ -3,6 +3,8 @@ import pytest
 from rigging.completion import Completion, CompletionPipeline
 from rigging.generator import GenerateParams, get_generator
 
+# ruff: noqa: S101, PLR2004, ARG001, PT011, SLF001
+
 
 def test_completion_generator_id() -> None:
     generator = get_generator("gpt-3.5")

@@ -5,8 +5,13 @@ They are the primary way to interact with the generator.
 """
 
 import asyncio
+import contextlib
+import inspect
 import types
 import typing as t
+import warnings
+from contextlib import aclosing, asynccontextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
@@ -17,12 +22,12 @@ from elasticsearch import AsyncElasticsearch
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, ValidationError, computed_field
 
-from rigging.error import MessagesExhaustedMaxRoundsError, UnknownToolError
+from rigging.error import MaxDepthError, UnknownToolError
 from rigging.generator import GenerateParams, Generator, get_generator
-from rigging.generator.base import GeneratedMessage, StopReason, Usage
+from rigging.generator.base import StopReason, Usage
 from rigging.message import Content, Message, MessageDict, Messages
 from rigging.model import Model, ModelT, SystemErrorModel, ValidationErrorModel
-from rigging.tool.api import ApiToolChoice
+from rigging.tool.api import ApiToolCall, ApiToolChoice
 from rigging.tool.base import Tool, ToolMode
 from rigging.tool.native import (
     JsonInXmlToolCall,
@@ -32,7 +37,7 @@ from rigging.tool.native import (
     tool_description_prompt_part,
 )
 from rigging.tracing import Span, tracer
-from rigging.util import get_qualified_name
+from rigging.util import flatten_list, get_qualified_name
 
 if t.TYPE_CHECKING:
     from rigging.data import ElasticOpType
@@ -45,6 +50,9 @@ CallableT = t.TypeVar("CallableT", bound=t.Callable[..., t.Any])
 
 DEFAULT_MAX_ROUNDS = 5
 """Maximum number of internal callback rounds to attempt during generation before giving up."""
+
+DEFAULT_MAX_DEPTH = 20
+"""Maximum depth of nested pipeline generations to attempt before giving up."""
 
 FailMode = t.Literal["raise", "skip", "include"]
 """
@@ -65,7 +73,7 @@ How to handle cache_control entries on messages.
 
 class Chat(BaseModel):
     """
-    Represents a completed chat conversation.
+    A completed chat interaction.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -94,7 +102,7 @@ class Chat(BaseModel):
     """Any additional generation params used for this chat."""
 
     error: t.Annotated[
-        Exception,
+        BaseException,
         PlainSerializer(lambda x: str(x), return_type=str, when_used="json-unless-none"),
     ] | None = Field(None, repr=False)
     """Holds any exception that was caught during the generation pipeline."""
@@ -177,7 +185,10 @@ class Chat(BaseModel):
     @property
     def conversation(self) -> str:
         """Returns a string representation of the chat."""
-        return "\n\n".join([str(m) for m in self.all])
+        conversation = "\n\n".join([str(m) for m in self.all])
+        if self.error:
+            conversation += f"\n\n[error]: {self.error}"
+        return conversation
 
     @property
     def message_dicts(self) -> list[MessageDict]:
@@ -200,7 +211,7 @@ class Chat(BaseModel):
             **kwargs: Key-value pairs representing the metadata to be updated.
 
         Returns:
-            The updated chat object.
+            The updated chat.
         """
         self.metadata.update(kwargs)
         return self
@@ -249,8 +260,7 @@ class Chat(BaseModel):
             include_all: Whether to include the next messages in the restarted chat.
 
         Returns:
-            A new instance of `ChatPipeline` with the specified messages added.
-
+            A new pipeline with specified messages added.
         """
         return self.restart(include_all=include_all).add(messages)
 
@@ -270,7 +280,7 @@ class Chat(BaseModel):
                 If False (default), the entire chat object will be cloned.
 
         Returns:
-            A new instance of Chat.
+            A cloned chat.
         """
         new = Chat(
             [m.model_copy() for m in self.messages],
@@ -295,7 +305,7 @@ class Chat(BaseModel):
             **kwargs: The string mapping of replacements.
 
         Returns:
-            The modified Chat object.
+            The updated chat.
         """
         if self.generated:
             self.generated[-1] = self.generated[-1].apply(**kwargs)
@@ -311,7 +321,7 @@ class Chat(BaseModel):
             **kwargs: The string mapping of replacements.
 
         Returns:
-            The modified chat object.
+            The updated chat.
         """
         self.messages = Message.apply_to_list(self.messages, **kwargs)
         self.generated = Message.apply_to_list(self.generated, **kwargs)
@@ -326,14 +336,14 @@ class Chat(BaseModel):
             fail_on_missing: Whether to raise an exception if a message of the specified model type is not found.
 
         Returns:
-            A new Chat object with only the messages of the specified model type.
+            A new chat with only the messages of the specified model type.
         """
         new = self.clone()
         for message in new.all:
             message.strip(model_type, fail_on_missing=fail_on_missing)
         return new
 
-    def inject_system_content(self, content: str) -> Message:
+    def inject_system_content(self, content: str) -> "Chat":
         """
         Injects content into the chat as a system message.
 
@@ -346,23 +356,26 @@ class Chat(BaseModel):
             content: The content to be injected.
 
         Returns:
-            The updated system message.
+            The updated chat.
         """
         if len(self.messages) == 0 or self.messages[0].role != "system":
             self.messages.insert(0, Message(role="system", content=content))
         elif self.messages[0].role == "system" and content not in self.messages[0].content:
             self.messages[0].content += "\n\n" + content
-        return self.messages[0]
+        return self
 
-    def inject_tool_prompt(self, tools: t.Sequence[Tool], mode: ToolMode) -> None:
+    def inject_tool_prompt(self, tools: t.Sequence[Tool], mode: ToolMode) -> "Chat":
         """
         Injects a default tool use prompt into the system prompt.
 
         Args:
             tools: A sequence of Tool objects.
+
+        Returns:
+            The updated chat.
         """
         if mode not in ["xml", "json-in-xml"]:
-            return
+            return self
 
         definitions: list[XmlToolDefinition] | list[JsonInXmlToolDefinition]
         if mode == "xml":
@@ -374,7 +387,7 @@ class Chat(BaseModel):
             definitions,
             t.cast(t.Literal["xml", "json-in-xml"], mode),
         )
-        self.inject_system_content(tool_system_prompt)
+        return self.inject_system_content(tool_system_prompt)
 
     def to_df(self) -> t.Any:
         """
@@ -482,32 +495,56 @@ class ChatList(list[Chat]):
 
 
 @runtime_checkable
-class UntilMessageCallback(t.Protocol):
-    def __call__(self, message: Message, /) -> tuple[bool, list[Message]]:
-        """
-        Passed the next message, returns whether or not to continue and an
-        optional list of messages to append before continuing.
-        """
+class _ThenChatCallback(t.Protocol):
+    def __call__(
+        self,
+        chat: Chat,
+        /,
+    ) -> t.Awaitable[Chat | None]:
         ...
 
 
 @runtime_checkable
-class ThenChatCallback(t.Protocol):
-    def __call__(self, chat: Chat, /) -> t.Awaitable[Chat | None]:
-        """
-        Passed a finalized chat to process and can return a new chat to replace it.
-        """
+class _ThenChatStepCallback(t.Protocol):
+    def __call__(
+        self,
+        chat: Chat,
+        /,
+    ) -> "PipelineStepGenerator | PipelineStepContextManager | t.Awaitable[PipelineStepGenerator | PipelineStepContextManager | None]":
+        ...
+
+
+ThenChatCallback = _ThenChatCallback | _ThenChatStepCallback
+"""
+Passed a finalized chat to process and can return a new chat to replace it.
+"""
+
+
+@runtime_checkable
+class _MapChatCallback(t.Protocol):
+    def __call__(
+        self,
+        chats: list[Chat],
+        /,
+    ) -> t.Awaitable[list[Chat]]:
         ...
 
 
 @runtime_checkable
-class MapChatCallback(t.Protocol):
-    def __call__(self, chats: list[Chat], /) -> t.Awaitable[list[Chat]]:
-        """
-        Passed a finalized chats to process. Can replace chats in the pipeline by returning
-        a new chat object.
-        """
+class _MapChatStepCallback(t.Protocol):
+    def __call__(
+        self,
+        chats: list[Chat],
+        /,
+    ) -> "PipelineStepGenerator | PipelineStepContextManager | t.Awaitable[PipelineStepGenerator | PipelineStepContextManager]":
         ...
+
+
+MapChatCallback = _MapChatCallback | _MapChatStepCallback
+"""
+Passed a finalized chats to process. Can replace chats in the pipeline
+by returning any number of new or existing chats.
+"""
 
 
 @runtime_checkable
@@ -519,17 +556,112 @@ class WatchChatCallback(t.Protocol):
         ...
 
 
-# Helper classes to manage complexity inside the run functions
+# Pipeline Step
+
+g_pipeline_step_ctx: "ContextVar[ChatList | None]" = ContextVar(
+    "g_pipeline_step_ctx",
+    default=None,
+)
+
+PipelineState = t.Literal["generated", "callback", "final"]
 
 
 @dataclass
-class RunState:
-    inputs: list[Message]
-    messages: list[Message]
-    params: GenerateParams
-    processor: t.Generator[list[Message], Message, list[Message]]
-    chat: Chat | None = None
-    watched: bool = False
+class PipelineStep:
+    """
+    An intermediate step during pipeline generation.
+    """
+
+    state: PipelineState
+    """The current state of the generation."""
+    chats: ChatList
+    """The chats associated with this step."""
+    pipeline: "ChatPipeline"
+    """The pipeline associated with this step."""
+    parent: "PipelineStep | None" = None
+    """The parent step of pipelines which are running above this step."""
+    callback: "ThenChatCallback | MapChatCallback | None" = None
+    """The associated callback function if state is 'callback'."""
+
+    def copy(self) -> "PipelineStep":
+        """
+        Clone the current step.
+        """
+        return PipelineStep(
+            state=self.state,
+            chats=self.chats,
+            pipeline=self.pipeline,
+            parent=self.parent.copy() if self.parent else None,
+            callback=self.callback,
+        )
+
+    def with_parent(self, parent: "PipelineStep") -> "PipelineStep":
+        """
+        Clone the current step and append a parent to it's heirarchy.
+        """
+        if self is parent:
+            raise RuntimeError("Cannot set parent to self")
+
+        copy = self.copy()
+
+        if copy.parent is None:
+            copy.parent = parent
+            return copy
+
+        next_parent = copy.parent
+        while next_parent is not None:
+            if next_parent is next_parent.parent:
+                raise RuntimeError("Parent is self-referential")
+            if next_parent.parent is None:
+                next_parent.parent = parent
+                return copy
+            next_parent = next_parent.parent
+
+        raise RuntimeError("Unable to set parent step")
+
+    def __str__(self) -> str:
+        callback_name = get_qualified_name(self.callback) if self.callback else "None"
+        self_str = f"PipelineStep(pipeline={id(self.pipeline)}, state={self.state}, chats={len(self.chats)}, callback={callback_name})"
+        if self.parent is not None:
+            self_str += f" <- {self.parent!s}"
+        return self_str
+
+    @property
+    def depth(self) -> int:
+        """
+        Returns the depth of this pipeline step in the pipeline tree.
+
+        This is useful for setting constraints on recursion depth.
+        """
+        depth = 0
+        while self.parent is not None:
+            depth += 1
+            self = self.parent
+        return depth
+
+
+PipelineStepGenerator = t.AsyncGenerator[PipelineStep, None]
+PipelineStepContextManager = t.AsyncContextManager[PipelineStepGenerator]
+
+# Tracing wrappers
+
+
+def _wrap_watch_callback(callback: WatchChatCallback) -> WatchChatCallback:
+    callback_name = get_qualified_name(callback)
+
+    async def traced_watch_callback(chats: list[Chat]) -> None:
+        with tracer.span(
+            f"Watch with {callback_name}()",
+            callback=callback_name,
+            chat_count=len(chats),
+            chat_ids=[str(c.uuid) for c in chats],
+        ):
+            await callback(chats)
+
+    return traced_watch_callback
+
+
+# Pipeline
 
 
 class ChatPipeline:
@@ -553,27 +685,22 @@ class ChatPipeline:
         """The parameters for generating messages."""
         self.metadata: dict[str, t.Any] = {}
         """Additional metadata associated with the chat."""
-        self.errors_to_fail_on: set[type[Exception]] = set()
-        """
-        The list of exceptions to catch during generation if you are including or skipping failures.
-
-        ExhuastedMaxRounds is implicitly included.
-        """
+        self.errors_to_catch: set[type[Exception]] = {MaxDepthError, ValidationError}
+        """The list of exceptions to catch during generation if you are including or skipping failures."""
         self.errors_to_exclude: set[type[Exception]] = set()
         """The list of exceptions to exclude from the catch list."""
         self.on_failed: FailMode = "raise"
         """How to handle failures in the pipeline unless overriden in calls."""
         self.caching: CacheMode | None = None
+        """How to handle cache_control entries on messages."""
 
-        # (callback, attempt_recovery, drop_dialog, max_rounds)
-        self.until_callbacks: list[tuple[UntilMessageCallback, bool, bool, int]] = []
         self.until_types: list[type[Model]] = []
         self.tools: list[Tool] = []
         self.tool_mode: ToolMode = "auto"
         self.api_tool_choice: ApiToolChoice | None = None
         self.inject_tool_prompt = True
-        self.then_callbacks: list[ThenChatCallback] = []
-        self.map_callbacks: list[MapChatCallback] = []
+        self.then_callbacks: list[tuple[ThenChatCallback, int]] = []
+        self.map_callbacks: list[tuple[MapChatCallback, int]] = []
         self.watch_callbacks: list[WatchChatCallback] = watch_callbacks or []
 
     def __len__(self) -> int:
@@ -591,7 +718,7 @@ class ChatPipeline:
             **kwargs: An alternative way to pass parameters as keyword arguments.
 
         Returns:
-            A new instance of ChatPipeline with the updated parameters.
+            The updated pipeline.
         """
         if params is None:
             params = GenerateParams(**kwargs)
@@ -618,9 +745,9 @@ class ChatPipeline:
             on_failed: How to handle failures in the pipeline unless overriden in calls.
 
         Returns:
-            The updated ChatPipeline object.
+            The updated pipeline.
         """
-        self.errors_to_fail_on.update(errors)
+        self.errors_to_catch.update(errors)
         self.errors_to_exclude.update(exclude or [])
         self.on_failed = on_failed or self.on_failed
         return self
@@ -637,19 +764,24 @@ class ChatPipeline:
             *callbacks: The callback functions to be executed.
             allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
 
-        ```
-        async def log(chats: list[Chat]) -> None:
-            ...
-
-        await pipeline.watch(log).run()
-        ```
-
         Returns:
-            The current instance of the chat.
+            The updated pipeline.
+
+        Example:
+            ```
+            async def log(chats: list[Chat]) -> None:
+                ...
+
+            await pipeline.watch(log).run()
+            ```
         """
         for callback in callbacks:
-            if allow_duplicates or callback not in self.watch_callbacks:
-                self.watch_callbacks.append(callback)
+            if not allow_duplicates and callback in self.watch_callbacks:
+                raise ValueError(
+                    f"Callback '{get_qualified_name(callback)}' is already registered.",
+                )
+
+        self.watch_callbacks.extend(callbacks)
         return self
 
     def add(
@@ -681,7 +813,7 @@ class ChatPipeline:
                 - "none": Keep messages independent and do not merge any content.
 
         Returns:
-            The updated ChatPipeline object.
+            The updated pipeline.
         """
         message_list = Message.fit_as_list(messages)
 
@@ -695,7 +827,7 @@ class ChatPipeline:
                 and self.chat.all[-1].role == "user"
             )
         ):
-            self.chat.all[-1].content += "\n" + message_list[0].content
+            self.chat.all[-1].content_parts += message_list[0].content_parts
             message_list = message_list[1:]
 
         self.chat.generated += message_list
@@ -714,7 +846,7 @@ class ChatPipeline:
             messages: A sequence of messages or a single message to be added to the new chat.
 
         Returns:
-            A new instance the pipeline with the specified messages added.
+            The cloned pipeline with messages added.
         """
         return self.clone().add(messages)
 
@@ -730,7 +862,7 @@ class ChatPipeline:
                 internal chat object will be cloned.
 
         Returns:
-            A new instance of `ChatPipeline` that is a clone of the current instance.
+            The cloned ChatPipeline.
         """
         new = ChatPipeline(
             self.generator,
@@ -740,14 +872,13 @@ class ChatPipeline:
         )
         new.chat = (chat or self.chat).clone()
         if not only_messages:
-            new.until_callbacks = self.until_callbacks.copy()
             new.until_types = self.until_types.copy()
             new.tools = self.tools.copy()
             new.tool_mode = self.tool_mode
             new.metadata = deepcopy(self.metadata)
             new.map_callbacks = self.map_callbacks.copy()
             new.on_failed = self.on_failed
-            new.errors_to_fail_on = self.errors_to_fail_on.copy()
+            new.errors_to_catch = self.errors_to_catch.copy()
             new.errors_to_exclude = self.errors_to_exclude.copy()
             new.caching = self.caching
 
@@ -756,18 +887,18 @@ class ChatPipeline:
             # and aren't operating with old state.
 
             new.then_callbacks = [
-                callback
+                (callback, max_depth)
                 if not hasattr(callback, "__self__")
                 or not isinstance(callback.__self__, ChatPipeline)
-                else types.MethodType(callback.__func__, self)  # type: ignore [attr-defined]
-                for callback in self.then_callbacks.copy()
+                else (types.MethodType(callback.__func__, self), max_depth)  # type: ignore [union-attr]
+                for callback, max_depth in self.then_callbacks.copy()
             ]
             new.map_callbacks = [
-                callback
+                (callback, max_depth)
                 if not hasattr(callback, "__self__")
                 or not isinstance(callback.__self__, ChatPipeline)
-                else types.MethodType(callback.__func__, self)  # type: ignore [attr-defined]
-                for callback in self.map_callbacks.copy()
+                else (types.MethodType(callback.__func__, self), max_depth)  # type: ignore [union-attr]
+                for callback, max_depth in self.map_callbacks.copy()
             ]
 
         return new
@@ -780,65 +911,101 @@ class ChatPipeline:
             **kwargs: Key-value pairs representing the metadata to be updated.
 
         Returns:
-            The updated chat object.
+            The updated pipeline.
         """
         self.metadata.update(kwargs)
         return self
 
-    def then(self, callback: ThenChatCallback) -> "ChatPipeline":
+    def then(
+        self,
+        *callbacks: ThenChatCallback,
+        max_depth: int = DEFAULT_MAX_DEPTH,
+        allow_duplicates: bool = False,
+    ) -> "ChatPipeline":
         """
-        Registers a callback to be executed after the generation process completes.
+        Registers one or many callbacks to be executed after the generation process completes.
 
         Note:
-            Returning a Chat object from the callback will replace the current chat.
-            for the remainder of the callbacks + return value of `run()`. This is
-            optional.
-
-        ```
-        async def process(chat: Chat) -> Chat | None:
-            ...
-
-        await pipeline.then(process).run()
-        ```
+            Returning a Chat object from the callback will replace that chat
+            for the remainder of the callbacks and the final return value
+            from the pipeline.
 
         Args:
-            callback: The callback function to be executed.
+            callbacks: The callback functions to be added.
+            max_depth: The maximum depth to allow recursive pipeline calls during this callback.
 
         Returns:
-            The current instance of the chat.
-        """
-        if not asyncio.iscoroutinefunction(callback):
-            raise TypeError(f"Callback '{get_qualified_name(callback)}' must be an async function")
+            The updated pipeline.
 
-        self.then_callbacks.append(callback)
+        Example:
+            ```
+            async def process(chat: Chat) -> Chat | None:
+                ...
+
+            await pipeline.then(process).run()
+            ```
+        """
+        for callback in callbacks:
+            if not asyncio.iscoroutinefunction(callback):
+                raise TypeError(
+                    f"Callback '{get_qualified_name(callback)}' must be an async function",
+                )
+
+            if allow_duplicates:
+                continue
+
+            if callback in [c[0] for c in self.then_callbacks]:
+                raise ValueError(
+                    f"Callback '{get_qualified_name(callback)}' is already registered.",
+                )
+
+        self.then_callbacks.extend([(callback, max_depth) for callback in callbacks])
         return self
 
-    def map(self, callback: MapChatCallback) -> "ChatPipeline":
+    def map(
+        self,
+        *callbacks: MapChatCallback,
+        max_depth: int = DEFAULT_MAX_DEPTH,
+        allow_duplicates: bool = False,
+    ) -> "ChatPipeline":
         """
         Registers a callback to be executed after the generation process completes.
 
         Note:
             You must return a list of Chat objects from the callback which will
             represent the state of chats for the remainder of the callbacks and
-            the final return of control.
-
-        ```
-        async def process(chats: list[Chat]) -> list[Chat]:
-            ...
-
-        await pipeline.map(process).run()
-        ```
+            the final return value from the pipeline.
 
         Args:
             callback: The callback function to be executed.
+            max_depth: The maximum depth to allow recursive pipeline calls during this callback.
 
         Returns:
-            The current instance of the chat.
-        """
-        if not asyncio.iscoroutinefunction(callback):
-            raise TypeError(f"Callback '{get_qualified_name(callback)}' must be an async function")
+            The updated pipeline.
 
-        self.map_callbacks.append(callback)
+        Example:
+            ```
+            async def process(chats: list[Chat]) -> list[Chat]:
+                ...
+
+            await pipeline.map(process).run()
+            ```
+        """
+        for callback in callbacks:
+            if not asyncio.iscoroutinefunction(callback):
+                raise TypeError(
+                    f"Callback '{get_qualified_name(callback)}' must be an async function",
+                )
+
+            if allow_duplicates:
+                continue
+
+            if callback in [c[0] for c in self.map_callbacks]:
+                raise ValueError(
+                    f"Callback '{get_qualified_name(callback)}' is already registered.",
+                )
+
+        self.map_callbacks.extend([(callback, max_depth) for callback in callbacks])
         return self
 
     def apply(self, **kwargs: str) -> "ChatPipeline":
@@ -849,7 +1016,7 @@ class ChatPipeline:
             **kwargs: Keyword arguments to be applied to the chat.
 
         Returns:
-            A new instance of ChatPipeline with the applied arguments.
+            A new pipeline with updated chat.
         """
         new = self.clone()
         new.chat.apply(**kwargs)
@@ -863,7 +1030,7 @@ class ChatPipeline:
             **kwargs: Keyword arguments to be applied to the chat.
 
         Returns:
-            A new instance of ChatPipeline with the applied arguments.
+            A new pipeline with updated chat.
         """
         new = self.clone()
         new.chat.apply_to_all(**kwargs)
@@ -884,53 +1051,6 @@ class ChatPipeline:
         self.caching = mode
         return self
 
-    def until(
-        self,
-        callback: UntilMessageCallback,
-        *,
-        attempt_recovery: bool = True,
-        drop_dialog: bool = True,
-        max_rounds: int = DEFAULT_MAX_ROUNDS,
-    ) -> "ChatPipeline":
-        """
-        Registers a callback to participate in validating the generation process.
-
-        ```py
-        # Takes the next message being generated, and returns whether or not to continue
-        # generating new messages in addition to a list of messages to append before continuing
-
-        def callback(message: Message) -> tuple[bool, list[Message]]:
-            if is_valid(message):
-                return (False, [message])
-            else:
-                return (True, [message, ...])
-
-        await pipeline.until(callback).run()
-        ```
-
-        Note:
-            Users might prefer the `.then` or `.map` callbacks as they are easier to work with.
-
-        Note:
-            In general, your callback function should always include the message that was passed to it.
-
-            Whether these messages get used or discarded in the next round depends on `attempt_recovery`.
-
-        Args:
-            callback: The callback function to be executed.
-            attempt_recovery: Whether to attempt recovery by continuing to append prior messages
-                before the next round of generation.
-            drop_dialog: Whether to drop the intermediate dialog of recovery before returning
-                the final chat back to the caller.
-            max_rounds: The maximum number of rounds to attempt generation + callbacks
-                before giving uop.
-
-        Returns:
-            The current instance of the chat.
-        """
-        self.until_callbacks.append((callback, attempt_recovery, drop_dialog, max_rounds))
-        return self
-
     def wrap(self, func: t.Callable[[CallableT], CallableT]) -> "ChatPipeline":
         """
         Helper for [rigging.generator.base.Generator.wrap][].
@@ -939,16 +1059,17 @@ class ChatPipeline:
             func: The function to wrap the calls with.
 
         Returns:
-            The current instance of the pipeline.
+            The current pipeline.
         """
         self.generator = self.generator.wrap(func)
         return self
 
     def using(
         self,
-        *tools: Tool | t.Callable[..., t.Any],
+        *tools: Tool | t.Callable[..., t.Any] | t.Sequence[Tool | t.Callable[..., t.Any]],
         mode: ToolMode | None = None,
         choice: ApiToolChoice | None = None,
+        max_depth: int = DEFAULT_MAX_DEPTH,
     ) -> "ChatPipeline":
         """
         Adds a tool or a sequence of tools to participate in the generation process.
@@ -959,14 +1080,15 @@ class ChatPipeline:
 
         Args:
             *tools: The tools to be added to the pipeline.
-            mode: The tool mode to use (e.g., "xml", "json-in-xml", "api").
+            mode: The tool calling mode to use (e.g., "xml", "json-in-xml", "api").
             choice: The API tool choice to use. This is only relevant when using the "api" tool mode.
+            max_depth: The maximum depth for recursive tool calls (this is shared between all tools).
 
         Returns:
             The updated pipeline.
 
         Example:
-            ```python
+            ```
             async def get_weather(city: Annotated[str, "The city name to get weather for"]) -> str:
                 "Get the weather"
                 city = city.replace(" ", "+")
@@ -983,7 +1105,10 @@ class ChatPipeline:
         if len(tools) == 0:
             return self
 
-        new_tools = [tool if isinstance(tool, Tool) else Tool.from_callable(tool) for tool in tools]
+        new_tools = [
+            tool if isinstance(tool, Tool) else Tool.from_callable(tool)
+            for tool in flatten_list(list(tools))  # in case the user gave us lists
+        ]
 
         existing_names = {tool.name for tool in self.tools}
         for tool in new_tools:
@@ -992,8 +1117,12 @@ class ChatPipeline:
 
         self.tools += new_tools
 
-        if next((c for c in self.then_callbacks if c == self._then_tools), None) is None:
-            self.then_callbacks.append(self._then_tools)
+        self.then_callbacks = [
+            (callback, max_depth)
+            for callback, max_depth in self.then_callbacks
+            if callback != self._then_tools
+        ]
+        self.then_callbacks.insert(0, (self._then_tools, max_depth))  # make sure this is first
 
         if mode is not None:
             self.tool_mode = mode
@@ -1006,9 +1135,11 @@ class ChatPipeline:
     def until_parsed_as(
         self,
         *types: type[ModelT],
-        attempt_recovery: bool = False,
-        drop_dialog: bool = True,
-        max_rounds: int = DEFAULT_MAX_ROUNDS,
+        max_depth: int = DEFAULT_MAX_DEPTH,
+        # deprecated
+        attempt_recovery: bool | None = None,
+        drop_dialog: bool | None = None,
+        max_rounds: int | None = None,
     ) -> "ChatPipeline":
         """
         Adds the specified types to the list of types which should successfully parse
@@ -1016,273 +1147,113 @@ class ChatPipeline:
 
         Args:
             *types: The type or types of models to wait for.
-            attempt_recovery: Whether to attempt recovery if parsing fails by providing
-                validation feedback to the model before the next round.
-            drop_dialog: Whether to drop the intermediate dialog of recovery efforts
-                before returning the final chat to the caller.
             max_rounds: The maximum number of rounds to try to parse successfully.
+            append: Whether to append the types to the existing list or replace it.
+            max_depth: The maximum depth to re-attempt parsing using recursive pipelines  (this is shared between all types).
+            attempt_recovery: deprecated, recovery is always attempted.
+            drop_dialog: deprecated, the full dialog is always returned.
+            max_rounds: deprecated, use `max_depth` instead.
 
         Returns:
-            The updated ChatPipeline object.
+            The updated pipeline.
         """
-        self.until_types += types
-        if (
-            next((c for c in self.until_callbacks if c[0] == self._until_parse_callback), None)
-            is None
-        ):
-            self.until_callbacks.append(
-                (self._until_parse_callback, attempt_recovery, drop_dialog, max_rounds),
+        if attempt_recovery is not None:
+            warnings.warn(
+                "The 'attempt_recovery' argument is deprecated and has no effect.",
+                DeprecationWarning,
+                stacklevel=2,
             )
+        if drop_dialog is not None:
+            warnings.warn(
+                "The 'drop_dialog' argument is deprecated and has no effect.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        if max_rounds is not None:
+            warnings.warn(
+                "The 'max_rounds' argument is deprecated, use 'max_depth'.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+        self.until_types = list(types)
+
+        max_depth = max_rounds or max_depth
+        self.then_callbacks = [
+            (callback, max_depth)
+            for callback, max_depth in self.then_callbacks
+            if callback != self._then_parse
+        ]
+        self.then_callbacks.append((self._then_parse, max_depth))
 
         return self
 
-    def _has_tool_calls_to_process(self, message: Message) -> bool:
-        if not self.tools:
-            return False
+    # Internal callbacks for handling tools and parsing
 
-        xml_tool_calls = message.try_parse_set(XmlToolCall)
-        json_tool_calls = message.try_parse_set(JsonInXmlToolCall)
-        api_tool_calls = message.tool_calls
+    async def _then_tools(self, chat: Chat) -> PipelineStepContextManager | None:
+        tool_calls: list[ApiToolCall] | list[XmlToolCall] | list[JsonInXmlToolCall] | None = None
+        if self.tool_mode == "api":
+            tool_calls = chat.last.tool_calls
+        if self.tool_mode == "xml":
+            tool_calls = chat.last.try_parse_set(XmlToolCall)
+        elif self.tool_mode == "json-in-xml":
+            tool_calls = chat.last.try_parse_set(JsonInXmlToolCall)
 
-        return bool(xml_tool_calls or json_tool_calls or api_tool_calls)
-
-    # TODO: There is a lot of duplicated code between these _then_*_tools methods
-    # and we should clean it up.
-
-    async def _then_api_tools(self, chat: Chat) -> Chat | None:
-        if not chat.last.tool_calls:
+        if not tool_calls:
             return None
 
         next_pipeline = self.clone(chat=chat)
 
-        for tool_call in chat.last.tool_calls:
-            tool = next((t for t in self.tools if t.name == tool_call.function.name), None)
+        should_continue = True
+
+        for tool_call in tool_calls:
+            tool = next((t for t in self.tools if t.name == tool_call.name), None)
             if tool is None:
-                raise UnknownToolError(tool_call.function.name)
-            next_pipeline.add(await tool.handle_tool_call(tool_call))
+                raise UnknownToolError(tool_call.name)
+
+            message = await tool.handle_tool_call(tool_call)
+
+            if message is None:
+                should_continue = False
+            else:
+                next_pipeline.add(message)
 
         # Need to prevent infinite loops and treat tool_choice like
-        # an ephemeral setting which resets after each tool call.
-        #
-        # TODO: Seems like this is surfacing a larger architectural issue we should look at
+        # an ephemeral setting which resets after the first tool call.
 
-        if next_pipeline.params:
+        if self.tool_mode == "api" and next_pipeline.params:
             next_pipeline.params.tool_choice = None
 
-        return await next_pipeline.run()
-
-    async def _then_xml_tools(self, chat: Chat) -> Chat | None:
-        tool_calls = chat.last.try_parse_set(XmlToolCall)
-        if not tool_calls:
+        if not should_continue:
             return None
 
+        return next_pipeline.step()
+
+    async def _then_parse(self, chat: Chat) -> PipelineStepContextManager | None:
         next_pipeline = self.clone(chat=chat)
-
-        for tool_call in tool_calls:
-            tool = next((t for t in self.tools if t.name == tool_call.name), None)
-            if tool is None:
-                raise UnknownToolError(tool_call.name)
-            next_pipeline.add(await tool.handle_tool_call(tool_call))
-
-        return await next_pipeline.run()
-
-    async def _then_json_in_xml_tools(self, chat: Chat) -> Chat | None:
-        tool_calls = chat.last.try_parse_set(JsonInXmlToolCall)
-        if not tool_calls:
-            return None
-
-        next_pipeline = self.clone(chat=chat)
-
-        for tool_call in tool_calls:
-            tool = next((t for t in self.tools if t.name == tool_call.name), None)
-            if tool is None:
-                raise UnknownToolError(tool_call.name)
-            next_pipeline.add(await tool.handle_tool_call(tool_call))
-
-        return await next_pipeline.run()
-
-    async def _then_tools(self, chat: Chat) -> Chat | None:
-        if self.tool_mode == "api":
-            return await self._then_api_tools(chat)
-        if self.tool_mode == "xml":
-            return await self._then_xml_tools(chat)
-        if self.tool_mode == "json-in-xml":
-            return await self._then_json_in_xml_tools(chat)
-
-        raise RuntimeError(
-            "tool_mode appears incorrect and must be one of 'api', 'xml', or 'json-in-xml'",
-        )
-
-    def _until_parse_callback(self, message: Message) -> tuple[bool, list[Message]]:
-        should_continue: bool = False
-        generated: list[Message] = [message]
 
         try:
-            message.parse_many(*self.until_types)
+            chat.last.parse_many(*self.until_types)
         except ValidationError as e:
-            should_continue = True
-            generated.append(
+            next_pipeline.add(
                 Message.from_model(
                     ValidationErrorModel(content=str(e)),
-                    suffix="Rewrite your entire message with all the required elements.",
+                    suffix="Rewrite your entire message with all the required xml structure.",
                 ),
             )
         except Exception as e:  # noqa: BLE001
-            should_continue = True
-            generated.append(
+            next_pipeline.add(
                 Message.from_model(
                     SystemErrorModel(content=str(e)),
-                    suffix="Rewrite your entire message with all the required elements.",
+                    suffix="Rewrite your entire message with all the required xml structure.",
                 ),
             )
+        else:  # parsed successfully
+            return None
 
-        return (should_continue, generated)
-
-    def _until(
-        self,
-        message: Message,
-        callback: UntilMessageCallback,
-        attempt_recovery: bool,  # noqa: FBT001
-        drop_dialog: bool,  # noqa: FBT001
-        max_rounds: int,
-    ) -> t.Generator[list[Message], Message, list[Message]]:
-        should_continue, step_messages = callback(message)
-        if not should_continue:
-            return step_messages
-
-        running_messages = step_messages if attempt_recovery else []
-        next_message: Message
-
-        for _round in range(1, max_rounds + 1):
-            callback_name = get_qualified_name(callback)
-            with tracer.span(
-                f"Until with {callback_name}() ({_round}/{max_rounds})",
-                callback=callback_name,
-                round=_round,
-                max_rounds=max_rounds,
-                attempt_recovery=attempt_recovery,
-                drop_dialog=drop_dialog,
-            ):
-                logger.trace(
-                    f"_until({callback_name}) round {_round}/{max_rounds} (attempt_recovery={attempt_recovery})",
-                )
-                next_message = yield running_messages
-                should_continue, step_messages = callback(next_message)
-                logger.trace(
-                    f" |- returned {should_continue} with {len(step_messages)} new messages)",
-                )
-
-                if attempt_recovery:
-                    running_messages += step_messages
-
-                if not should_continue:
-                    return step_messages if drop_dialog else running_messages
-
-        # !attempt_recovery -> Return just the latest generation
-        # attempt_recovery & drop_dialog -> Return just the latest generation
-        # attempt_recovery & !drop_dialog -> Return intermediate and the latest
-
-        logger.warning(f"Exhausted max rounds ({max_rounds})")
-        raise MessagesExhaustedMaxRoundsError(
-            max_rounds,
-            [next_message] if not attempt_recovery and next_message else running_messages[:-1],
-        )
-
-    # TODO: Much like the CompletionPipeline code, it's opaque exactly how
-    # multiple callbacks should be blended together when generating.
-    #
-    # I think we should look at limiting it to one callback in total,
-    # but I'll leave the behavior as is for now with the warning that it
-    # might be a bit unpredictable.
-
-    def _process(self) -> t.Generator[list[Message], Message, list[Message]]:
-        first_response = yield []
-        new_messages = [first_response]
-
-        # If we need to process tool calls, we should do that first
-        # before proceeding with our until callbacks
-        if self._has_tool_calls_to_process(first_response):
-            return new_messages
-
-        for callback, reset_between, drop_internal, max_rounds in self.until_callbacks:
-            generated = yield from self._until(
-                new_messages[-1],
-                callback,
-                reset_between,
-                drop_internal,
-                max_rounds,
-            )
-            new_messages = new_messages[:-1] + generated
-
-        return new_messages
-
-    async def _watch_callback(self, chats: list[Chat]) -> None:
-        # Given that these watch callbacks don't return a value,
-        # we should be safe to run them internally.
-
-        def wrap_watch_callback(callback: WatchChatCallback) -> WatchChatCallback:
-            async def traced_watch_callback(chats: list[Chat]) -> None:
-                callback_name = get_qualified_name(callback)
-                with tracer.span(
-                    f"Watch with {callback_name}()",
-                    callback=callback_name,
-                    chat_count=len(chats),
-                    chat_ids=[str(c.uuid) for c in chats],
-                ):
-                    await callback(chats)
-
-            return traced_watch_callback
-
-        coros = [wrap_watch_callback(callback)(chats) for callback in self.watch_callbacks]
-        await asyncio.gather(*coros)
+        return next_pipeline.step()
 
     # Run helper methods
-
-    async def _post_run(self, chats: list[Chat], on_failed: FailMode) -> ChatList:
-        if on_failed == "skip":
-            chats = [c for c in chats if not c.failed]
-
-        # These have to be sequenced to support the concept of
-        # a pipeline where future then/map calls can depend on
-        # previous calls being ran.
-
-        for map_callback in self.map_callbacks:
-            callback_name = get_qualified_name(map_callback)
-            with tracer.span(
-                f"Map with {callback_name}()",
-                callback=callback_name,
-                chat_count=len(chats),
-                chat_ids=[str(c.uuid) for c in chats],
-            ):
-                chats = await map_callback(chats)
-                if not all(isinstance(c, Chat) for c in chats):
-                    raise ValueError(
-                        f".map() callback must return a Chat object or None ({callback_name})",
-                    )
-
-        def wrap_then_callback(callback: ThenChatCallback) -> ThenChatCallback:
-            async def traced_then_callback(chat: Chat) -> Chat | None:
-                callback_name = get_qualified_name(callback)
-                with tracer.span(
-                    f"Then with {callback_name}()",
-                    callback=callback_name,
-                    chat_id=str(chat.uuid),
-                ):
-                    return await callback(chat)
-
-            return traced_then_callback
-
-        for then_callback in self.then_callbacks:
-            coros = [wrap_then_callback(then_callback)(chat) for chat in chats]
-            new_chats = await asyncio.gather(*coros)
-            if not all(isinstance(c, Chat) or c is None for c in new_chats):
-                raise ValueError(
-                    f".then() callback must return a Chat object or None ({get_qualified_name(then_callback)})",
-                )
-
-            chats = [new or chat for new, chat in zip(new_chats, chats, strict=False)]
-
-        return ChatList(chats)
 
     async def _pre_run(self) -> None:
         if self.tool_mode == "auto" and self.tools:
@@ -1310,84 +1281,6 @@ class ChatPipeline:
             params = [self.params.merge_with(p) for p in params]
         return [(p or GenerateParams()) for p in params]
 
-    # Run methods
-
-    def _initialize_states(
-        self,
-        count: int,
-        params: t.Sequence[GenerateParams | None] | None = None,
-    ) -> list[RunState]:
-        states = [RunState([], [], p, self._process()) for p in self._fit_params(count, params)]
-        for state in states:
-            next(state.processor)
-        return states
-
-    def _initialize_batch_states(
-        self,
-        many: t.Sequence[t.Sequence[Message]]
-        | t.Sequence[Message]
-        | t.Sequence[MessageDict]
-        | t.Sequence[str]
-        | MessageDict
-        | str,
-        params: t.Sequence[GenerateParams | None] | None = None,
-    ) -> list[RunState]:
-        if isinstance(many, dict | str):  # Some strange typechecking here
-            many = t.cast(t.Sequence[str] | t.Sequence[MessageDict], [many])
-
-        count = max(len(many), len(params) if params is not None else 0)
-
-        many = [Message.fit_as_list(m) for m in many]
-        if len(many) < count:
-            if len(many) != 1:
-                raise ValueError(f"Can't fit many of length {len(many)} to {count}")
-            many = many * count
-
-        params = self._fit_params(count, params)
-
-        states: list[RunState] = [
-            RunState(self.chat.all + m, [], p, self._process())
-            for m, p in zip(many, params, strict=False)
-        ]
-        for state in states:
-            next(state.processor)
-
-        return states
-
-    def _create_chat(
-        self,
-        state: RunState,
-        outputs: list[Message],
-        inbound: GeneratedMessage,
-        batch_mode: bool,  # noqa: FBT001
-        failed: bool = False,  # noqa: FBT001, FBT002
-        error: Exception | None = None,
-    ) -> Chat:
-        return Chat(
-            state.inputs if batch_mode else self.chat.all,
-            outputs,
-            generator=self.generator,
-            pipeline=self,
-            metadata=self.metadata,
-            params=state.params,
-            stop_reason=inbound.stop_reason,
-            usage=inbound.usage,
-            extra=inbound.extra,
-            failed=failed,
-            error=error,
-        )
-
-    def _create_failed_chat(self, state: RunState, error: Exception, batch_mode: bool) -> Chat:  # noqa: FBT001
-        return Chat(
-            state.inputs if batch_mode else self.chat.all,
-            [],
-            generator=self.generator,
-            metadata=self.metadata,
-            params=state.params,
-            failed=True,
-            error=error,
-        )
-
     def _apply_cache_mode_to_messages(self, messages: list[list[Message]]) -> list[list[Message]]:
         if self.caching is None:
             return messages
@@ -1407,142 +1300,351 @@ class ChatPipeline:
 
         return updated
 
-    async def _run(  # noqa: PLR0912
+    @dataclass
+    class CallbackState:
+        chat: Chat
+        ready_event: asyncio.Event
+        continue_event: asyncio.Event
+        step: PipelineStep | None = None
+        completed: bool = False
+
+    async def _process_then_callback(
+        self,
+        callback: ThenChatCallback,
+        state: CallbackState,
+    ) -> None:
+        callback_name = get_qualified_name(callback)
+
+        async def complete() -> None:
+            state.completed = True
+            state.ready_event.set()
+
+        with tracer.span(
+            f"Then with {callback_name}()",
+            callback=callback_name,
+            chat_id=str(state.chat.uuid),
+        ):
+            async with contextlib.AsyncExitStack() as exit_stack:
+                exit_stack.push_async_callback(complete)
+
+                result = callback(state.chat)
+
+                if inspect.isawaitable(result):
+                    result = await result  # type: ignore [assignment]
+
+                if result is None or isinstance(result, Chat):
+                    state.chat = result or state.chat
+                    return
+
+                if isinstance(result, contextlib.AbstractAsyncContextManager):
+                    result = await exit_stack.enter_async_context(result)
+
+                if not inspect.isasyncgen(result):
+                    raise TypeError(
+                        f"Callback '{callback_name}' must return a Chat, PipelineStepGenerator, or None",
+                    )
+
+                generator = t.cast(
+                    PipelineStepGenerator,
+                    await exit_stack.enter_async_context(aclosing(result)),
+                )
+                async for step in generator:
+                    state.step = step
+
+                    state.ready_event.set()
+                    await state.continue_event.wait()
+
+                    state.ready_event.clear()
+                    state.continue_event.clear()
+                    state.step = None
+
+                    state.chat = step.chats[-1] if step.chats else state.chat
+
+    # Run methods
+
+    async def _step(  # noqa: PLR0915, PLR0912
         self,
         span: Span,
-        states: list[RunState],
+        messages: list[list[Message]],
+        params: list[GenerateParams],
         on_failed: FailMode,
-        batch_mode: bool = False,  # noqa: FBT002, FBT001
-    ) -> ChatList:
-        pending_states: list[RunState] = states
-        while pending_states:
-            try:
-                messages = [
-                    (s.inputs if batch_mode else self.chat.all) + s.messages for s in pending_states
-                ]
-                messages = self._apply_cache_mode_to_messages(messages)
+    ) -> PipelineStepGenerator:
+        chats: ChatList = ChatList([])
 
-                inbounds = await self.generator.generate_messages(
-                    messages,
-                    [s.params for s in pending_states],
-                )
+        # Pass the messages to the generator
 
-            except Exception as error:  # noqa: BLE001
-                # Handle core generator errors
-                if (
-                    on_failed == "raise"
-                    or not any(isinstance(error, t) for t in self.errors_to_fail_on)
-                    or any(isinstance(error, t) for t in self.errors_to_exclude)
-                ):
-                    raise
+        try:
+            messages = self._apply_cache_mode_to_messages(messages)
+            generated = await self.generator.generate_messages(messages, params)
 
-                # We will apply the error to all chats in the batch as we can't
-                # tell which chat caused the error right now.
+        # If we got a total failure here for generation as a whole,
+        # we can't distinguish between incoming messages in terms
+        # of what caused the error, so so we need to set the error
+        # on all of them.
 
+        except Exception as error:  # noqa: BLE001
+            span.set_attribute("failed", True)
+            span.set_attribute("error", error)
+
+            chats = ChatList(
+                [
+                    Chat(
+                        messages_,
+                        [],
+                        generator=self.generator,
+                        pipeline=self,
+                        metadata=self.metadata,
+                        params=params_,
+                        failed=True,
+                        error=error,
+                    )
+                    for messages_, params_ in zip(messages, params, strict=True)
+                ],
+            )
+
+        # Otherwise we can construct individual chats with
+        # error states per-generation.
+
+        else:
+            chats = ChatList(
+                [
+                    Chat(
+                        messages_,
+                        [] if isinstance(generated_, BaseException) else [generated_.message],
+                        generator=self.generator,
+                        pipeline=self,
+                        metadata=self.metadata,
+                        params=params_,
+                        stop_reason=None
+                        if isinstance(generated_, BaseException)
+                        else generated_.stop_reason,
+                        usage=None if isinstance(generated_, BaseException) else generated_.usage,
+                        extra=None if isinstance(generated_, BaseException) else generated_.extra,
+                        failed=isinstance(generated_, BaseException),
+                        error=generated_ if isinstance(generated_, BaseException) else None,
+                    )
+                    for messages_, params_, generated_ in zip(
+                        messages,
+                        params,
+                        generated,
+                        strict=True,
+                    )
+                ],
+            )
+
+        # Watch callbacks
+
+        await asyncio.gather(
+            *[_wrap_watch_callback(callback)(chats) for callback in self.watch_callbacks],
+        )
+
+        # Yield what we generated
+
+        span.set_attribute("chats", chats)
+        current_step = PipelineStep(
+            state="generated",
+            chats=chats,
+            pipeline=self,
+        )
+        yield current_step
+
+        # Check if we should immediately raise
+
+        # FailMode = t.Literal["raise", "skip", "include"]
+        # self.on_failed: FailMode = "raise"
+        # """How to handle failures in the pipeline unless overriden in calls."""
+
+        # self.errors_to_catch: set[type[Exception]] = {MaxDepthError, ValidationError}
+        # """The list of exceptions to catch during generation if you are including or skipping failures."""
+        # self.errors_to_exclude: set[type[Exception]] = set()
+        # """The list of exceptions to exclude from the catch list."""
+
+        for chat in chats:
+            if chat.error is not None and (
+                on_failed == "raise"
+                or not any(isinstance(chat.error, t) for t in self.errors_to_catch)
+                or any(isinstance(chat.error, t) for t in self.errors_to_exclude)
+            ):
+                span.set_attribute("error", chat.error)
                 span.set_attribute("failed", True)
-                span.set_attribute("error", error)
+                raise chat.error
 
-                for state in states:
-                    state.chat = self._create_failed_chat(state, error, batch_mode)
+        # Chat cleanup
 
-            else:
-                # Process each inbound message and individual errors
-                for inbound, state in zip(inbounds, pending_states, strict=False):
-                    try:
-                        # Process for parsing callbacks, etc.
-                        state.messages = state.processor.send(inbound.message)
-                    except StopIteration as stop:  # noqa: PERF203
-                        # StopIteration implies we are done and the chat is good to go
-                        outputs = t.cast(list[Message], stop.value)
-                        state.chat = self._create_chat(state, outputs, inbound, batch_mode)
-                    except MessagesExhaustedMaxRoundsError as exhausted:
-                        span.set_attribute("failed", True)
-                        span.set_attribute("error", exhausted)
+        if on_failed == "skip":
+            chats = ChatList([chat for chat in chats if not chat.failed])
 
-                        # exhausted.messages holds the current messages when the error occured,
-                        # so we'll pass them into the chat as the last generated messages.
-                        state.chat = self._create_chat(
-                            state,
-                            exhausted.messages,
-                            inbound,
-                            batch_mode,
-                            failed=True,
-                            error=exhausted,
-                        )
+        span.set_attribute("chats", chats)
 
-                        if on_failed == "raise":
-                            # Set the attribute for troubleshooting
-                            span.set_attribute(
-                                "chats",
-                                [s.chat for s in states if s.chat is not None],
-                            )
-                            raise
+        if len(chats) == 0 or all(chat.failed for chat in chats):
+            yield PipelineStep(
+                state="final",
+                chats=chats,
+                pipeline=self,
+            )
+            return
 
-                    except Exception as error:  # noqa: BLE001
-                        span.set_attribute("failed", True)
-                        span.set_attribute("error", error)
-                        state.chat = self._create_chat(
-                            state,
-                            [],
-                            inbound,
-                            batch_mode,
-                            failed=True,
-                            error=error,
-                        )
+        # Then callbacks
 
-                        # Check to see if we should be handling any specific errors
-                        # and gracefully marking the chat as failed instead of raising (.catch)
-                        if (
-                            on_failed == "raise"
-                            or not any(isinstance(error, t) for t in self.errors_to_fail_on)
-                            or any(isinstance(error, t) for t in self.errors_to_exclude)
-                        ):
-                            # Set the attribute for troubleshooting
-                            span.set_attribute(
-                                "chats",
-                                [s.chat for s in states if s.chat is not None],
-                            )
-                            raise
+        for then_callback, max_depth in self.then_callbacks:
+            callback_name = get_qualified_name(then_callback)
 
-            pending_states = [s for s in pending_states if s.chat is None]
-            completed_states: list[RunState] = [
-                s for s in states if s.chat is not None and not s.watched
+            states = [
+                self.CallbackState(
+                    chat=chat,
+                    ready_event=asyncio.Event(),
+                    continue_event=asyncio.Event(),
+                )
+                for chat in chats
             ]
 
-            if not completed_states:
-                continue
+            tasks = [
+                asyncio.create_task(self._process_then_callback(then_callback, state))
+                for state in states
+            ]
 
-            # We want to deliver chats to the watch callback as soon as possible, so we'll
-            # track whether we've already done so and only deliver new chats.
+            try:
+                while not all(state.completed for state in states):
+                    await asyncio.gather(
+                        *[state.ready_event.wait() for state in states if not state.completed],
+                    )
 
-            await self._watch_callback([s.chat for s in completed_states if s.chat is not None])
-            for state in completed_states:
-                state.watched = True
+                    # TODO(nick): Are we good to throw exceptions here?
+                    for task in tasks:
+                        if task.done() and (exception := task.exception()):
+                            raise exception
 
-        chats = [s.chat for s in states if s.chat is not None]
+                    for state in states:
+                        if state.ready_event.is_set() and state.step:
+                            step = state.step.with_parent(current_step)
+
+                            if step.depth > max_depth:
+                                max_depth_error = MaxDepthError(max_depth, step, callback_name)
+                                if on_failed == "raise":
+                                    raise max_depth_error
+
+                                state.chat.error = max_depth_error
+                                state.chat.failed = True
+                                state.completed = True
+                                continue
+
+                            yield step
+                            state.continue_event.set()
+            finally:
+                with contextlib.suppress(asyncio.CancelledError):
+                    for task in tasks:
+                        if not task.done():
+                            task.cancel()
+                    await asyncio.gather(*tasks)  # TODO(nick): return_exceptions=True ?
+
+            chats = ChatList([state.chat for state in states if state.chat])
+
+            span.set_attribute("chats", chats)
+            current_step = PipelineStep(
+                state="callback",
+                chats=chats,
+                pipeline=self,
+                callback=then_callback,
+            )
+            yield current_step
+
+        # Chat cleanup
+
+        if on_failed == "skip":
+            chats = ChatList([chat for chat in chats if not chat.failed])
+
         span.set_attribute("chats", chats)
-        chats = await self._post_run(chats, on_failed)
-        span.set_attribute("chats", chats)
 
-        return chats
+        if len(chats) == 0 or all(chat.failed for chat in chats):
+            yield PipelineStep(
+                state="final",
+                chats=chats,
+                pipeline=self,
+            )
+            return
+
+        # Map callbacks
+
+        for map_callback, max_depth in self.map_callbacks:
+            callback_name = get_qualified_name(map_callback)
+
+            with tracer.span(
+                f"Map with {callback_name}()",
+                callback=callback_name,
+                chat_count=len(chats),
+                chat_ids=[str(c.uuid) for c in chats],
+            ):
+                async with contextlib.AsyncExitStack() as exit_stack:
+                    result = map_callback(chats)
+                    chats_or_generator = await result if inspect.isawaitable(result) else result
+
+                    if isinstance(result, contextlib.AbstractAsyncContextManager):
+                        result = await exit_stack.enter_async_context(result)
+
+                    if inspect.isasyncgen(chats_or_generator):
+                        generator = t.cast(
+                            PipelineStepGenerator,
+                            await exit_stack.enter_async_context(aclosing(chats_or_generator)),
+                        )
+                        async for step in generator:
+                            _step = step.with_parent(current_step)
+                            if _step.depth > max_depth:
+                                max_depth_error = MaxDepthError(max_depth, _step, callback_name)
+                                if on_failed == "raise":
+                                    raise max_depth_error
+
+                                chats = ChatList(chats)
+                                for chat in chats:
+                                    chat.error = max_depth_error
+                                    chat.failed = True
+                            else:
+                                yield _step
+                                chats = step.chats
+
+                        chats = step.chats
+
+                    elif isinstance(chats_or_generator, list) and all(
+                        isinstance(c, Chat) for c in chats_or_generator
+                    ):
+                        chats = ChatList(chats_or_generator)
+
+                span.set_attribute("chats", chats)
+                current_step = PipelineStep(
+                    state="callback",
+                    chats=chats,
+                    pipeline=self,
+                    callback=map_callback,
+                )
+                yield current_step
+
+        if on_failed == "skip":
+            chats = ChatList([chat for chat in chats if not chat.failed])
+
+        span.set_attribute("chats", chats)
+        yield PipelineStep(
+            state="final",
+            chats=chats,
+            pipeline=self,
+        )
 
     # Single messages
 
-    async def run(self, *, allow_failed: bool = False, on_failed: FailMode | None = None) -> Chat:
+    @asynccontextmanager
+    async def step(
+        self,
+        *,
+        on_failed: FailMode | None = None,
+    ) -> t.AsyncIterator[PipelineStepGenerator]:
         """
-        Execute the generation process to produce the final chat.
+        Step through the generation process for a single message.
 
         Args:
-            allow_failed: Ignore any errors and potentially
-                return the chat in a failed state.
             on_failed: The behavior when a message fails to generate.
                 (this is used as an alternative to allow_failed)
 
-        Returns:
-            The generated Chat.
+        Yields:
+            Pipeline steps.
         """
-        if on_failed is None:
-            on_failed = "include" if allow_failed else self.on_failed
 
         if on_failed == "skip":
             raise ValueError(
@@ -1552,18 +1654,90 @@ class ChatPipeline:
         await self._pre_run()
 
         on_failed = on_failed or self.on_failed
-        states = self._initialize_states(1)
+
+        messages = [self.chat.all]
+        params = self._fit_params(1, [self.params])
 
         with tracer.span(
             f"Chat with {self.generator.to_identifier()}",
             generator_id=self.generator.to_identifier(),
             params=self.params.to_dict() if self.params is not None else {},
         ) as span:
-            return (await self._run(span, states, on_failed))[0]
+            async with aclosing(self._step(span, messages, params, on_failed)) as generator:
+                yield generator
+
+    async def run(self, *, on_failed: FailMode | None = None, allow_failed: bool = False) -> Chat:
+        """
+        Execute the generation process for a single message.
+
+        Args:
+            on_failed: The behavior when a message fails to generate.
+            allow_failed: Deprecated, use `on_failed="include"`.
+
+        Returns:
+            The generated Chat.
+        """
+        if allow_failed:
+            warnings.warn(
+                "The 'allow_failed' argument is deprecated, use 'on_failed=\"include\"'.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+        if on_failed is None:
+            on_failed = "include" if allow_failed else self.on_failed
+
+        last: PipelineStep | None = None
+        async with self.step(on_failed=on_failed) as steps:
+            async for step in steps:
+                last = step
+
+        if last is None or last.state != "final":
+            raise RuntimeError("The pipeline did not complete successfully")
+
+        if not last.chats:
+            raise RuntimeError("The pipeline process did not produce any chats")
+
+        return last.chats[-1]
 
     __call__ = run
 
     # Many messages
+
+    @asynccontextmanager
+    async def step_many(
+        self,
+        count: int,
+        *,
+        params: t.Sequence[GenerateParams | None] | None = None,
+        on_failed: FailMode | None = None,
+    ) -> t.AsyncIterator[PipelineStepGenerator]:
+        """
+        Step through the generation process in parallel over the same input.
+
+        Args:
+            count: The number of parallel generations.
+            params: A sequence of parameters to be used for each execution.
+            on_failed: The behavior when a message fails to generate.
+
+        Yields:
+            Pipeline steps.
+        """
+        await self._pre_run()
+
+        on_failed = on_failed or self.on_failed
+
+        messages = [self.chat.all] * count
+        params = self._fit_params(count, params)
+
+        with tracer.span(
+            f"Chat with {self.generator.to_identifier()} (x{count})",
+            count=count,
+            generator_id=self.generator.to_identifier(),
+            params=self.params.to_dict() if self.params is not None else {},
+        ) as span:
+            async with aclosing(self._step(span, messages, params, on_failed)) as generator:
+                yield generator
 
     async def run_many(
         self,
@@ -1573,7 +1747,7 @@ class ChatPipeline:
         on_failed: FailMode | None = None,
     ) -> ChatList:
         """
-        Executes the generation process multiple times with the same inputs.
+        Executes the generation process in parallel over the same input.
 
         Args:
             count: The number of times to execute the generation process.
@@ -1583,20 +1757,76 @@ class ChatPipeline:
         Returns:
             A list of generatated Chats.
         """
+
+        last: PipelineStep | None = None
+        async with self.step_many(count, params=params, on_failed=on_failed) as steps:
+            async for step in steps:
+                last = step
+
+        if last is None or last.state != "final":
+            raise ValueError("The generation process did not complete successfully")
+
+        return last.chats
+
+    # Batch messages
+
+    @asynccontextmanager
+    async def step_batch(
+        self,
+        many: t.Sequence[t.Sequence[Message]]
+        | t.Sequence[Message]
+        | t.Sequence[MessageDict]
+        | t.Sequence[str]
+        | MessageDict
+        | str,
+        params: t.Sequence[GenerateParams | None] | None = None,
+        *,
+        on_failed: FailMode | None = None,
+    ) -> t.AsyncIterator[PipelineStepGenerator]:
+        """
+        Step through the generation process over multiple inputs.
+
+        Note:
+            Anything already in this chat pipeline will be prepended to the input messages.
+
+        Args:
+            many: A sequence of sequences of messages to be generated.
+            params: A sequence of parameters to be used for each set of messages.
+            on_failed: The behavior when a message fails to generate.
+
+        Yields:
+            Pipeline steps.
+        """
         await self._pre_run()
 
         on_failed = on_failed or self.on_failed
-        states = self._initialize_states(count, params)
+
+        # Get the maximum of either incoming messages or params
+
+        count = max(len(many), len(params) if params is not None else 0)
+
+        # If we have less messages than params, we need to either:
+        # 1. Error because we have >1 messages that we can't reasonably
+        #    zip with our parameters of a different length
+        # 2. Duplicate a single message we have len(params) times as the
+        #    user is just batching only over parameters
+
+        messages = [[*self.chat.all, *Message.fit_as_list(m)] for m in many]
+        if len(messages) < count:
+            if len(messages) != 1:
+                raise ValueError(f"Can't fit {len(messages)} messages to {count} params")
+            messages = messages * count
+
+        params = self._fit_params(count, params)
 
         with tracer.span(
-            f"Chat with {self.generator.to_identifier()} (x{count})",
+            f"Chat batch with {self.generator.to_identifier()} ({count})",
             count=count,
             generator_id=self.generator.to_identifier(),
             params=self.params.to_dict() if self.params is not None else {},
         ) as span:
-            return await self._run(span, states, on_failed)
-
-    # Batch messages
+            async with aclosing(self._step(span, messages, params, on_failed)) as generator:
+                yield generator
 
     async def run_batch(
         self,
@@ -1611,7 +1841,7 @@ class ChatPipeline:
         on_failed: FailMode | None = None,
     ) -> ChatList:
         """
-        Executes the generation process accross multiple input messages.
+        Executes the generation process over multiple input messages.
 
         Note:
             Anything already in this chat pipeline will be prepended to the input messages.
@@ -1624,18 +1854,16 @@ class ChatPipeline:
         Returns:
             A list of generatated Chats.
         """
-        await self._pre_run()
 
-        on_failed = on_failed or self.on_failed
-        states = self._initialize_batch_states(many, params)
+        last: PipelineStep | None = None
+        async with self.step_batch(many, params=params, on_failed=on_failed) as steps:
+            async for step in steps:
+                last = step
 
-        with tracer.span(
-            f"Chat batch with {self.generator.to_identifier()} ({len(states)})",
-            count=len(states),
-            generator_id=self.generator.to_identifier(),
-            params=self.params.to_dict() if self.params is not None else {},
-        ) as span:
-            return await self._run(span, states, on_failed, batch_mode=True)
+        if last is None or last.state != "final":
+            raise ValueError("The generation process did not complete successfully")
+
+        return last.chats
 
     # Generator iteration
 
@@ -1676,8 +1904,7 @@ class ChatPipeline:
             coros.append(sub.run(allow_failed=(on_failed != "raise")))
 
         with tracer.span(f"Chat over {len(coros)} generators", count=len(coros)):
-            chats = await asyncio.gather(*coros)
-            return await self._post_run(chats, on_failed)
+            return ChatList(await asyncio.gather(*coros))
 
     # Prompt binding
 

@@ -7,6 +7,8 @@ from rigging.chat import Chat, ChatPipeline
 from rigging.error import MissingModelError
 from rigging.generator import GenerateParams, get_generator
 
+# ruff: noqa: S101, PLR2004, ARG001, PT011, SLF001
+
 
 class Example(Model):
     content: str
@@ -155,6 +157,7 @@ def test_message_reparse_modified_content() -> None:
     assert person.name == "Jane"
     assert person.age == 25
 
+
 def test_message_double_content_part_separation() -> None:
     msg = Message("user", ["hello", "world"])
     assert msg.content == "hello\nworld"
@@ -163,6 +166,7 @@ def test_message_double_content_part_separation() -> None:
     assert len(spec["content"]) == 2
     assert spec["content"][0]["text"] == "hello\n"
     assert spec["content"][1]["text"] == "world"
+
 
 def test_chat_generator_id() -> None:
     generator = get_generator("gpt-3.5")
@@ -294,7 +298,8 @@ def test_chat_continue_maintains_parsed_models() -> None:
         [
             Message("user", "<person name='John'>30</person>"),
             Message(
-                "assistant", "<address><street>123 Main St</street><city>Anytown</city></address>"
+                "assistant",
+                "<address><street>123 Main St</street><city>Anytown</city></address>",
             ),
         ],
         generator=get_generator("base"),
@@ -336,7 +341,8 @@ def test_chat_strip() -> None:
         [
             Message("user", "<person name='John'>30</person>"),
             Message(
-                "assistant", "<address><street>123 Main St</street><city>Anytown</city></address>"
+                "assistant",
+                "<address><street>123 Main St</street><city>Anytown</city></address>",
             ),
         ],
     )
@@ -357,7 +363,8 @@ def test_chat_serialize() -> None:
         [
             Message("user", "<person name='John'>30</person>"),
             Message(
-                "assistant", "<address><street>123 Main St</street><city>Anytown</city></address>"
+                "assistant",
+                "<address><street>123 Main St</street><city>Anytown</city></address>",
             ),
         ],
     )
@@ -440,7 +447,8 @@ def test_chat_pipeline_add_merge_strategy_none() -> None:
 
     # Test that assistant messages also don't merge
     pipeline.add(
-        [Message("assistant", "Hi!"), Message("assistant", "How are you?")], merge_strategy="none"
+        [Message("assistant", "Hi!"), Message("assistant", "How are you?")],
+        merge_strategy="none",
     )
     assert len(pipeline.chat) == 4
     assert pipeline.chat.all[2].content == "Hi!"

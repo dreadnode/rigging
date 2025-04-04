@@ -57,7 +57,7 @@ class Tool:
 
     # In general we are split between 2 strategies for handling the data translations:
     #
-    # 1. TypeAdapter applied straigh to a callable (`api` and `json-in-xml` modes)
+    # 1. TypeAdapter applied straight to a callable (`api` and `json-in-xml` modes)
     # 2. Dynamic Model class built from the signature (`xml` mode)
     #
     # TODO: I'd like to unify these and pick which strategy works best for us. I'm inclined
@@ -218,7 +218,7 @@ class Tool:
     async def handle_tool_call(
         self,
         tool_call: ApiToolCall | XmlToolCall | JsonInXmlToolCall,
-    ) -> "Message":
+    ) -> "Message | None":
         """
         Handle an incoming tool call from a generator.
 
@@ -226,14 +226,11 @@ class Tool:
             tool_call: The tool call to handle.
 
         Returns:
-            The message to send back to the generator.
+            The message to send back to the generator or None if tool calling should not proceed.
         """
 
         from rigging.message import ContentText, ContentTypes, Message
 
-        tool_call_name = (
-            tool_call.function.name if isinstance(tool_call, ApiToolCall) else tool_call.name
-        )
         tool_call_parameters = (
             tool_call.function.arguments
             if isinstance(tool_call, ApiToolCall)
@@ -241,9 +238,9 @@ class Tool:
         )
 
         with tracer.span(f"Tool {self.name}()", name=self.name) as span:
-            if tool_call_name != self.name:
+            if tool_call.name != self.name:
                 raise ValueError(
-                    f"Requested function name '{tool_call_name}' does not match '{self.name}'",
+                    f"Requested function name '{tool_call.name}' does not match '{self.name}'",
                 )
 
             if isinstance(tool_call, ApiToolCall):
@@ -292,6 +289,12 @@ class Tool:
             else Message("user")
         )
 
+        # If the tool returns nothing back to us, we'll assume that
+        # they do not want to proceed with additional tool calling
+
+        if result is None:
+            return None
+
         # If the tool gave us back anything that looks like a message, we'll
         # just pass it along. Otherwise we need to box up the result.
 
@@ -311,7 +314,9 @@ class Tool:
         #
         # TODO: It would be great to have some kind of identifier here to let
         # the model know what result is associated with what tool call when
-        # we aren't working with api calls.
+        # we aren't working with api calls
+        #
+        # (we'd likely have to insert the shared identifier upstream in the call)
 
         if (
             len(message.content_parts) == 1

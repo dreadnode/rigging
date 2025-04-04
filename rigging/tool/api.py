@@ -69,3 +69,7 @@ class ApiToolCall(BaseModel):
 
     def __str__(self) -> str:
         return f"<ToolCall {self.function.name}({self.function.arguments})>"
+
+    @property
+    def name(self) -> str:
+        return self.function.name

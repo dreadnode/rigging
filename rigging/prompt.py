@@ -13,7 +13,14 @@ from jinja2 import Environment, StrictUndefined, meta
 from pydantic import ValidationError
 from typing_extensions import Concatenate, ParamSpec  # noqa: UP035
 
-from rigging.chat import Chat, ChatPipeline
+from rigging.chat import (
+    Chat,
+    ChatPipeline,
+    MapChatCallback,
+    PipelineStepContextManager,
+    ThenChatCallback,
+    WatchChatCallback,
+)
 from rigging.generator.base import GenerateParams, Generator, get_generator
 from rigging.message import Message
 from rigging.model import Model, SystemErrorModel, ValidationErrorModel, make_primitive
@@ -21,15 +28,13 @@ from rigging.tool import Tool
 from rigging.tracing import tracer
 from rigging.util import escape_xml, get_qualified_name, to_snake, to_xml_tag
 
-if t.TYPE_CHECKING:
-    from rigging.chat import WatchChatCallback
-
 DEFAULT_DOC = "Convert the following inputs to outputs ({func_name})."
 """Default docstring if none is provided to a prompt function."""
 
-DEFAULT_MAX_ROUNDS = 3
-"""Default maximum number of rounds for a prompt to run until outputs are parsed."""
-
+DEFAULT_MAX_PARSE_ROUNDS = 3
+"""Default maximum number of recurive output parsing attempts to allow."""
+DEFAULT_MAX_TOOL_ROUNDS = 20
+"""Default maximum number of recursive tool calls to allow."""
 
 P = ParamSpec("P")
 R = t.TypeVar("R")
@@ -44,9 +49,10 @@ class Ctx:
 
     You can use this annotation on inputs and ouputs to prompt functions.
 
-    ```
-    tag_override = Annotated[str, Ctx(tag="custom_tag", ...)]
-    ```
+    Example:
+        ```
+        tag_override = Annotated[str, Ctx(tag="custom_tag", ...)]
+        ```
     """
 
     tag: str | None = None
@@ -390,7 +396,7 @@ def parse_output(annotation: t.Any, error_name: str, *, allow_nested: bool = Tru
         for field, field_annotation in zip(
             dataclasses.fields(annotation),
             interior_annotations,
-            strict=False,
+            strict=True,
         ):
             interior = parse_output(
                 field_annotation,
@@ -435,12 +441,10 @@ class Prompt(t.Generic[P, R]):
     func: t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | None = None
     """The function that the prompt was derived from."""
 
-    attempt_recovery: bool = True
-    """Whether the prompt should attempt to recover from errors in output parsing."""
-    drop_dialog: bool = True
-    """When attempting recovery, whether to drop intermediate dialog while parsing was being resolved."""
-    max_rounds: int = DEFAULT_MAX_ROUNDS
-    """The maximum number of rounds the prompt should try to reparse outputs."""
+    max_parsing_rounds: int = DEFAULT_MAX_PARSE_ROUNDS
+    """The maximum number of recursive output parsing attempts to allow."""
+    max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS
+    """The maximum number of recursive tool calls to allow."""
 
     inputs: list[Input] = dataclasses.field(default_factory=list)
     """The structured input handlers for the prompt."""
@@ -449,6 +453,11 @@ class Prompt(t.Generic[P, R]):
 
     watch_callbacks: "list[WatchChatCallback]" = dataclasses.field(default_factory=list)
     """Callbacks to be passed any chats produced while executing this prompt."""
+    then_callbacks: "list[ThenChatCallback]" = dataclasses.field(default_factory=list)
+    """Callbacks to be executed for every generated chat (see ChatPipeline.then)."""
+    map_callbacks: "list[MapChatCallback]" = dataclasses.field(default_factory=list)
+    """Callbacks to be executed for every generated chat (see ChatPipeline.map)."""
+
     params: GenerateParams | None = None
     """The parameters to be used when generating chats for this prompt."""
     tools: list[Tool] = dataclasses.field(default_factory=list)
@@ -542,42 +551,41 @@ class Prompt(t.Generic[P, R]):
             return get_generator(other).chat()
         raise ValueError(f"Invalid type for binding: {type(other)}")
 
-    def _until_parsed(self, message: Message) -> tuple[bool, list[Message]]:
-        should_continue: bool = False
-        generated: list[Message] = [message]
-
+    async def _then_parse(self, chat: Chat) -> PipelineStepContextManager | None:
         if self.output is None or isinstance(self.output, ChatOutput):
-            return (should_continue, generated)
+            return None
+
+        next_pipeline = chat.restart(include_all=True)
 
         try:
             # A bit weird, but we need from_chat to properly handle
             # wrapping Chat output types inside lists/dataclasses
-            self.output.from_chat(Chat([], generated=[message]))
+            self.output.from_chat(chat)
         except ValidationError as e:
-            should_continue = True
-            generated.append(
+            next_pipeline.add(
                 Message.from_model(
                     ValidationErrorModel(content=str(e)),
-                    suffix="Rewrite your entire message with all the required elements.",
+                    suffix="Rewrite your entire message with all the required xml structure.",
                 ),
             )
         except Exception as e:  # noqa: BLE001
-            should_continue = True
-            generated.append(
+            next_pipeline.add(
                 Message.from_model(
                     SystemErrorModel(content=str(e)),
-                    suffix="Rewrite your entire message with all the required elements.",
+                    suffix="Rewrite your entire message with all the required xml structure.",
                 ),
             )
+        else:  # parsed successfully
+            return None
 
-        return (should_continue, generated)
+        return next_pipeline.step()
 
-    def clone(self, *, skip_callbacks: bool = False) -> "Prompt[P, R]":
+    def clone(self, *, include_callbacks: bool = True) -> "Prompt[P, R]":
         """
         Creates a deep copy of this prompt.
 
         Args:
-            skip_callbacks: Whether to skip copying the watch callbacks.
+            include_callbacks: Whether to skip copying the watch callbacks.
 
         Returns:
             A new instance of the prompt.
@@ -586,14 +594,144 @@ class Prompt(t.Generic[P, R]):
             func=self.func,
             _pipeline=self.pipeline,
             params=self.params.model_copy() if self.params is not None else None,
-            attempt_recovery=self.attempt_recovery,
-            drop_dialog=self.drop_dialog,
-            max_rounds=self.max_rounds,
+            max_parsing_rounds=self.max_parsing_rounds,
+            max_tool_rounds=self.max_tool_rounds,
             system_prompt=self.system_prompt,
         )
-        if not skip_callbacks:
+        if not include_callbacks:
             new.watch_callbacks = self.watch_callbacks.copy()
+            new.then_callbacks = self.then_callbacks.copy()
         return new
+
+    def watch(
+        self,
+        *callbacks: WatchChatCallback,
+        allow_duplicates: bool = False,
+    ) -> "Prompt[P, R]":
+        """
+        Registers a callback to monitor any chats produced for this prompt
+
+        See ChatPipeline.watch for more details.
+
+        Args:
+            *callbacks: The callback functions to be executed.
+            allow_duplicates: Whether to allow duplicate callbacks.
+
+        Returns:
+            The updated prompt instance.
+
+        Example:
+            ```
+            async def log(chats: list[Chat]) -> None:
+                ...
+
+            @rg.prompt()
+            async def summarize(text: str) -> str:
+                ...
+
+            summarize.watch(log)(...)
+            ```
+        """
+        for callback in callbacks:
+            if not allow_duplicates and callback in self.watch_callbacks:
+                raise ValueError(
+                    f"Callback '{get_qualified_name(callback)}' is already registered.",
+                )
+
+        self.watch_callbacks.extend(callbacks)
+        return self
+
+    def then(
+        self,
+        *callbacks: ThenChatCallback,
+        allow_duplicates: bool = False,
+    ) -> "Prompt[P, R]":
+        """
+        Registers one or many callbacks to be executed during the prompt run
+
+        See ChatPipeline.then for more details.
+
+        Args:
+            callbacks: The callback functions to be added.
+            max_depth: The maximum depth to allow recursive pipeline calls during this callback.
+
+        Returns:
+            The updated prompt.
+
+        Example:
+            ```
+            async def score_summary(chat: Chat) -> Chat:
+                ...
+
+            @rg.prompt()
+            async def summarize(text: str) -> str:
+                ...
+
+            summarize.then(score_summary)(...)
+            ```
+        """
+        for callback in callbacks:
+            if not asyncio.iscoroutinefunction(callback):
+                raise TypeError(
+                    f"Callback '{get_qualified_name(callback)}' must be an async function",
+                )
+
+            if allow_duplicates:
+                continue
+
+            if callback in self.then_callbacks:
+                raise ValueError(
+                    f"Callback '{get_qualified_name(callback)}' is already registered.",
+                )
+
+        self.then_callbacks.extend(callbacks)
+        return self
+
+    def map(
+        self,
+        *callbacks: MapChatCallback,
+        allow_duplicates: bool = False,
+    ) -> "Prompt[P, R]":
+        """
+        Registers a callback to be executed for each chat produced during the prompt run.
+
+        See ChatPipeline.map for more details.
+
+        Args:
+            callback: The callback function to be executed.
+            max_depth: The maximum depth to allow recursive pipeline calls during this callback.
+
+        Returns:
+            The updated pipeline.
+
+        Example:
+            ```
+            async def summarize_chats(chats: list[Chat]) -> list[Chat]:
+                ...
+
+            @rg.prompt()
+            async def summarize(text: str) -> str:
+                ...
+
+            summarize.map(summarize_chats).bind_many()(10, ...)
+            ```
+        """
+        for callback in callbacks:
+            if not asyncio.iscoroutinefunction(callback):
+                raise TypeError(
+                    f"Callback '{get_qualified_name(callback)}' must be an async function",
+                )
+
+            if allow_duplicates:
+                continue
+
+            if callback in self.map_callbacks:
+                raise ValueError(
+                    f"Callback '{get_qualified_name(callback)}' is already registered.",
+                )
+
+        self.map_callbacks.extend(callbacks)
+        return self
 
     def with_(self, params: GenerateParams | None = None, **kwargs: t.Any) -> "Prompt[P, R]":
         """
@@ -615,60 +753,21 @@ class Prompt(t.Generic[P, R]):
 
     def set_(
         self,
-        attempt_recovery: bool | None = None,
-        drop_dialog: bool | None = None,
-        max_rounds: int | None = None,
+        max_parsing_rounds: int | None = None,
+        max_tool_rounds: int | None = None,
     ) -> "Prompt[P, R]":
         """
         Helper to allow updates to the parsing configuration.
 
         Args:
-            attempt_recovery: Whether the prompt should attempt to recover from errors in output parsing.
-            drop_dialog: When attempting recovery, whether to drop intermediate dialog while parsing was being resolved.
-            max_rounds: The maximum number of rounds the prompt should try to reparse outputs.
+            max_parsing_rounds: The maximum number of recursive output parsing attempts to allow.
+            max_tool_rounds: The maximum number of recursive tool calls to allow.
 
         Returns:
             Self
         """
-        self.attempt_recovery = attempt_recovery or self.attempt_recovery
-        self.drop_dialog = drop_dialog or self.drop_dialog
-        self.max_rounds = max_rounds or self.max_rounds
-        return self
-
-    def watch(self, *callbacks: "WatchChatCallback") -> "Prompt[P, R]":
-        """
-        Registers a callback to monitor any chats produced for this prompt
-
-        Args:
-            *callbacks: The callback functions to be executed.
-
-        ```
-        async def log(chats: list[Chat]) -> None:
-            ...
-
-        @rg.prompt()
-        async def summarize(text: str) -> str:
-            ...
-
-        summarize.watch(log)(...)
-        ```
-        or
-        ```
-        async def log(chats: list[Chat]) -> None:
-            ...
-
-        async def _summarize(text: str) -> str:
-            ...
-
-        summarize = rg.prompt(_summarize).watch(log)
-        ```
-
-        Returns:
-            Self
-        """
-        for callback in callbacks:
-            if callback not in self.watch_callbacks:
-                self.watch_callbacks.append(callback)
+        self.max_parsing_rounds = max_parsing_rounds or self.max_parsing_rounds
+        self.max_tool_rounds = max_tool_rounds or self.max_tool_rounds
         return self
 
     def _bind_args(self, *args: P.args, **kwargs: P.kwargs) -> t.OrderedDict[str, t.Any]:
@@ -716,19 +815,20 @@ class Prompt(t.Generic[P, R]):
         """
         Binds the prompt to a pipeline, generator, or chat and returns a scoped run callable.
 
-        ```
-        @rg.prompt
-        def say_hello(name: str) -> str:
-            \"""Say hello to {{ name }}\"""
-
-        await say_hello.bind("gpt-3.5-turbo")("the world")
-        ```
-
         Args:
             other: The pipeline, generator, generator id, or chat to bind to.
 
         Returns:
             A callable for executing this prompt
+
+        Example:
+            ```
+            @rg.prompt
+            def say_hello(name: str) -> str:
+                \"""Say hello to {{ name }}\"""
+
+            await say_hello.bind("gpt-3.5-turbo")("the world")
+            ```
         """
         pipeline = self._resolve_to_pipeline(other)
         if pipeline.on_failed == "skip":
@@ -751,19 +851,20 @@ class Prompt(t.Generic[P, R]):
         """
         Binds the prompt to a pipeline, generator, or chat and returns a scoped run_many callable.
 
-        ```
-        @rg.prompt
-        def say_hello(name: str) -> str:
-            \"""Say hello to {{ name }}\"""
-
-        await say_hello.bind("gpt-3.5-turbo")(5, "the world")
-        ```
-
         Args:
             other: The pipeline, generator, generator id, or chat to bind to.
 
         Returns:
             A callable for executing this prompt.
+
+        Example:
+            ```
+            @rg.prompt
+            def say_hello(name: str) -> str:
+                \"""Say hello to {{ name }}\"""
+
+            await say_hello.bind("gpt-3.5-turbo")(5, "the world")
+            ```
         """
         pipeline = self._resolve_to_pipeline(other)
         if pipeline.on_failed == "include" and not isinstance(self.output, ChatOutput):
@@ -782,13 +883,11 @@ class Prompt(t.Generic[P, R]):
                 content = self.render(*args, **kwargs)
                 _pipeline = (
                     pipeline.fork(content)
-                    .using(*self.tools)
-                    .until(
-                        self._until_parsed,
-                        attempt_recovery=self.attempt_recovery,
-                        drop_dialog=self.drop_dialog,
-                        max_rounds=self.max_rounds,
-                    )
+                    .using(*self.tools, max_depth=self.max_tool_rounds)
+                    .then(self._then_parse, max_depth=self.max_parsing_rounds)
+                    .then(*self.then_callbacks)
+                    .map(*self.map_callbacks)
+                    .watch(*self.watch_callbacks)
                     .with_(self.params)
                 )
 
@@ -838,19 +937,20 @@ class Prompt(t.Generic[P, R]):
         """
         Binds the prompt to a pipeline, generator, or chat and returns a scoped run_over callable.
 
-        ```
-        @rg.prompt
-        def say_hello(name: str) -> str:
-            \"""Say hello to {{ name }}\"""
-
-        await say_hello.bind("gpt-3.5-turbo")(["gpt-4o", "gpt-4"], "the world")
-        ```
-
         Args:
             other: The pipeline, generator, generator id, or chat to bind to.
 
         Returns:
             A callable for executing this prompt.
+
+        Example:
+            ```
+            @rg.prompt
+            def say_hello(name: str) -> str:
+                \"""Say hello to {{ name }}\"""
+
+            await say_hello.bind("gpt-3.5-turbo")(["gpt-4o", "gpt-4"], "the world")
+            ```
         """
         include_original = other is not None
 
@@ -875,13 +975,11 @@ class Prompt(t.Generic[P, R]):
             content = self.render(*args, **kwargs)
             _pipeline = (
                 pipeline.fork(content)
-                .using(*self.tools)
-                .until(
-                    self._until_parsed,
-                    attempt_recovery=self.attempt_recovery,
-                    drop_dialog=self.drop_dialog,
-                    max_rounds=self.max_rounds,
-                )
+                .using(*self.tools, max_depth=self.max_tool_rounds)
+                .then(self._then_parse, max_depth=self.max_parsing_rounds)
+                .then(*self.then_callbacks)
+                .map(*self.map_callbacks)
+                .watch(*self.watch_callbacks)
                 .with_(self.params)
             )
 
@@ -1031,25 +1129,6 @@ def prompt(
     Convert a hollow function into a Prompt, which can be called directly or passed a
     chat pipeline to execute the function and parse the outputs.
 
-    ```
-    from dataclasses import dataclass
-    import rigging as rg
-
-    @dataclass
-    class ExplainedJoke:
-        chat: rg.Chat
-        setup: str
-        punchline: str
-        explanation: str
-
-    @rg.prompt(generator_id="gpt-3.5-turbo")
-    async def write_joke(topic: str) -> ExplainedJoke:
-        \"""Write a joke.\"""
-        ...
-
-    await write_joke("programming")
-    ```
-
     Note:
         A docstring is not required, but this can be used to provide guidance to the model, or
         even handle any number of input transormations. Any input parameter which is not
@@ -1087,6 +1166,26 @@ def prompt(
 
     Returns:
         A prompt instance or a function that can be used to create a prompt.
+
+    Example:
+        ```
+        from dataclasses import dataclass
+        import rigging as rg
+
+        @dataclass
+        class ExplainedJoke:
+            chat: rg.Chat
+            setup: str
+            punchline: str
+            explanation: str
+
+        @rg.prompt(generator_id="gpt-3.5-turbo")
+        async def write_joke(topic: str) -> ExplainedJoke:
+            \"""Write a joke.\"""
+            ...
+
+        await write_joke("programming")
+        ```
     """
     if sum(arg is not None for arg in (pipeline, generator, generator_id)) > 1:
         raise ValueError("Only one of pipeline, generator, or generator_id can be provided")
@@ -1134,14 +1233,6 @@ def make_prompt(
     """
     Create a prompt at runtime from a basic string and return type (experimental).
 
-    ```
-    import rigging as rg
-
-    write_joke = rg.make_prompt("Write a joke.", ctx=rg.Ctx(tag="joke"))
-
-    await write_joke.bind("gpt-4o-mini")()
-    ```
-
     Note:
         Adding input parameters is not currently supported. Instead use
         the [rigging.prompt.prompt][] decorator.
@@ -1153,6 +1244,15 @@ def make_prompt(
 
     Returns:
         The constructed Prompt
+
+    Example:
+        ```
+        import rigging as rg
+
+        write_joke = rg.make_prompt("Write a joke.", ctx=rg.Ctx(tag="joke"))
+
+        await write_joke.bind("gpt-4o-mini")()
+        ```
     """
     return_type = return_type or str  # type: ignore [assignment]
     output = parse_output(

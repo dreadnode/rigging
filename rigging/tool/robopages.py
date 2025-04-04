@@ -56,8 +56,7 @@ def robopages(url: str, *, name_filter: str | None = None) -> list[Tool]:
         A list of integrated tools which leverage the Robopages server.
 
     Example:
-
-        ```python
+        ```
         import rigging as rg
 
         tools = rg.tool.robopages("http://localhost:8080")

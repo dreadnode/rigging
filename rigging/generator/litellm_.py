@@ -86,7 +86,7 @@ class LiteLLMGenerator(Generator):
         or [`min_delay_between_requests`][rigging.generator.litellm_.LiteLLMGenerator.min_delay_between_requests
         if you run into API limits. You can pass this directly in the generator id:
 
-        ```py
+        ```
         get_generator("litellm!openai/gpt-4o,max_connections=2,min_delay_between_requests=1000")
         ```
     """
@@ -149,8 +149,15 @@ class LiteLLMGenerator(Generator):
                     ],
                 )
 
-                if generated and generated[0].message.tool_calls:
-                    self._supports_function_calling = True
+                if generated:
+                    if isinstance(generated[0], BaseException):
+                        raise generated[0]  # noqa: TRY301
+
+                    if (
+                        isinstance(generated[0], GeneratedMessage)
+                        and generated[0].message.tool_calls
+                    ):
+                        self._supports_function_calling = True
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"Failed to check for function calling support: {e}")
                 span.set_attribute("error", str(e))
@@ -300,16 +307,19 @@ class LiteLLMGenerator(Generator):
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[GeneratedMessage]:
+    ) -> t.Sequence[GeneratedMessage | BaseException]:
         coros = [
             self._generate_message(_messages, _params)
-            for _messages, _params in zip(messages, params, strict=False)
+            for _messages, _params in zip(messages, params, strict=True)
         ]
-        generated = await asyncio.gather(*coros)
+        generated = await asyncio.gather(*coros, return_exceptions=True)
 
-        for i, (_messages, response) in enumerate(zip(messages, generated, strict=False)):
+        for i, (_messages, response) in enumerate(zip(messages, generated, strict=True)):
             trace_messages(_messages, f"Messages {i+1}/{len(messages)}")
-            trace_messages([response], f"Response {i+1}/{len(messages)}")
+            if isinstance(response, BaseException):
+                trace_str(str(response), f"Response {i+1}/{len(messages)}")
+            else:
+                trace_messages([response], f"Response {i+1}/{len(messages)}")
 
         return generated
 
@@ -317,23 +327,15 @@ class LiteLLMGenerator(Generator):
         self,
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[GeneratedText]:
-        generated: list[GeneratedText] = []
-        max_connections = self.max_connections if self.max_connections > 0 else len(texts)
-        for i in range(0, len(texts), max_connections):
-            chunk_texts = texts[i : i + max_connections]
-            chunk_params = params[i : i + max_connections]
-            chunk_generated = await asyncio.gather(
-                *[
-                    self._generate_text(text, _params)
-                    for text, _params in zip(chunk_texts, chunk_params, strict=False)
-                ],
-            )
-            generated.extend(chunk_generated)
+    ) -> t.Sequence[GeneratedText | BaseException]:
+        coros = [
+            self._generate_text(text, _params) for text, _params in zip(texts, params, strict=True)
+        ]
+        generated = await asyncio.gather(*coros, return_exceptions=True)
 
-            for k, (text, response) in enumerate(zip(chunk_texts, chunk_generated, strict=False)):
-                trace_str(text, f"Text {k+1}/{len(texts)}")
-                trace_str(response, f"Generated {k+1}/{len(texts)}")
+        for i, (text, response) in enumerate(zip(texts, generated, strict=True)):
+            trace_str(text, f"Text {i+1}/{len(texts)}")
+            trace_str(response, f"Response {i+1}/{len(texts)}")
 
         return generated
 

@@ -7,10 +7,12 @@ import copy
 import mimetypes
 import string
 import typing as t
+import warnings
 from pathlib import Path
 from textwrap import dedent
 from uuid import UUID, uuid4
 
+import typing_extensions as te
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -302,13 +304,18 @@ class Message(BaseModel):
         return serialized
 
     @property
+    @te.deprecated(".all_content is deprecated, use .content_parts instead", category=None)
     def all_content(self) -> str | list[Content]:
         """
         Returns all content parts of the message or the single text content part as a string.
 
-        Deprecated:
-            Use `.content_parts` instead
+        Deprecated - Use `.content_parts` instead
         """
+        warnings.warn(
+            ".all_content is deprecated, use .content_parts instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if len(self.content_parts) == 1 and isinstance(self.content_parts[0], ContentText):
             return self.content_parts[0].text
         return self.content_parts
@@ -395,7 +402,8 @@ class Message(BaseModel):
             next_ = obj["content"][i + 1]
 
             if (
-                current.get("type") == "text"
+                isinstance(current, dict)
+                and current.get("type") == "text"
                 and next_.get("type") == "text"
                 and not current.get("text", "").endswith("\n")
             ):

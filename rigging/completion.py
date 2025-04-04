@@ -336,15 +336,16 @@ class CompletionPipeline:
             *callbacks: The callback functions to be executed.
             allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
 
-        ```
-        async def log(completions: list[Completion]) -> None:
-            ...
-
-        await pipeline.watch(log).run()
-        ```
-
         Returns:
             The current instance.
+
+        Example:
+            ```
+            async def log(completions: list[Completion]) -> None:
+                ...
+
+            await pipeline.watch(log).run()
+            ```
         """
         for callback in callbacks:
             if allow_duplicates or callback not in self.watch_callbacks:
@@ -359,18 +360,19 @@ class CompletionPipeline:
             Returning a Completion object from the callback will replace the current completion.
             for the remainder of the callbacks + return value of `run()`.
 
-        ```
-        async def process(completion: Completion) -> Completion | None:
-            ...
-
-        await pipeline.then(process).run()
-        ```
-
         Args:
             callback: The callback function to be executed.
 
         Returns:
             The current instance of the pipeline.
+
+        Example:
+            ```
+            async def process(completion: Completion) -> Completion | None:
+                ...
+
+            await pipeline.then(process).run()
+            ```
         """
         self.then_callbacks.append(callback)
         return self
@@ -383,18 +385,19 @@ class CompletionPipeline:
             You must return a list of completion objects from the callback which will
             represent the state of completions for the remainder of the callbacks and return.
 
-        ```
-        async def process(completions: list[Completion]) -> list[Completion]:
-            ...
-
-        await pipeline.map(process).run()
-        ```
-
         Args:
             callback: The callback function to be executed.
 
         Returns:
             The current instance of the completion.
+
+        Example:
+            ```
+            async def process(completions: list[Completion]) -> list[Completion]:
+                ...
+
+            await pipeline.map(process).run()
+            ```
         """
         self.map_callbacks.append(callback)
         return self
@@ -493,18 +496,6 @@ class CompletionPipeline:
         """
         Registers a callback to participate in validating the generation process.
 
-        ```py
-        # Takes the generated text, and returns whether or not to retry generation.
-
-        def callback(text: str) -> bool:
-            if is_valid(text):
-                return False
-            else:
-                return True
-
-        await pipeline.until(callback).run()
-        ```
-
         Args:
             callback: The callback function to be executed.
             use_all_text: Whether to pass the entire text (including prompt) to the callback.
@@ -514,6 +505,19 @@ class CompletionPipeline:
 
         Returns:
             The current instance of the completion.
+
+        Example:
+            ```
+            # Takes the generated text, and returns whether or not to retry generation.
+
+            def callback(text: str) -> bool:
+                if is_valid(text):
+                    return False
+                else:
+                    return True
+
+            await pipeline.until(callback).run()
+            ```
         """
         self.until_callbacks.append((callback, use_all_text, max_rounds))
         return self
@@ -733,10 +737,16 @@ class CompletionPipeline:
         pending_states = states
         while pending_states:
             try:
-                inbounds = await self.generator.generate_texts(
+                _inbounds = await self.generator.generate_texts(
                     [(self.text + s.text) if batch_mode else s.text for s in pending_states],
                     [s.params for s in pending_states],
                 )
+
+                for inbound in _inbounds:
+                    if isinstance(inbound, Exception):
+                        raise inbound  # noqa: TRY301
+
+                inbounds = [inbound for inbound in _inbounds if isinstance(inbound, GeneratedText)]
             except Exception as e:  # noqa: BLE001
                 if on_failed == "raise" or not any(
                     isinstance(e, t) for t in self.errors_to_fail_on

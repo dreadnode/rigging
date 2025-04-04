@@ -1,5 +1,13 @@
 from rigging import data, error, generator, logging, model, parsing, watchers
-from rigging.chat import Chat, ChatPipeline, MapChatCallback, ThenChatCallback
+from rigging.chat import (
+    Chat,
+    ChatPipeline,
+    MapChatCallback,
+    PipelineStep,
+    PipelineStepContextManager,
+    PipelineStepGenerator,
+    ThenChatCallback,
+)
 from rigging.completion import (
     Completion,
     CompletionPipeline,
@@ -65,6 +73,9 @@ __all__ = [
     "MapChatCallback",
     "ThenCompletionCallback",
     "MapCompletionCallback",
+    "PipelineStep",
+    "PipelineStepGenerator",
+    "PipelineStepContextManager",
     "generator",
     "mcp",
     "robopages",
