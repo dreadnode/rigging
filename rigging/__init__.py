@@ -30,9 +30,9 @@ from rigging.model import Model, attr, element, wrapped
 from rigging.prompt import Ctx, Prompt, prompt
 from rigging.tool import Tool, mcp, robopages, tool
 from rigging.util import await_
+from rigging.version import VERSION
 
-# TODO: Migrate to importlib for this
-__version__ = "2.3.0"
+__version__ = VERSION
 
 __all__ = [
     "get_generator",
