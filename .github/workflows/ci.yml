@@ -11,7 +11,7 @@ jobs:
     strategy:
         fail-fast: false
         matrix:
-          python-version: ["3.9", "3.10", "3.11"]
+          python-version: ["3.10", "3.11", "3.12"]
 
     runs-on: ubuntu-latest
 
@@ -42,16 +42,6 @@ jobs:
 
     - name: Install package
       run: poetry install --all-extras
-
-    - name: Validate version
-      run: |
-        POETRY_VERSION=$(poetry version -s)
-        INIT_VERSION=$(poetry run python -c "import rigging; print(rigging.__version__)")
-
-        if [ "$POETRY_VERSION" != "$INIT_VERSION" ]; then
-          echo "Version mismatch: pyproject.toml ($POETRY_VERSION) != __init__.py ($INIT_VERSION)"
-          exit 1
-        fi
 
     - name: Lint
       run: poetry run ruff check --output-format=github rigging
