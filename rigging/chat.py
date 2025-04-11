@@ -890,14 +890,14 @@ class ChatPipeline:
                 (callback, max_depth)
                 if not hasattr(callback, "__self__")
                 or not isinstance(callback.__self__, ChatPipeline)
-                else (types.MethodType(callback.__func__, self), max_depth)  # type: ignore [union-attr]
+                else (types.MethodType(callback.__func__, new), max_depth)  # type: ignore [union-attr]
                 for callback, max_depth in self.then_callbacks.copy()
             ]
             new.map_callbacks = [
                 (callback, max_depth)
                 if not hasattr(callback, "__self__")
                 or not isinstance(callback.__self__, ChatPipeline)
-                else (types.MethodType(callback.__func__, self), max_depth)  # type: ignore [union-attr]
+                else (types.MethodType(callback.__func__, new), max_depth)  # type: ignore [union-attr]
                 for callback, max_depth in self.map_callbacks.copy()
             ]
 
@@ -1211,12 +1211,14 @@ class ChatPipeline:
             if tool is None:
                 raise UnknownToolError(tool_call.name)
 
-            message = await tool.handle_tool_call(tool_call)
+            message, _should_continue = await tool.handle_tool_call(tool_call)
+            next_pipeline.add(message)
 
-            if message is None:
-                should_continue = False
-            else:
-                next_pipeline.add(message)
+            # If the tool returns none, we should resolve tool calls, but
+            # not continue the pipeline.
+
+            if not _should_continue:
+                should_continue = _should_continue
 
         # Need to prevent infinite loops and treat tool_choice like
         # an ephemeral setting which resets after the first tool call.
@@ -1225,7 +1227,9 @@ class ChatPipeline:
             next_pipeline.params.tool_choice = None
 
         if not should_continue:
-            return None
+            # TODO(nick): Type hints here stop us from mixing step generators
+            # and basic chat returns.
+            return next_pipeline.chat  # type: ignore [return-value]
 
         return next_pipeline.step()
 

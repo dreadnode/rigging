@@ -218,7 +218,7 @@ class Tool:
     async def handle_tool_call(
         self,
         tool_call: ApiToolCall | XmlToolCall | JsonInXmlToolCall,
-    ) -> "Message | None":
+    ) -> tuple["Message", bool]:
         """
         Handle an incoming tool call from a generator.
 
@@ -293,7 +293,8 @@ class Tool:
         # they do not want to proceed with additional tool calling
 
         if result is None:
-            return None
+            message.content_parts = [ContentText(text="<none>")]
+            return message, False
 
         # If the tool gave us back anything that looks like a message, we'll
         # just pass it along. Otherwise we need to box up the result.
@@ -328,7 +329,7 @@ class Tool:
                 result=message.content_parts[0].text,
             ).to_pretty_xml()
 
-        return message
+        return message, True
 
 
 # Decorator
