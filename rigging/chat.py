@@ -1410,18 +1410,25 @@ class ChatPipeline:
                 [
                     Chat(
                         messages_,
-                        [] if isinstance(generated_, BaseException) else [generated_.message],
+                        [],
                         generator=self.generator,
                         pipeline=self,
                         metadata=self.metadata,
                         params=params_,
-                        stop_reason=None
-                        if isinstance(generated_, BaseException)
-                        else generated_.stop_reason,
-                        usage=None if isinstance(generated_, BaseException) else generated_.usage,
-                        extra=None if isinstance(generated_, BaseException) else generated_.extra,
-                        failed=isinstance(generated_, BaseException),
-                        error=generated_ if isinstance(generated_, BaseException) else None,
+                        failed=True,
+                        error=generated_,
+                    )
+                    if isinstance(generated_, BaseException)
+                    else Chat(
+                        messages_,
+                        [generated_.message],
+                        generator=self.generator,
+                        pipeline=self,
+                        metadata=self.metadata,
+                        params=params_,
+                        stop_reason=generated_.stop_reason,
+                        usage=generated_.usage,
+                        extra=generated_.extra,
                     )
                     for messages_, params_, generated_ in zip(
                         messages,
