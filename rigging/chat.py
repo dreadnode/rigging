@@ -364,7 +364,7 @@ class Chat(BaseModel):
             self.messages[0].content += "\n\n" + content
         return self
 
-    def inject_tool_prompt(self, tools: t.Sequence[Tool], mode: ToolMode) -> "Chat":
+    def inject_tool_prompt(self, tools: t.Sequence[Tool[..., t.Any]], mode: ToolMode) -> "Chat":
         """
         Injects a default tool use prompt into the system prompt.
 
@@ -695,7 +695,7 @@ class ChatPipeline:
         """How to handle cache_control entries on messages."""
 
         self.until_types: list[type[Model]] = []
-        self.tools: list[Tool] = []
+        self.tools: list[Tool[..., t.Any]] = []
         self.tool_mode: ToolMode = "auto"
         self.api_tool_choice: ApiToolChoice | None = None
         self.inject_tool_prompt = True
@@ -1066,7 +1066,9 @@ class ChatPipeline:
 
     def using(
         self,
-        *tools: Tool | t.Callable[..., t.Any] | t.Sequence[Tool | t.Callable[..., t.Any]],
+        *tools: Tool[..., t.Any]
+        | t.Callable[..., t.Any]
+        | t.Sequence[Tool[..., t.Any] | t.Callable[..., t.Any]],
         mode: ToolMode | None = None,
         choice: ApiToolChoice | None = None,
         max_depth: int = DEFAULT_MAX_DEPTH,

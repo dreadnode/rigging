@@ -44,7 +44,7 @@ def make_execute_on_server(url: str, tool_name: str) -> t.Callable[..., t.Any]:
     return execute_on_server
 
 
-def robopages(url: str, *, name_filter: str | None = None) -> list[Tool]:
+def robopages(url: str, *, name_filter: str | None = None) -> list[Tool[..., t.Any]]:
     """
     Create a list of tools from a Robopages server.
 
@@ -83,7 +83,7 @@ def robopages(url: str, *, name_filter: str | None = None) -> list[Tool]:
 
     logger.info(f"Fetched {len(tool_definitions)} functions from Robopages ({url})")
 
-    tools: list[Tool] = []
+    tools: list[Tool[..., t.Any]] = []
     for definition in tool_definitions:
         function = definition.function
 

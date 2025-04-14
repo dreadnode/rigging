@@ -27,6 +27,9 @@ from rigging.util import deref_json
 if t.TYPE_CHECKING:
     from rigging.message import Message
 
+P = t.ParamSpec("P")
+R = t.TypeVar("R")
+
 ToolMode = t.Literal["auto", "api", "xml", "json-in-xml"]
 """
 How tool calls are handled.
@@ -39,7 +42,7 @@ How tool calls are handled.
 
 
 @dataclass
-class Tool:
+class Tool(t.Generic[P, R]):
     """Base class for representing a tool to a generator."""
 
     name: str
@@ -48,8 +51,16 @@ class Tool:
     """A description of the tool."""
     parameters_schema: dict[str, t.Any]
     """The JSON schema for the tool's parameters."""
-    fn: t.Callable[..., t.Any]
+    fn: t.Callable[P, R]
     """The function to call."""
+    catch: bool | set[type[Exception]] = False
+    """
+    Whether to catch exceptions and return them as messages.
+
+    - `False`: Do not catch exceptions.
+    - `True`: Catch all exceptions.
+    - `list[type[Exception]]`: Catch only the specified exceptions.
+    """
 
     _signature: inspect.Signature | None = field(default=None, init=False, repr=False)
     _type_adapter: TypeAdapter[t.Any] | None = field(default=None, init=False, repr=False)
@@ -68,11 +79,12 @@ class Tool:
     @classmethod
     def from_callable(
         cls,
-        fn: t.Callable[..., t.Any],
+        fn: t.Callable[P, R],
         *,
         name: str | None = None,
         description: str | None = None,
-    ) -> "Tool":
+        catch: bool | t.Iterable[type[Exception]] = False,
+    ) -> "Tool[P, R]":
         from rigging.prompt import Prompt
 
         fn_for_signature = fn
@@ -84,7 +96,7 @@ class Tool:
 
         if isinstance(fn, Prompt):
             fn_for_signature = fn.func  # type: ignore [assignment]
-            fn = fn.run
+            fn = fn.run  # type: ignore [assignment]
 
         # In the case that we are recieving a bound function which is tracking
         # an originating prompt, unwrap the prompt and use it's function for
@@ -162,9 +174,11 @@ class Tool:
             description=description or fn_for_signature.__doc__ or "",
             parameters_schema=schema,
             fn=fn,
+            catch=catch if isinstance(catch, bool) else set(catch),
         )
 
         self._signature = signature
+        self.__signature__ = signature  # type: ignore [attr-defined]
 
         # For handling API calls, we'll use the type adapter to validate
         # the arguments before calling the function
@@ -226,7 +240,7 @@ class Tool:
             tool_call: The tool call to handle.
 
         Returns:
-            The message to send back to the generator or None if tool calling should not proceed.
+            The message to send back to the generator or `None` if iterative tool calling should not proceed any further.
         """
 
         from rigging.message import ContentText, ContentTypes, Message
@@ -248,12 +262,12 @@ class Tool:
 
             # Load + validate arguments
 
-            args: dict[str, t.Any]
+            kwargs: dict[str, t.Any]
             if isinstance(tool_call, ApiToolCall | JsonInXmlToolCall):
-                args = json.loads(tool_call_parameters)
+                kwargs = json.loads(tool_call_parameters)
 
                 if self._type_adapter is not None:
-                    args = self._type_adapter.validate_python(args)
+                    kwargs = self._type_adapter.validate_python(kwargs)
 
             elif isinstance(tool_call, XmlToolCall):
                 parsed = self.model.from_text(
@@ -268,18 +282,26 @@ class Tool:
                 # argument object instances. We'll just flatten the
                 # model into a dictionary for the function call.
 
-                args = {
+                kwargs = {
                     field_name: getattr(parameters, field_name, None)
                     for field_name in self.model.model_fields
                 }
 
-            span.set_attribute("arguments", args)
+            span.set_attribute("arguments", kwargs)
 
             # Call the function
 
-            result = self.fn(**args)
-            if inspect.isawaitable(result):
-                result = await result
+            try:
+                result: t.Any = self.fn(**kwargs)  # type: ignore [call-arg]
+                if inspect.isawaitable(result):
+                    result = await result
+            except Exception as e:  # noqa: BLE001
+                if self.catch is True or (
+                    not isinstance(self.catch, bool) and isinstance(e, tuple(self.catch))
+                ):
+                    result = f'<error type="{e.__class__.__name__}">:{e}</error>'
+                else:
+                    raise
 
             span.set_attribute("result", result)
 
@@ -331,6 +353,9 @@ class Tool:
 
         return message, True
 
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
+        return self.fn(*args, **kwargs)
+
 
 # Decorator
 
@@ -342,28 +367,31 @@ def tool(
     *,
     name: str | None = None,
     description: str | None = None,
-) -> t.Callable[[t.Callable[..., t.Any]], Tool]:
+    catch: bool | t.Iterable[type[Exception]] = False,
+) -> t.Callable[[t.Callable[P, R]], Tool[P, R]]:
     ...
 
 
 @t.overload
 def tool(
-    func: t.Callable[..., t.Any],
+    func: t.Callable[P, R],
     /,
     *,
     name: str | None = None,
     description: str | None = None,
-) -> Tool:
+    catch: bool | t.Iterable[type[Exception]] = False,
+) -> Tool[P, R]:
     ...
 
 
 def tool(
-    func: t.Callable[..., t.Any] | None = None,
+    func: t.Callable[P, R] | None = None,
     /,
     *,
     name: str | None = None,
     description: str | None = None,
-) -> t.Callable[[t.Callable[..., t.Any]], Tool] | Tool:
+    catch: bool | t.Iterable[type[Exception]] = False,
+) -> t.Callable[[t.Callable[P, R]], Tool[P, R]] | Tool[P, R]:
     """
     Decorator for creating a Tool, useful for overriding a name or description.
 
@@ -371,13 +399,17 @@ def tool(
         func: The function to wrap.
         name: The name of the tool.
         description: The description of the tool.
+        catch: Whether to catch exceptions and return them as messages.
+            - `False`: Do not catch exceptions.
+            - `True`: Catch all exceptions.
+            - `list[type[Exception]]`: Catch only the specified exceptions.
 
     Returns:
         The decorated Tool object.
     """
 
-    def make_tool(func: t.Callable[..., t.Any]) -> Tool:
-        return Tool.from_callable(func, name=name, description=description)
+    def make_tool(func: t.Callable[..., t.Any]) -> Tool[P, R]:
+        return Tool.from_callable(func, name=name, description=description, catch=catch)
 
     if func is not None:
         return make_tool(func)

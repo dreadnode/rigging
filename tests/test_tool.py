@@ -10,7 +10,7 @@ from pydantic import BaseModel
 import rigging as rg
 from rigging.error import ToolDefinitionError
 from rigging.model import Model, make_from_schema, make_from_signature
-from rigging.tool.api import ApiFunctionDefinition, ApiToolDefinition
+from rigging.tool.api import ApiFunctionCall, ApiFunctionDefinition, ApiToolCall, ApiToolDefinition
 from rigging.tool.base import Tool
 from rigging.tool.native import JsonInXmlToolCall, XmlToolCall, XmlToolDefinition
 
@@ -197,7 +197,7 @@ class TestToolHandleCall:
     """Test suite for tool call handling."""
 
     @pytest.fixture()
-    def sample_tool(self) -> Tool:
+    def sample_tool(self) -> Tool[..., t.Any]:
         def calculator(a: int, b: int, operation: str = "add") -> int:
             """Perform math operations."""
             if operation == "add":
@@ -211,7 +211,7 @@ class TestToolHandleCall:
         return Tool.from_callable(calculator)
 
     @pytest.mark.asyncio()
-    async def test_handle_api_tool_call(self, sample_tool: Tool) -> None:
+    async def test_handle_api_tool_call(self, sample_tool: Tool[..., t.Any]) -> None:
         """Test handling API format tool calls."""
         from rigging.tool.api import ApiFunctionCall, ApiToolCall
 
@@ -223,15 +223,16 @@ class TestToolHandleCall:
             ),
         )
 
-        message = await sample_tool.handle_tool_call(tool_call)
+        message, should_continue = await sample_tool.handle_tool_call(tool_call)
 
+        assert should_continue is True
         assert message is not None
         assert message.role == "tool"
         assert message.tool_call_id == "call123"
         assert message.content == "15"
 
     @pytest.mark.asyncio()
-    async def test_handle_xml_tool_call(self, sample_tool: Tool) -> None:
+    async def test_handle_xml_tool_call(self, sample_tool: Tool[..., t.Any]) -> None:
         """Test handling XML format tool calls."""
         tool_call = XmlToolCall(
             name="calculator",
@@ -244,22 +245,24 @@ class TestToolHandleCall:
             ).strip(),
         )
 
-        message = await sample_tool.handle_tool_call(tool_call)
+        message, should_continue = await sample_tool.handle_tool_call(tool_call)
 
+        assert should_continue is True
         assert message is not None
         assert message.role == "user"
         assert message.content == '<tool-result name="calculator">8</tool-result>'
 
     @pytest.mark.asyncio()
-    async def test_handle_json_xml_tool_call(self, sample_tool: Tool) -> None:
+    async def test_handle_json_xml_tool_call(self, sample_tool: Tool[..., t.Any]) -> None:
         """Test handling JSON-in-XML format tool calls."""
         tool_call = JsonInXmlToolCall(
             name="calculator",
             parameters=json.dumps({"a": 4, "b": 4, "operation": "add"}),
         )
 
-        message = await sample_tool.handle_tool_call(tool_call)
+        message, should_continue = await sample_tool.handle_tool_call(tool_call)
 
+        assert should_continue is True
         assert message is not None
         assert message.role == "user"
         assert message.content == '<tool-result name="calculator">8</tool-result>'
@@ -350,3 +353,33 @@ def test_complex_model_parameters() -> None:
     # This should raise an error since dataclasses aren't supported
     with pytest.raises(ToolDefinitionError):
         Tool.from_callable(process_settings).xml_definition  # noqa: B018
+
+
+@pytest.mark.asyncio()
+async def test_tool_error_catching() -> None:
+    """Test that errors in tool functions are caught and reported."""
+
+    def faulty_function(x: int) -> int:
+        """A function that raises an error."""
+        raise ValueError("This is a test error")
+
+    tool = Tool.from_callable(faulty_function)
+    tool_call = ApiToolCall(
+        id="call123",
+        function=ApiFunctionCall(name="faulty_function", arguments='{"x": 5}'),
+    )
+
+    with pytest.raises(ValueError, match="This is a test error"):
+        await tool.handle_tool_call(tool_call)
+
+    tool = Tool.from_callable(faulty_function, catch={RuntimeError})
+
+    with pytest.raises(ValueError, match="This is a test error"):
+        await tool.handle_tool_call(tool_call)
+
+    tool = Tool.from_callable(faulty_function, catch={ValueError})
+
+    message, should_continue = await tool.handle_tool_call(tool_call)
+
+    assert should_continue is True
+    assert "This is a test error" in message.content

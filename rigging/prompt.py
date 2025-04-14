@@ -460,7 +460,7 @@ class Prompt(t.Generic[P, R]):
 
     params: GenerateParams | None = None
     """The parameters to be used when generating chats for this prompt."""
-    tools: list[Tool] = dataclasses.field(default_factory=list)
+    tools: list[Tool[..., t.Any]] = dataclasses.field(default_factory=list)
     """The API tools to be made available when generating chats for this prompt."""
     system_prompt: str | None = None
     """A system prompt fragment to be injected into the messages before generation."""
@@ -1078,7 +1078,7 @@ def prompt(
     pipeline: ChatPipeline | None = None,
     generator: Generator | None = None,
     generator_id: str | None = None,
-    tools: list[Tool | t.Callable[..., t.Any]] | None = None,
+    tools: list[Tool[..., t.Any] | t.Callable[..., t.Any]] | None = None,
     system_prompt: str | None = None,
 ) -> t.Callable[[t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R]], Prompt[P, R]]:
     ...
@@ -1092,7 +1092,7 @@ def prompt(
     pipeline: ChatPipeline | None = None,
     generator: Generator | None = None,
     generator_id: str | None = None,
-    tools: list[Tool | t.Callable[..., t.Any]] | None = None,
+    tools: list[Tool[..., t.Any] | t.Callable[..., t.Any]] | None = None,
     system_prompt: str | None = None,
 ) -> Prompt[P, R]:
     ...
@@ -1106,7 +1106,7 @@ def prompt(
     pipeline: ChatPipeline | None = None,
     generator: Generator | None = None,
     generator_id: str | None = None,
-    tools: list[Tool | t.Callable[..., t.Any]] | None = None,
+    tools: list[Tool[..., t.Any] | t.Callable[..., t.Any]] | None = None,
     system_prompt: str | None = None,
 ) -> Prompt[P, R]:
     ...
@@ -1119,7 +1119,7 @@ def prompt(
     pipeline: ChatPipeline | None = None,
     generator: Generator | None = None,
     generator_id: str | None = None,
-    tools: list[Tool | t.Callable[..., t.Any]] | None = None,
+    tools: list[Tool[..., t.Any] | t.Callable[..., t.Any]] | None = None,
     system_prompt: str | None = None,
 ) -> (
     t.Callable[[t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R]], Prompt[P, R]]

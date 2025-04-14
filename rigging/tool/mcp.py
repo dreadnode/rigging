@@ -69,7 +69,7 @@ class MCPClient:
     """The transport to use"""
     connection: StdioConnection | SSEConnection
     """Connection configuration"""
-    tools: list[Tool]
+    tools: list[Tool[..., t.Any]]
     """A list of tools available on the server"""
 
     def __init__(self, transport: Transport, connection: StdioConnection | SSEConnection) -> None:
