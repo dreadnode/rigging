@@ -5,10 +5,13 @@ Core types and functions for defining tools and handling tool calls.
 import functools
 import inspect
 import json
+import re
 import typing as t
+import warnings
 from dataclasses import dataclass, field
 from functools import cached_property
 
+import typing_extensions as te
 from pydantic import TypeAdapter
 
 from rigging.error import ToolDefinitionError
@@ -41,6 +44,15 @@ How tool calls are handled.
 """
 
 
+def _is_unbound_method(func: t.Any) -> bool:
+    is_method = (
+        (inspect.ismethod(func) or (hasattr(func, "__qualname__") and "." in func.__qualname__))
+        and not isinstance(func, staticmethod)
+        and not isinstance(func, classmethod)
+    )
+    return is_method is not hasattr(func, "__self__")
+
+
 @dataclass
 class Tool(t.Generic[P, R]):
     """Base class for representing a tool to a generator."""
@@ -63,7 +75,11 @@ class Tool(t.Generic[P, R]):
     """
 
     _signature: inspect.Signature | None = field(default=None, init=False, repr=False)
-    _type_adapter: TypeAdapter[t.Any] | None = field(default=None, init=False, repr=False)
+    _type_adapter: TypeAdapter[t.Any] | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
     _model: type[Model] | None = field(default=None, init=False, repr=False)
 
     # In general we are split between 2 strategies for handling the data translations:
@@ -84,7 +100,7 @@ class Tool(t.Generic[P, R]):
         name: str | None = None,
         description: str | None = None,
         catch: bool | t.Iterable[type[Exception]] = False,
-    ) -> "Tool[P, R]":
+    ) -> te.Self:
         from rigging.prompt import Prompt
 
         fn_for_signature = fn
@@ -169,9 +185,12 @@ class Tool(t.Generic[P, R]):
 
         schema = deref_json(schema, is_json_schema=True)
 
+        description = inspect.cleandoc(description or fn_for_signature.__doc__ or "")
+        description = re.sub(r"(?![\r\n])(\b\s+)", " ", description)
+
         self = cls(
             name=name or fn_for_signature.__name__,
-            description=description or fn_for_signature.__doc__ or "",
+            description=description,
             parameters_schema=schema,
             fn=fn,
             catch=catch if isinstance(catch, bool) else set(catch),
@@ -219,7 +238,11 @@ class Tool(t.Generic[P, R]):
 
     @cached_property
     def xml_definition(self) -> XmlToolDefinition:
-        return XmlToolDefinition.from_parameter_model(self.model, self.name, self.description)
+        return XmlToolDefinition.from_parameter_model(
+            self.model,
+            self.name,
+            self.description,
+        )
 
     @cached_property
     def json_definition(self) -> JsonInXmlToolDefinition:
@@ -270,11 +293,21 @@ class Tool(t.Generic[P, R]):
                     kwargs = self._type_adapter.validate_python(kwargs)
 
             elif isinstance(tool_call, XmlToolCall):
-                parsed = self.model.from_text(
-                    self.model.xml_start_tag() + tool_call_parameters + self.model.xml_end_tag(),
-                )
+                try:
+                    parsed = self.model.from_text(
+                        self.model.xml_start_tag()
+                        + tool_call_parameters
+                        + self.model.xml_end_tag(),
+                    )
+                except Exception as e:  # noqa: BLE001
+                    raise ValueError(
+                        f"Failed to parse parameters from:\n{tool_call_parameters}",
+                    ) from e
+
                 if not parsed:
-                    raise ValueError("Failed to parse parameters")
+                    raise ValueError(
+                        f"Failed to parse parameters from:\n{tool_call_parameters}",
+                    )
 
                 parameters = parsed[0][0]
 
@@ -299,7 +332,7 @@ class Tool(t.Generic[P, R]):
                 if self.catch is True or (
                     not isinstance(self.catch, bool) and isinstance(e, tuple(self.catch))
                 ):
-                    result = f'<error type="{e.__class__.__name__}">:{e}</error>'
+                    result = f'<error type="{e.__class__.__name__}">{e}</error>'
                 else:
                     raise
 
@@ -314,9 +347,7 @@ class Tool(t.Generic[P, R]):
         # If the tool returns nothing back to us, we'll assume that
         # they do not want to proceed with additional tool calling
 
-        if result is None:
-            message.content_parts = [ContentText(text="<none>")]
-            return message, False
+        should_continue = result is not None
 
         # If the tool gave us back anything that looks like a message, we'll
         # just pass it along. Otherwise we need to box up the result.
@@ -325,7 +356,11 @@ class Tool(t.Generic[P, R]):
             message.content_parts = result.content_parts
         elif isinstance(result, ContentTypes):
             message.content_parts = [result]
-        elif isinstance(result, list) and all(isinstance(item, ContentTypes) for item in result):
+        elif (
+            isinstance(result, list)
+            and result
+            and all(isinstance(item, ContentTypes) for item in result)
+        ):
             message.content_parts = result
         else:
             message.content_parts = [ContentText(text=str(result))]
@@ -351,13 +386,10 @@ class Tool(t.Generic[P, R]):
                 result=message.content_parts[0].text,
             ).to_pretty_xml()
 
-        return message, True
+        return message, should_continue
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         return self.fn(*args, **kwargs)
-
-
-# Decorator
 
 
 @t.overload
@@ -376,10 +408,6 @@ def tool(
 def tool(
     func: t.Callable[P, R],
     /,
-    *,
-    name: str | None = None,
-    description: str | None = None,
-    catch: bool | t.Iterable[type[Exception]] = False,
 ) -> Tool[P, R]:
     ...
 
@@ -406,10 +434,141 @@ def tool(
 
     Returns:
         The decorated Tool object.
+
+    Example:
+        ```
+        @tool(name="add_numbers", description="This is my tool")
+        def add(x: int, y: int) -> int:
+            return x + y
+        ```
     """
 
     def make_tool(func: t.Callable[..., t.Any]) -> Tool[P, R]:
+        if _is_unbound_method(func):
+            warnings.warn(
+                "Passing a class method to @tool improperly handles the 'self' argument, use @tool_method instead.",
+                SyntaxWarning,
+                stacklevel=3,
+            )
+
         return Tool.from_callable(func, name=name, description=description, catch=catch)
+
+    if func is not None:
+        return make_tool(func)
+
+    return make_tool
+
+
+# Special code for handling tool decorators on class methods
+
+
+class ToolMethod(Tool[P, R]):
+    """A Tool wrapping a class method."""
+
+    def __get__(self, instance: t.Any, owner: t.Any) -> "Tool[P, R]":
+        if instance is None:
+            return self
+
+        bound_method = self.fn.__get__(instance, owner)
+        bound_tool = Tool[P, R](
+            name=self.name,
+            description=self.description,
+            parameters_schema=self.parameters_schema,
+            fn=bound_method,
+            catch=self.catch,
+        )
+
+        bound_tool.__signature__ = self.__signature__  # type: ignore [attr-defined]
+        bound_tool._signature = self._signature  # noqa: SLF001
+        bound_tool._type_adapter = self._type_adapter  # noqa: SLF001
+        bound_tool._model = self._model  # noqa: SLF001
+
+        return bound_tool
+
+
+@t.overload
+def tool_method(
+    func: None = None,
+    /,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    catch: bool | t.Iterable[type[Exception]] = False,
+) -> t.Callable[[t.Callable[t.Concatenate[t.Any, P], R]], ToolMethod[P, R]]:
+    ...
+
+
+@t.overload
+def tool_method(
+    func: t.Callable[t.Concatenate[t.Any, P], R],
+    /,
+) -> ToolMethod[P, R]:
+    ...
+
+
+def tool_method(
+    func: t.Callable[t.Concatenate[t.Any, P], R] | None = None,
+    /,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    catch: bool | t.Iterable[type[Exception]] = False,
+) -> t.Callable[[t.Callable[t.Concatenate[t.Any, P], R]], ToolMethod[P, R]] | ToolMethod[P, R]:
+    """
+    Decorator for creating a Tool from a class method.
+
+    The tool produced from this method will be incomplete until it is called
+    from an instantiated class. If you don't require any active state from
+    a `self` argument, consider wrapping a method first with `@staticmethod`
+    and then using `@tool` to create a tool from it.
+
+    See `@tool` for more details.
+
+    Example:
+        ```
+        class Thing:
+            delta: int = 5
+
+            @tool_method(name="add_numbers_with_delta", description="This is my tool")
+            def delta_add(self, x: int, y: int) -> int:
+                return x + y + self.delta
+
+            @tool(name="add_numbers", description="This is my tool")
+            @staticmethod
+            def static_add(x: int, y: int) -> int:
+                return x + y
+        ```
+    """
+
+    def make_tool(func: t.Callable[..., t.Any]) -> ToolMethod[P, R]:
+        if not _is_unbound_method(func):
+            warnings.warn(
+                "Passing a regular function to @tool_method improperly handles the 'self' argument, use @tool instead.",
+                SyntaxWarning,
+                stacklevel=3,
+            )
+
+        # Strip the `self` argument from the function signature so
+        # our schema generation doesn't include it under the hood.
+
+        @functools.wraps(func)
+        def wrapper(self: t.Any, *args: P.args, **kwargs: P.kwargs) -> R:
+            return func(self, *args, **kwargs)  # type: ignore [no-any-return]
+
+        wrapper.__signature__ = inspect.signature(func).replace(  # type: ignore [attr-defined]
+            parameters=tuple(
+                param
+                for param in inspect.signature(func).parameters.values()
+                if param.name != "self"
+            ),
+        )
+
+        return ToolMethod.from_callable(
+            wrapper,  # type: ignore [arg-type]
+            name=name,
+            description=description,
+            catch=catch,
+        )
 
     if func is not None:
         return make_tool(func)

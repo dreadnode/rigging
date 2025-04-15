@@ -10,6 +10,8 @@ from pydantic_xml import attr, element
 
 from rigging.model import Model
 
+TOOL_CALLS_TAG = "rg:tool-calls"
+
 # xml
 
 
@@ -96,7 +98,7 @@ class XmlToolDefinition(Model, tag="tool-def"):
         return cls(name=name, description=description, parameters=params_xml)
 
 
-class XmlToolCall(Model, tag="tool"):
+class XmlToolCall(Model, tag="invoke"):
     name: str = attr()
     parameters: str
 
@@ -110,7 +112,7 @@ class JsonInXmlToolDefinition(Model, tag="tool-def"):
     parameters: str = element()
 
 
-class JsonInXmlToolCall(Model, tag="tool"):
+class JsonInXmlToolCall(Model, tag="invoke"):
     name: str = attr()
     parameters: str
 
@@ -128,10 +130,12 @@ class NativeToolResult(Model, tag="tool-result"):
 XML_CALL_FORMAT = """\
 To use a tool, respond with the following format:
 
-<tool name="tool_name">
-    <param1>argument one</param1>
-    <param_b>123</param_b>
-</tool>
+<rg:tool-calls>
+    <invoke name="$tool_name">
+        <$param_name>argument one</$param_name>
+        <$param_name>123</$param_name>
+    </invoke>
+</rg:tool-calls>
 
 If a parameter is a primitive list, provide child elements as items:
 <numbers>
@@ -157,9 +161,11 @@ If a parameter is a dictionary, provide key-value pairs as attributes:
 XML_IN_JSON_CALL_FORMAT = """\
 To use a tool, respond with the following format:
 
-<tool name="tool_name">
-    {"arg1": "argument one", "arg2": 123}
-</tool>
+<rg:tool-calls>
+    <invoke name="$tool_name">
+        {"$param_name": "argument one", "$param_name": 123}
+    </invoke>
+</rg:tool-calls>
 
 Arguments should be provided as a valid JSON object between the tags.\
 """
@@ -184,9 +190,9 @@ In this environment you have access to a set of tools you can use.
 {call_format}
 
 ## Tool Use Instructions
-You can use any of the available tools by responding in the call format above. The XML will be parsed \
-and the tool(s) will be executed with the parameters you provided. The results of each tool call will \
-be provided back to you before you continue the conversation. You can execute multiple tool calls by \
-continuing to respond in the format above until you are finished. Function calls take explicit values \
-and are independent of each other. Tool calls cannot share, re-use, and transfer values between eachother.
+- Answer the user's request using the relevant tool(s), if they are available.
+- You may issue multiple tools in a single response if needed.
+- Check that all the required parameters for each tool call are provided or can reasonably be inferred from context.
+- If there are no relevant tools or there are missing values for required parameters, ask the user to supply these values; otherwise proceed with the tool calls.
+- Carefully analyze descriptive terms in the request as they may indicate required parameter values that should be included even if not explicitly quoted.
 """

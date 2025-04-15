@@ -86,7 +86,15 @@ class Model(BaseXmlModel):
         # Some models appear to do better if the separator is a dash
         # instead of a underscore, and users are free to override
         # as needed.
-        super().__init_subclass__(tag, ns, nsmap, ns_attrs, skip_empty, search_mode, **kwargs)
+        super().__init_subclass__(
+            tag,
+            ns,
+            nsmap,
+            ns_attrs,
+            skip_empty,
+            search_mode,
+            **kwargs,
+        )
         cls.__xml_tag__ = tag or XmlTagDescriptor()  # type: ignore [assignment]
 
     # to_xml() doesn't prettify normally, and extended
@@ -313,7 +321,11 @@ class Model(BaseXmlModel):
 
             inner_match: re.Match[str] | None = match
             while inner_match is not None:
-                inner_matches = re.finditer(pattern, inner_with_end_tag, flags=re.DOTALL)
+                inner_matches = re.finditer(
+                    pattern,
+                    inner_with_end_tag,
+                    flags=re.DOTALL,
+                )
                 inner_match = next(
                     (m for m in inner_matches if m.group(2) == cls.__xml_tag__),
                     None,
@@ -338,7 +350,9 @@ class Model(BaseXmlModel):
                         if not isinstance(field, XmlEntityInfo)
                     )
                     if field.annotation in BASIC_TYPES:
-                        model.__dict__[name] = field.annotation(unescape_xml(inner).strip())
+                        model.__dict__[name] = field.annotation(
+                            unescape_xml(inner).strip(),
+                        )
 
                 extracted.append((model, slice(match.start(), match.end())))
             except Exception as e:  # noqa: BLE001
@@ -355,7 +369,12 @@ class Model(BaseXmlModel):
         return sorted(extracted, key=lambda x: x[1].start)
 
     @classmethod
-    def one_from_text(cls, content: str, *, fail_on_many: bool = False) -> tuple[te.Self, slice]:
+    def one_from_text(
+        cls,
+        content: str,
+        *,
+        fail_on_many: bool = False,
+    ) -> tuple[te.Self, slice]:
         """
         Finds and returns a single match from the given text content.
 
@@ -446,7 +465,10 @@ FieldType = t.Any  # aliases for my sanity
 FieldInfo = t.Any
 
 
-def _process_field(field_name: str, field_schema: dict[str, t.Any]) -> tuple[FieldType, FieldInfo]:
+def _process_field(
+    field_name: str,
+    field_schema: dict[str, t.Any],
+) -> tuple[FieldType, FieldInfo]:
     """Process a field schema and return appropriate type and field info."""
     field_info: FieldInfo = {}
 
@@ -570,12 +592,15 @@ def _safe_issubclass(cls: t.Any, class_or_tuple: t.Any) -> bool:
 def _is_complex_type(typ: t.Any) -> bool:
     """Check if a type is a complex type (class-based, not primitive)."""
     try:
-        return _safe_issubclass(typ, (str, int, float, bool, bytes)) and typ is not t.Any
+        return not _safe_issubclass(typ, (str, int, float, bool, bytes)) and typ is not t.Any
     except TypeError:
         return False
 
 
-def make_from_signature(signature: inspect.Signature, name: str | None = None) -> type[Model]:
+def make_from_signature(
+    signature: inspect.Signature,
+    name: str | None = None,
+) -> type[Model]:
     fields = {}
     for param_name, param in signature.parameters.items():
         param_type = param.annotation
@@ -584,7 +609,10 @@ def make_from_signature(signature: inspect.Signature, name: str | None = None) -
 
         # Sanity checks
         for type_ in (param_type, param_origin, *param_args):
-            if _safe_issubclass(type_, BaseModel) and not _safe_issubclass(type_, BaseXmlModel):
+            if _safe_issubclass(type_, BaseModel) and not _safe_issubclass(
+                type_,
+                BaseXmlModel,
+            ):
                 raise ValueError(
                     f"Function arguments which are Pydantic models must inherit from `BaseXmlModel` ({param_name})",
                 )
@@ -598,8 +626,10 @@ def make_from_signature(signature: inspect.Signature, name: str | None = None) -
         description = ""
         if param_origin is t.Annotated:
             param_type = param_args[0]  # The actual type
+            param_origin = t.get_origin(param_type)
             if len(param_args) > 1 and isinstance(param_args[1], str):
                 description = param_args[1]  # The description
+            param_args = t.get_args(param_type)
 
         # Add default value if available
         default = ... if param.default is inspect.Parameter.empty else param.default

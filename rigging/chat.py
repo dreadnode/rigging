@@ -20,7 +20,14 @@ from uuid import UUID, uuid4
 
 from elasticsearch import AsyncElasticsearch
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, ValidationError, computed_field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    ValidationError,
+    computed_field,
+)
 
 from rigging.error import MaxDepthError, UnknownToolError
 from rigging.generator import GenerateParams, Generator, get_generator
@@ -30,6 +37,7 @@ from rigging.model import Model, ModelT, SystemErrorModel, ValidationErrorModel
 from rigging.tool.api import ApiToolCall, ApiToolChoice
 from rigging.tool.base import Tool, ToolMode
 from rigging.tool.native import (
+    TOOL_CALLS_TAG,
     JsonInXmlToolCall,
     JsonInXmlToolDefinition,
     XmlToolCall,
@@ -101,10 +109,17 @@ class Chat(BaseModel):
     params: GenerateParams | None = Field(None, exclude=True, repr=False)
     """Any additional generation params used for this chat."""
 
-    error: t.Annotated[
-        BaseException,
-        PlainSerializer(lambda x: str(x), return_type=str, when_used="json-unless-none"),
-    ] | None = Field(None, repr=False)
+    error: (
+        t.Annotated[
+            BaseException,
+            PlainSerializer(
+                lambda x: str(x),
+                return_type=str,
+                when_used="json-unless-none",
+            ),
+        ]
+        | None
+    ) = Field(None, repr=False)
     """Holds any exception that was caught during the generation pipeline."""
     failed: bool = Field(False, exclude=False, repr=True)
     """
@@ -199,7 +214,10 @@ class Chat(BaseModel):
             The MessageDict list
         """
         return [
-            t.cast(MessageDict, m.model_dump(include={"role", "content_parts"}, exclude_none=True))
+            t.cast(
+                MessageDict,
+                m.model_dump(include={"role", "content_parts"}, exclude_none=True),
+            )
             for m in self.all
         ]
 
@@ -364,7 +382,11 @@ class Chat(BaseModel):
             self.messages[0].content += "\n\n" + content
         return self
 
-    def inject_tool_prompt(self, tools: t.Sequence[Tool[..., t.Any]], mode: ToolMode) -> "Chat":
+    def inject_tool_prompt(
+        self,
+        tools: t.Sequence[Tool[..., t.Any]],
+        mode: ToolMode,
+    ) -> "Chat":
         """
         Injects a default tool use prompt into the system prompt.
 
@@ -699,6 +721,7 @@ class ChatPipeline:
         self.tool_mode: ToolMode = "auto"
         self.api_tool_choice: ApiToolChoice | None = None
         self.inject_tool_prompt = True
+        self.stop_on_tool_calls = True
         self.then_callbacks: list[tuple[ThenChatCallback, int]] = []
         self.map_callbacks: list[tuple[MapChatCallback, int]] = []
         self.watch_callbacks: list[WatchChatCallback] = watch_callbacks or []
@@ -706,7 +729,11 @@ class ChatPipeline:
     def __len__(self) -> int:
         return len(self.chat)
 
-    def with_(self, params: GenerateParams | None = None, **kwargs: t.Any) -> "ChatPipeline":
+    def with_(
+        self,
+        params: GenerateParams | None = None,
+        **kwargs: t.Any,
+    ) -> "ChatPipeline":
         """
         Assign specific generation parameter overloads for this chat.
 
@@ -850,7 +877,12 @@ class ChatPipeline:
         """
         return self.clone().add(messages)
 
-    def clone(self, *, only_messages: bool = False, chat: Chat | None = None) -> "ChatPipeline":
+    def clone(
+        self,
+        *,
+        only_messages: bool = False,
+        chat: Chat | None = None,
+    ) -> "ChatPipeline":
         """
         Creates a clone of the current `ChatPipeline` instance.
 
@@ -1036,7 +1068,10 @@ class ChatPipeline:
         new.chat.apply_to_all(**kwargs)
         return new
 
-    def cache(self, mode: CacheMode | None | t.Literal[False] = "latest") -> "ChatPipeline":
+    def cache(
+        self,
+        mode: CacheMode | None | t.Literal[False] = "latest",
+    ) -> "ChatPipeline":
         """
         Sets the caching mode for the pipeline.
 
@@ -1072,6 +1107,7 @@ class ChatPipeline:
         mode: ToolMode | None = None,
         choice: ApiToolChoice | None = None,
         max_depth: int = DEFAULT_MAX_DEPTH,
+        stop_on_tool_calls: bool | None = None,
     ) -> "ChatPipeline":
         """
         Adds a tool or a sequence of tools to participate in the generation process.
@@ -1085,6 +1121,7 @@ class ChatPipeline:
             mode: The tool calling mode to use (e.g., "xml", "json-in-xml", "api").
             choice: The API tool choice to use. This is only relevant when using the "api" tool mode.
             max_depth: The maximum depth for recursive tool calls (this is shared between all tools).
+            stop_on_tool_calls: When using natively parsed tools, whether to stop generation when a tool call block is observed.
 
         Returns:
             The updated pipeline.
@@ -1115,7 +1152,9 @@ class ChatPipeline:
         existing_names = {tool.name for tool in self.tools}
         for tool in new_tools:
             if tool.name in existing_names:
-                raise ValueError(f"Tool with name '{tool.name}' already exists in the pipeline.")
+                raise ValueError(
+                    f"Tool with name '{tool.name}' already exists in the pipeline.",
+                )
 
         self.tools += new_tools
 
@@ -1124,13 +1163,19 @@ class ChatPipeline:
             for callback, max_depth in self.then_callbacks
             if callback != self._then_tools
         ]
-        self.then_callbacks.insert(0, (self._then_tools, max_depth))  # make sure this is first
+        self.then_callbacks.insert(
+            0,
+            (self._then_tools, max_depth),
+        )  # make sure this is first
 
         if mode is not None:
             self.tool_mode = mode
 
         if choice is not None:
             self.api_tool_choice = choice
+
+        if stop_on_tool_calls is not None:
+            self.stop_on_tool_calls = stop_on_tool_calls
 
         return self
 
@@ -1193,7 +1238,30 @@ class ChatPipeline:
     # Internal callbacks for handling tools and parsing
 
     async def _then_tools(self, chat: Chat) -> PipelineStepContextManager | None:
-        tool_calls: list[ApiToolCall] | list[XmlToolCall] | list[JsonInXmlToolCall] | None = None
+        if (
+            self.stop_on_tool_calls
+            and self.tool_mode in ["xml", "json-in-xml"]
+            and chat.stop_reason == "stop"
+        ):
+            # If we:
+            # 1. Are using native tools
+            # 2. Set a stop token for the tool calls
+            # 3. Hit that stop token
+            #
+            # Then we should re-inject the closing tag for completeness.
+
+            for part in chat.last.content_parts:
+                if (
+                    part.type == "text"
+                    and f"<{TOOL_CALLS_TAG}>" in part.text
+                    and f"</{TOOL_CALLS_TAG}>" not in part.text
+                ):
+                    part.text += f"</{TOOL_CALLS_TAG}>"
+                    break
+
+        # Parse the actual tool calls
+
+        tool_calls: (list[ApiToolCall] | list[XmlToolCall] | list[JsonInXmlToolCall] | None) = None
         if self.tool_mode == "api":
             tool_calls = chat.last.tool_calls
         if self.tool_mode == "xml":
@@ -1265,9 +1333,15 @@ class ChatPipeline:
         if self.tool_mode == "auto" and self.tools:
             self.tool_mode = "api" if await self.generator.supports_function_calling() else "xml"
 
-        if self.tools and self.tool_mode in ["xml", "json-in-xml"] and self.inject_tool_prompt:
-            self.chat.inject_tool_prompt(self.tools, self.tool_mode)
-            self.inject_native_tool_prompt = False
+        if self.tools and self.tool_mode in ["xml", "json-in-xml"]:
+            if self.inject_tool_prompt:
+                self.chat.inject_tool_prompt(self.tools, self.tool_mode)
+                self.inject_native_tool_prompt = False
+
+            if self.stop_on_tool_calls:
+                self.params = self.params = GenerateParams()
+                self.params.stop = self.params.stop or []
+                self.params.stop.append(f"</{TOOL_CALLS_TAG}>")
 
         if self.tools and self.tool_mode == "api":
             if self.params is None:
@@ -1287,17 +1361,25 @@ class ChatPipeline:
             params = [self.params.merge_with(p) for p in params]
         return [(p or GenerateParams()) for p in params]
 
-    def _apply_cache_mode_to_messages(self, messages: list[list[Message]]) -> list[list[Message]]:
+    def _apply_cache_mode_to_messages(
+        self,
+        messages: list[list[Message]],
+    ) -> list[list[Message]]:
         if self.caching is None:
             return messages
 
         if self.caching != "latest":
-            logger.warning(f"Unknown caching mode '{self.caching}', defaulting to 'latest'")
+            logger.warning(
+                f"Unknown caching mode '{self.caching}', defaulting to 'latest'",
+            )
 
         # first remove existing cache settings
         updated: list[list[Message]] = []
         for _messages in messages:
-            updated = [*updated, [m.clone().cache(cache_control=False) for m in _messages]]
+            updated = [
+                *updated,
+                [m.clone().cache(cache_control=False) for m in _messages],
+            ]
 
         # then apply the latest cache settings
         for _messages in updated:
@@ -1463,15 +1545,6 @@ class ChatPipeline:
 
         # Check if we should immediately raise
 
-        # FailMode = t.Literal["raise", "skip", "include"]
-        # self.on_failed: FailMode = "raise"
-        # """How to handle failures in the pipeline unless overriden in calls."""
-
-        # self.errors_to_catch: set[type[Exception]] = {MaxDepthError, ValidationError}
-        # """The list of exceptions to catch during generation if you are including or skipping failures."""
-        # self.errors_to_exclude: set[type[Exception]] = set()
-        # """The list of exceptions to exclude from the catch list."""
-
         for chat in chats:
             if chat.error is not None and (
                 on_failed == "raise"
@@ -1532,7 +1605,11 @@ class ChatPipeline:
                             step = state.step.with_parent(current_step)
 
                             if step.depth > max_depth:
-                                max_depth_error = MaxDepthError(max_depth, step, callback_name)
+                                max_depth_error = MaxDepthError(
+                                    max_depth,
+                                    step,
+                                    callback_name,
+                                )
                                 if on_failed == "raise":
                                     raise max_depth_error
 
@@ -1597,12 +1674,18 @@ class ChatPipeline:
                     if inspect.isasyncgen(chats_or_generator):
                         generator = t.cast(
                             PipelineStepGenerator,
-                            await exit_stack.enter_async_context(aclosing(chats_or_generator)),
+                            await exit_stack.enter_async_context(
+                                aclosing(chats_or_generator),
+                            ),
                         )
                         async for step in generator:
                             _step = step.with_parent(current_step)
                             if _step.depth > max_depth:
-                                max_depth_error = MaxDepthError(max_depth, _step, callback_name)
+                                max_depth_error = MaxDepthError(
+                                    max_depth,
+                                    _step,
+                                    callback_name,
+                                )
                                 if on_failed == "raise":
                                     raise max_depth_error
 
@@ -1676,10 +1759,17 @@ class ChatPipeline:
             generator_id=self.generator.to_identifier(),
             params=self.params.to_dict() if self.params is not None else {},
         ) as span:
-            async with aclosing(self._step(span, messages, params, on_failed)) as generator:
+            async with aclosing(
+                self._step(span, messages, params, on_failed),
+            ) as generator:
                 yield generator
 
-    async def run(self, *, on_failed: FailMode | None = None, allow_failed: bool = False) -> Chat:
+    async def run(
+        self,
+        *,
+        on_failed: FailMode | None = None,
+        allow_failed: bool = False,
+    ) -> Chat:
         """
         Execute the generation process for a single message.
 
@@ -1749,7 +1839,9 @@ class ChatPipeline:
             generator_id=self.generator.to_identifier(),
             params=self.params.to_dict() if self.params is not None else {},
         ) as span:
-            async with aclosing(self._step(span, messages, params, on_failed)) as generator:
+            async with aclosing(
+                self._step(span, messages, params, on_failed),
+            ) as generator:
                 yield generator
 
     async def run_many(
@@ -1827,7 +1919,9 @@ class ChatPipeline:
         messages = [[*self.chat.all, *Message.fit_as_list(m)] for m in many]
         if len(messages) < count:
             if len(messages) != 1:
-                raise ValueError(f"Can't fit {len(messages)} messages to {count} params")
+                raise ValueError(
+                    f"Can't fit {len(messages)} messages to {count} params",
+                )
             messages = messages * count
 
         params = self._fit_params(count, params)
@@ -1838,7 +1932,9 @@ class ChatPipeline:
             generator_id=self.generator.to_identifier(),
             params=self.params.to_dict() if self.params is not None else {},
         ) as span:
-            async with aclosing(self._step(span, messages, params, on_failed)) as generator:
+            async with aclosing(
+                self._step(span, messages, params, on_failed),
+            ) as generator:
                 yield generator
 
     async def run_batch(

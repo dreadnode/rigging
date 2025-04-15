@@ -28,7 +28,7 @@ from rigging.interact import interact
 from rigging.message import ContentImageUrl, ContentText, Message, MessageDict, Messages
 from rigging.model import Model, attr, element, wrapped
 from rigging.prompt import Ctx, Prompt, prompt
-from rigging.tool import Tool, mcp, robopages, tool
+from rigging.tool import Tool, mcp, robopages, tool, tool_method
 from rigging.util import await_
 from rigging.version import VERSION
 
@@ -66,6 +66,7 @@ __all__ = [
     "error",
     "parsing",
     "tool",
+    "tool_method",
     "logging",
     "await_",
     "interact",
