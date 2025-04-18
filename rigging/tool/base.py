@@ -46,7 +46,7 @@ How tool calls are handled.
 
 def _is_unbound_method(func: t.Any) -> bool:
     is_method = (
-        (inspect.ismethod(func) or (hasattr(func, "__qualname__") and "." in func.__qualname__))
+        inspect.ismethod(func)
         and not isinstance(func, staticmethod)
         and not isinstance(func, classmethod)
     )

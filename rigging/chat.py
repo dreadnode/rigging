@@ -26,6 +26,7 @@ from pydantic import (
     Field,
     PlainSerializer,
     ValidationError,
+    WithJsonSchema,
     computed_field,
 )
 
@@ -117,6 +118,7 @@ class Chat(BaseModel):
                 return_type=str,
                 when_used="json-unless-none",
             ),
+            WithJsonSchema({"type": "string", "description": "Error message"}),
         ]
         | None
     ) = Field(None, repr=False)

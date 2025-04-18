@@ -17,10 +17,10 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    FieldSerializationInfo,
+    PlainSerializer,
     SerializeAsAny,
     SerializerFunctionWrapHandler,
-    field_serializer,
+    WithJsonSchema,
     field_validator,
     model_serializer,
     model_validator,
@@ -63,12 +63,12 @@ class ParsedMessagePart(BaseModel):
 
     model: SerializeAsAny[Model]
     """The rigging/pydantic model associated with the message part."""
-    slice_: slice
+    slice_: t.Annotated[
+        slice,
+        PlainSerializer(lambda x: [x.start, x.stop], return_type=list[int]),
+        WithJsonSchema({"type": "array", "items": {"type": "integer"}}),
+    ]
     """The slice representing the range into the message content."""
-
-    @field_serializer("slice_")
-    def serialize_slice(self, slice_: slice, _info: FieldSerializationInfo) -> list[int]:
-        return [slice_.start, slice_.stop]
 
     @field_validator("slice_", mode="before")
     @classmethod
