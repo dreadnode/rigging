@@ -496,6 +496,7 @@ class Prompt(t.Generic[P, R]):
 
         self.__signature__ = signature
         self.__name__ = self.func.__name__
+        self.__doc__ = self.docstring
 
     @property
     def docstring(self) -> str:
@@ -840,6 +841,9 @@ class Prompt(t.Generic[P, R]):
             results = await self.bind_many(pipeline)(1, *args, **kwargs)
             return results[0]
 
+        run.__signature__ = self.__signature__  # type: ignore [attr-defined]
+        run.__name__ = self.__name__
+        run.__doc__ = self.__doc__
         run.__rg_prompt__ = self  # type: ignore [attr-defined]
 
         return run

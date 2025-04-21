@@ -198,6 +198,8 @@ class Tool(t.Generic[P, R]):
 
         self._signature = signature
         self.__signature__ = signature  # type: ignore [attr-defined]
+        self.__name__ = self.name  # type: ignore [attr-defined]
+        self.__doc__ = self.description
 
         # For handling API calls, we'll use the type adapter to validate
         # the arguments before calling the function
