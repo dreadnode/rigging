@@ -1,0 +1,87 @@
+---
+name: Renovate
+on:
+  # checkov:skip=CKV_GHA_7: "Workflow dispatch inputs are required for manual debugging and configuration"
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: Dry Run
+        default: "false"
+        required: false
+      logLevel:
+        description: Log Level
+        default: "debug"
+        required: false
+      version:
+        description: Renovate version
+        default: latest
+        required: false
+  schedule:
+    # Run every evening at 20:00 UTC (8:00 PM UTC)
+    - cron: "0 20 * * *"
+  push:
+    branches: ["main"]
+    paths:
+      - .github/renovate.json5
+      - .github/renovate/**.json5
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_number || github.ref }}
+  cancel-in-progress: true
+
+# Retrieve BOT_USER_ID via `curl -s "https://api.github.com/users/${BOT_USERNAME}%5Bbot%5D" | jq .id`
+env:
+  WORKFLOW_DRY_RUN: false
+  WORKFLOW_LOG_LEVEL: debug
+  WORKFLOW_VERSION: latest # 37.59.8
+  RENOVATE_PLATFORM: github
+  RENOVATE_PLATFORM_COMMIT: true
+  RENOVATE_ONBOARDING_CONFIG_FILE_NAME: .github/renovate.json5
+  RENOVATE_AUTODISCOVER: true
+  RENOVATE_AUTODISCOVER_FILTER: "${{ github.repository }}"
+  RENOVATE_GIT_AUTHOR: "${{ secrets.BOT_USERNAME }} <${{ secrets.BOT_USER_ID }}+${{ secrets.BOT_USERNAME }}[bot]@users.noreply.github.com>"
+
+jobs:
+  renovate:
+    name: Renovate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Token
+        uses: actions/create-github-app-token@3ff1caaa28b64c9cc276ce0a02e2ff584f3900c5 # v2.0.2
+        id: app-token
+        with:
+          app-id: "${{ secrets.BOT_APP_ID }}"
+          private-key: "${{ secrets.BOT_APP_PRIVATE_KEY }}"
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          token: "${{ steps.app-token.outputs.token }}"
+
+      - name: Override default config from dispatch variables
+        run: |
+          echo "RENOVATE_DRY_RUN=${{ github.event.inputs.dryRun || env.WORKFLOW_DRY_RUN }}" >> "${GITHUB_ENV}"
+          echo "LOG_LEVEL=${{ github.event.inputs.logLevel || env.WORKFLOW_LOG_LEVEL }}" >> "${GITHUB_ENV}"
+
+      - name: Delete old dashboard
+        run: |
+          ISSUE_NUMBER=$(gh issue list -S 'Renovate Dashboard 🤖' --json number -q '.[0].number')
+          if [ "$ISSUE_NUMBER" != "null" ] && [ -n "$ISSUE_NUMBER" ]; then
+            gh issue close "$ISSUE_NUMBER"
+          else
+            echo "No issue found to close."
+          fi
+        env:
+          GITHUB_TOKEN: "${{ steps.app-token.outputs.token }}"
+
+      - name: Renovate
+        uses: renovatebot/github-action@19e3d87179488d6a0cd9da744d37123ea4b338e5 # v41.0.20
+        with:
+          configurationFile: "${{ env.RENOVATE_ONBOARDING_CONFIG_FILE_NAME }}"
+          token: "${{ steps.app-token.outputs.token }}"
+          renovate-version: "${{ github.event.inputs.version || env.WORKFLOW_VERSION }}"
