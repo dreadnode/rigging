@@ -68,7 +68,7 @@ types-requests = "2.31.0.6"
 [tool.poetry.group.docs.dependencies]
 mkdocs = "^1.6.0"
 mkdocs-material = { extras = ["imaging"], version = "^9.5.20" }
-mkdocstrings = "^0.25.0"
+mkdocstrings = "^0.29.0"
 mkdocstrings-python = "^1.10.0"
 mkdocs-section-index = "^0.3.9"
 pymdown-extensions = "^10.8.1"
