@@ -30,7 +30,7 @@ from rigging.error import MissingModelError
 from rigging.model import Model, ModelT
 from rigging.parsing import try_parse_many
 from rigging.tool.api import ApiToolCall
-from rigging.util import truncate_string
+from rigging.util import AudioFormat, identify_audio_format, truncate_string
 
 Role = t.Literal["system", "user", "assistant", "tool"]
 """The role of a message. Can be 'system', 'user', 'assistant', or 'tool'."""
@@ -111,7 +111,7 @@ class ContentImageUrl(BaseModel):
     """Cache control entry for prompt caching."""
 
     def __str__(self) -> str:
-        return f"<ContentImageUrl '{truncate_string(self.image_url.url, 50)}'>"
+        return f"<ContentImageUrl url='{truncate_string(self.image_url.url, 50)}'>"
 
     @classmethod
     def from_file(
@@ -190,10 +190,151 @@ class ContentImageUrl(BaseModel):
         """
         return cls(image_url=cls.ImageUrl(url=url, detail=detail))
 
+    def to_bytes(self) -> bytes:
+        """
+        Converts the data to bytes (if the URL is base64-encoded).
 
-Content = ContentText | ContentImageUrl
+        Returns:
+            The decoded image data.
+        """
+        if not self.image_url.url.startswith("data:"):
+            raise ValueError("Image URL is not base64-encoded")
+        return base64.b64decode(self.image_url.url.split(",")[1])
+
+    def save(self, path: Path | str) -> None:
+        """
+        Saves the data to a file.
+
+        Args:
+            path: The path to save the image to.
+        """
+        data = self.to_bytes()
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+
+# https://platform.openai.com/docs/api-reference/chat/create
+ContentAudioFormat = AudioFormat
+ContentAudioFormatMimeTypes = ["audio/wav", "audio/mp3", "audio/ogg", "audio/flac"]
+
+
+class ContentAudioInput(BaseModel):
+    """An audio content part of a message."""
+
+    class Audio(BaseModel):
+        data: str
+        """The base64-encoded audio data."""
+        format: str
+        """The format of the audio data."""
+        transcript: str | None = None
+        """The transcript of the audio data (if available)."""
+
+    type: t.Literal["input_audio"] = "input_audio"
+    """The type of content (always `input_audio`)."""
+    input_audio: Audio
+    """The audio URL content."""
+    cache_control: dict[str, str] | None = None
+    """Cache control entry for prompt caching."""
+
+    def __str__(self) -> str:
+        return (
+            f"<ContentAudioInput format='{self.input_audio.format}' "
+            f"transcript='{self.input_audio.transcript}' "
+            f"data='{truncate_string(self.input_audio.data, 50)}'>"
+        )
+
+    @classmethod
+    def from_file(
+        cls,
+        file: Path | str,
+        *,
+        format: ContentAudioFormat | None = None,
+        transcript: str | None = None,
+    ) -> "ContentAudioInput":
+        """
+        Creates a ContentAudioInput object from a file.
+
+        Args:
+            file: The file to create the content from.
+            mimetype: The mimetype of the file. If not provided, it will be guessed.
+
+        Returns:
+            The created ContentAudioInput object.
+        """
+
+        file = Path(file)
+        if not file.exists():
+            raise FileNotFoundError(f"File '{file}' does not exist")
+
+        if format is None:
+            mimetype = mimetypes.guess_type(file)[0]
+            if mimetype is None:
+                raise ValueError(
+                    f"Could not determine format for file '{file}', please provide one",
+                )
+            format = t.cast(ContentAudioFormat, mimetype.split("/")[-1])  # noqa: A001
+
+        encoded = base64.b64encode(file.read_bytes()).decode()
+        return cls(input_audio=cls.Audio(data=encoded, format=format, transcript=transcript))
+
+    @classmethod
+    def from_bytes(
+        cls,
+        data: bytes,
+        *,
+        format: ContentAudioFormat | None = None,
+        transcript: str | None = None,
+    ) -> "ContentAudioInput":
+        """
+        Creates a ContentAudioInput object from raw bytes.
+
+        Args:
+            data: The raw bytes of the audio.
+            format: The format of the audio.
+
+        Returns:
+            The created ContentAudioInput
+        """
+        format = format or identify_audio_format(data) or "unknown"  # type: ignore [assignment] # noqa: A001
+        encoded = base64.b64encode(data).decode()
+        return cls(input_audio=cls.Audio(data=encoded, format=format, transcript=transcript))
+
+    @property
+    def transcript(self) -> str | None:
+        """
+        Returns the transcript of the audio data.
+
+        Returns:
+            The transcript of the audio data.
+        """
+        return self.input_audio.transcript
+
+    def to_bytes(self) -> bytes:
+        """
+        Converts the audio data to bytes.
+
+        Returns:
+            The decoded audio data.
+        """
+        return base64.b64decode(self.input_audio.data)
+
+    def save(self, path: Path | str) -> None:
+        """
+        Saves the audio data to a file.
+
+        Args:
+            path: The path to save the audio to.
+        """
+        data = self.to_bytes()
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+
+Content = ContentText | ContentImageUrl | ContentAudioInput
 """The types of content that can be included in a message."""
-ContentTypes = (ContentText, ContentImageUrl)
+ContentTypes = (ContentText, ContentImageUrl, ContentAudioInput)
 
 
 class Message(BaseModel):
@@ -408,6 +549,12 @@ class Message(BaseModel):
                 and not current.get("text", "").endswith("\n")
             ):
                 current["text"] += "\n"
+
+        # Strip any transcript parts from audio input
+
+        for part in obj.get("content", []):
+            if isinstance(part, dict) and part.get("type") == "input_audio":
+                part.get("input_audio", {}).pop("transcript", None)
 
         return obj
 

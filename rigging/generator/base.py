@@ -131,6 +131,12 @@ class GenerateParams(BaseModel):
     parallel_tool_calls: bool | None = None
     """Whether to run allow tool calls in parallel."""
 
+    modalities: list[str] | None = None
+    """The modalities to be used in the generation."""
+
+    audio: dict[str, str] | None = None
+    """The audio parameters to be used in the generation."""
+
     extra: dict[str, t.Any] = Field(default_factory=dict)
     """Extra parameters to be passed to the API."""
 

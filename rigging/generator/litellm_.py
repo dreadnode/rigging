@@ -1,5 +1,7 @@
 import asyncio
+import base64
 import datetime
+import re
 import typing as t
 
 import litellm
@@ -16,7 +18,7 @@ from rigging.generator.base import (
     trace_messages,
     trace_str,
 )
-from rigging.message import ContentText, Message
+from rigging.message import ContentAudioInput, ContentImageUrl, ContentText, Message
 from rigging.tool.api import ApiFunctionDefinition, ApiToolDefinition
 from rigging.tracing import tracer
 
@@ -223,12 +225,36 @@ class LiteLLMGenerator(Generator):
         ):
             extra.update(choice.message.provider_specific_fields)
 
+        message = Message(
+            role="assistant",
+            content=[],
+            tool_calls=tool_calls,
+        )
+
+        if choice.message.content is not None:
+            # Check for lazy litellm handling
+            # https://github.com/BerriAI/litellm/blob/0f9ebc23a5c1e386195267dfc8d91ba7169c4508/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py#L578C1-L599C48
+            if match := re.match(r"(data:[\w/]+?;base64,[A-Za-z0-9+/=]+)", choice.message.content):
+                encoded_data = match.group(1)
+                choice.message.content = choice.message.content.replace(encoded_data, "").strip()
+                message.content_parts.append(ContentImageUrl.from_url(encoded_data))
+
+            message.content_parts.append(
+                ContentText(
+                    text=choice.message.content,
+                ),
+            )
+
+        if hasattr(choice.message, "audio") and choice.message.audio is not None:
+            message.content_parts.append(
+                ContentAudioInput.from_bytes(
+                    base64.b64decode(choice.message.audio.data),
+                    transcript=choice.message.audio.transcript,
+                ),
+            )
+
         return GeneratedMessage(
-            message=Message(
-                role="assistant",
-                content=choice.message.content,
-                tool_calls=tool_calls,
-            ),
+            message=message,
             stop_reason=choice.finish_reason,
             usage=usage,
             extra=extra,

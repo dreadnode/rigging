@@ -25,7 +25,14 @@ from rigging.generator import (
     register_generator,
 )
 from rigging.interact import interact
-from rigging.message import ContentImageUrl, ContentText, Message, MessageDict, Messages
+from rigging.message import (
+    ContentAudioInput,
+    ContentImageUrl,
+    ContentText,
+    Message,
+    MessageDict,
+    Messages,
+)
 from rigging.model import Model, attr, element, wrapped
 from rigging.prompt import Ctx, Prompt, prompt
 from rigging.tool import Tool, mcp, robopages, tool, tool_method
@@ -41,6 +48,7 @@ __all__ = [
     "Messages",
     "ContentText",
     "ContentImageUrl",
+    "ContentAudioInput",
     "Tool",
     "Model",
     "attr",

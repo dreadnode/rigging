@@ -171,3 +171,38 @@ def flatten_list(nested_list: t.Iterable[t.Iterable[t.Any] | t.Any]) -> list[t.A
         else:
             flattened.append(item)
     return flattened
+
+
+# Audio
+
+AudioFormat = t.Literal["wav", "mp3", "ogg", "flac"]
+
+
+def identify_audio_format(data: bytes) -> AudioFormat | None:
+    """
+    Identify audio format by checking the first few bytes of data
+    """
+    if len(data) < 12:  # noqa: PLR2004
+        return None  # Not enough data to identify format
+
+    header = data[:12]
+
+    signatures: dict[bytes, AudioFormat] = {
+        b"RIFF": "wav",  # WAV files start with 'RIFF'
+        b"ID3": "mp3",  # MP3 files often start with 'ID3' (ID3 tag)
+        b"\xFF\xFB": "mp3",  # MP3 files without ID3 tag
+        b"\xFF\xF3": "mp3",  # MP3 files (MPEG-1 Layer 3)
+        b"\xFF\xF2": "mp3",  # MP3 files (MPEG-2 Layer 3)
+        b"OggS": "ogg",  # Ogg files
+        b"fLaC": "flac",  # FLAC files
+    }
+
+    for signature, format_name in signatures.items():
+        if header.startswith(signature):
+            return format_name
+
+    # Check for MP3 without ID3 tag (check for MP3 frame sync)
+    if header[0] == 0xFF and (header[1] & 0xE0) == 0xE0:  # noqa: PLR2004
+        return "mp3"
+
+    return None
