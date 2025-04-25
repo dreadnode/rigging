@@ -196,7 +196,7 @@ def test_chat_restart() -> None:
 
     assert len(chat.restart()) == 2
     assert len(chat.restart(include_all=True)) == 3
-    assert len(chat.continue_(Message("user", "User continue (should append)"))) == 3
+    assert len(chat.continue_(Message("user", "User continue"))) == 4
     assert len(chat.continue_(Message("assistant", "Assistant continue"))) == 4
 
     chat.generator = None
@@ -281,14 +281,20 @@ def test_chat_pipeline_continue() -> None:
 
 def test_chat_pipeline_add() -> None:
     pipeline = ChatPipeline(get_generator("base"), [Message("user", "Hello")])
-    added = pipeline.add(Message("user", "There"))
 
-    assert added == pipeline
-    assert len(added.chat) == 1
-    assert added.chat.all[0].content == "Hello\nThere"
+    added = pipeline.fork(Message("user", "There"))
+    assert added != pipeline
+    assert len(added.chat) == 2
+    assert added.chat.all[0].content == "Hello"
+    assert added.chat.all[1].content == "There"
+
+    merge_added = pipeline.clone().add(Message("user", "There"), merge_strategy="all")
+    assert added != pipeline
+    assert len(merge_added.chat) == 1
+    assert merge_added.chat.all[0].content == "Hello\nThere"
 
     diff_added = pipeline.add(Message("assistant", "Hi there!"))
-    assert diff_added == added == pipeline
+    assert diff_added == pipeline
     assert len(diff_added.chat) == 2
     assert diff_added.chat.all[1].content == "Hi there!"
 
@@ -413,26 +419,6 @@ def test_message_dedent() -> None:
     assert lines[0] == "Tabbed content"
     assert lines[1] == "Line 2"
     assert lines[2] == ""
-
-
-def test_chat_pipeline_add_merge_strategy_default() -> None:
-    """Test the default merge strategy (only-user-role) behavior."""
-    pipeline = ChatPipeline(get_generator("base"), [Message("user", "Hello")])
-
-    # Test merging user messages (should merge)
-    pipeline.add(Message("user", "There"))
-    assert len(pipeline.chat) == 1
-    assert pipeline.chat.all[0].content == "Hello\nThere"
-
-    # Test adding assistant message after merged user messages
-    pipeline.add(Message("assistant", "Hi there!"))
-    assert len(pipeline.chat) == 2
-    assert pipeline.chat.all[1].content == "Hi there!"
-
-    # Test that assistant messages don't merge by default
-    pipeline.add(Message("assistant", "How are you?"))
-    assert len(pipeline.chat) == 3
-    assert pipeline.chat.all[2].content == "How are you?"
 
 
 def test_chat_pipeline_add_merge_strategy_none() -> None:
