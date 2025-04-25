@@ -822,7 +822,7 @@ class ChatPipeline:
         | Content
         | str,
         *,
-        merge_strategy: t.Literal["only-user-role", "all", "none"] = "only-user-role",
+        merge_strategy: t.Literal["only-user-role", "all", "none"] = "none",
     ) -> "ChatPipeline":
         """
         Appends new message(s) to the internal chat before generation.
@@ -830,9 +830,9 @@ class ChatPipeline:
         Note:
             `merge_strategy` configures behavior when the last message in the chat
             is the same role as the first incoming message. This is useful for appending content
-            automatically to avoid duplicate messages of the same role. For backwards compatibility,
-            the default behavior is currently set to `only-user-role`. It can be set to `none` to disable
-            any merging behavior, which may become the default in the future.
+            automatically to avoid duplicate messages of the same role - which may cause issues with
+            some inference models. In version >=3.0, the default has been set to `none` to avoid
+            unexpected behavior.
 
         Args:
             messages: The messages to be added to the chat. It can be a single message or a sequence of messages.
