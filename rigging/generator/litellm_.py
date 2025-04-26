@@ -216,7 +216,7 @@ class LiteLLMGenerator(Generator):
         ):
             tool_calls = [call.model_dump() for call in choice.message.tool_calls]
 
-        extra = {"response_id": response.id}
+        extra: dict[str, t.Any] = {"response_id": response.id}
         if hasattr(response, "provider"):
             extra["provider"] = response.provider
         if (
@@ -224,6 +224,16 @@ class LiteLLMGenerator(Generator):
             and choice.message.provider_specific_fields is not None
         ):
             extra.update(choice.message.provider_specific_fields)
+        if (
+            hasattr(choice.message, "reasoning_content")
+            and choice.message.reasoning_content is not None
+        ):
+            extra["reasoning_content"] = choice.message.reasoning_content
+        if (
+            hasattr(choice.message, "thinking_blocks")
+            and choice.message.thinking_blocks is not None
+        ):
+            extra["thinking_blocks"] = choice.message.thinking_blocks
 
         message = Message(
             role="assistant",
