@@ -277,15 +277,15 @@ files = [
 
 [[package]]
 name = "asyncssh"
-version = "2.20.0"
+version = "2.21.0"
 description = "AsyncSSH: Asynchronous SSHv2 client and server library"
 optional = true
 python-versions = ">=3.6"
 groups = ["main"]
 markers = "extra == \"examples\" or extra == \"all\""
 files = [
-    {file = "asyncssh-2.20.0-py3-none-any.whl", hash = "sha256:af6888d937c07a4bf31293335a6166b4d87608cdb5957b49547da6ad87ecf174"},
-    {file = "asyncssh-2.20.0.tar.gz", hash = "sha256:020b6e384b2328ef8683908ad8e73de9ec2b9b62fd964571ea957bba98412983"},
+    {file = "asyncssh-2.21.0-py3-none-any.whl", hash = "sha256:cf7f3dfa52b2cb4ad31f0d77ff0d0a8fdd850203da84a0e72e62c36fdd4daf4b"},
+    {file = "asyncssh-2.21.0.tar.gz", hash = "sha256:450fe13bb8d86a8f4e7d7b5fafce7791181ca3e7c92e15bbc45dfb25866e48b3"},
 ]
 
 [package.dependencies]
