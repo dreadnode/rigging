@@ -13,4 +13,6 @@
   "python.testing.unittestEnabled": false,
   "python.testing.pytestEnabled": true,
   "mypy.runUsingActiveInterpreter": true,
+  "debugpy.debugJustMyCode": false,
+  "jupyter.debugJustMyCode": false
 }

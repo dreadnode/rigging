@@ -1,0 +1,77 @@
+---
+title: "Workflow"
+description: "How to use Rigging to generate messages."
+public: true
+---
+
+There are two main ways to use Rigging: "prompts" and "pipelines".
+
+Prompts are the most friendly way to get started, and you can get a lot done with them before you dive into pipelines. However, pipelines are where the real power of Rigging lies, and prompts are just a convenient way to leverage pipelines.
+
+## Using Prompts
+
+1. Establish a function decorated with `@prompt` with the inference model you want to use.
+2. Call the function just like normal and recieve structured data back.
+
+```python
+import rigging as rg
+
+@rg.prompt(generator_id="claude-3-5-sonnet-latest")
+async def get_authors(count: int = 3) -> list[str]:
+    """Provide famous authors."""
+
+print(await get_authors())
+
+# ['William Shakespeare', 'J.K. Rowling', 'Jane Austen']
+```
+
+Underneath, Rigging will produce a `Generator` with `get_generator("claude-3-5-sonnet-latest")`, prepare a small template that will establish the required context and output structure, pass it into a new `ChatPipeline`, run the generation process, and parse the output into our structured list with `ChatPipeline.then()`.
+
+If you want to see the resulting `Chat` object, you can set that as your return value and no output parsing
+
+```python
+@rg.prompt(generator_id="claude-3-5-sonnet-latest")
+async def get_authors(count: int = 3) -> rg.Chat:
+    ...
+```
+
+Now the prompt is only responsible for abstracting the generator, pipeline, and content for you. You can also use a nested object like a `tuple` and include both your structured data and the `Chat` object.
+
+```python
+@rg.prompt(generator_id="claude-3-5-sonnet-latest")
+async def get_authors(count: int = 3) -> tuple[list[str], rg.Chat]:
+    """Provide famous authors."""
+```
+
+This will return a tuple with the first element being the parsed output and the second element being raw `Chat` object.
+
+You can learn more about the `@prompt` decorator in the [Prompt Functions](/topics/) section.
+
+## Using Pipelines
+
+1. Get a `Generator` object - usually with `get_generator()`.
+2. Call `generator.chat()`to produce a `ChatPipeline` and ready it for generation.
+3. Call `pipeline.run()` to kick off generation and get your final `Chat` object.
+
+`ChatPipeline` objects hold any messages waiting to be delivered to an LLM in exchange for a new response message. These objects are also where most of the power in rigging comes from. You'll build a generation pipeline with options, parsing, callbacks, etc. After prep this pipeline is used to make a final `Chat` which holding all messages prior to generation (`.prev`) and after generation (`.next`).
+
+You should think of `ChatPipeline` objects like the configurable pre-generation step with calls like `.with_()`, `.apply()`, `.until()`, `.using()`, etc. Once you call one of the many `.run()`functions, the generator is used to produce the next message (or many messages) based on the prior context and any constraints you have in place. Once you have a `Chat` object, the interation is "done" and you can inspect and operate on the messages.
+
+<Tip>
+Rigging supports both Chat objects (messages with roles in a "conversation" format), as well as raw text completions. While we use Chat objects in most of our examples, you can check out the [Completions](/topics/completions) section to learn more about their feature parity.
+</Tip>  
+
+You'll often see us use functional styling chaining as most of our utility functions return the object back to you.
+
+```python
+chat = (
+    await
+    generator.chat(...)
+    .using(...)  # tools
+    .then(...)   # follow up functions
+    .with_(...)  # generation params
+    .run()
+)
+```
+
+Learn more about the `ChatPipeline` object in the [Pipelines](/topics/pipelines) section.
