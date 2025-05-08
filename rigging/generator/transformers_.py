@@ -2,8 +2,8 @@ import gc
 import typing as t
 
 import torch
-import transformers
-from transformers import (
+import transformers  # type: ignore [import-untyped]
+from transformers import (  # type: ignore [import-untyped]
     AutoModelForCausalLM,
     AutoTokenizer,
     PreTrainedTokenizer,
