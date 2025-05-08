@@ -81,7 +81,7 @@ class VLLMGenerator(Generator):
         llm: vllm.LLM,
         *,
         params: GenerateParams | None = None,
-    ) -> VLLMGenerator:
+    ) -> "VLLMGenerator":
         """Create a generator from an existing vLLM instance.
 
         Args:
@@ -94,11 +94,11 @@ class VLLMGenerator(Generator):
         generator._llm = llm  # noqa: SLF001
         return generator
 
-    def load(self) -> VLLMGenerator:
+    def load(self) -> "VLLMGenerator":
         _ = self.llm
         return self
 
-    def unload(self) -> VLLMGenerator:
+    def unload(self) -> "VLLMGenerator":
         del self._llm
         gc.collect()
         torch.cuda.empty_cache()
