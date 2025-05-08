@@ -30,7 +30,7 @@ from rigging.error import MissingModelError
 from rigging.model import Model, ModelT
 from rigging.parsing import try_parse_many
 from rigging.tool.api import ApiToolCall
-from rigging.util import AudioFormat, identify_audio_format, truncate_string
+from rigging.util import AudioFormat, identify_audio_format, shorten_string, truncate_string
 
 Role = t.Literal["system", "user", "assistant", "tool"]
 """The role of a message. Can be 'system', 'user', 'assistant', or 'tool'."""
@@ -111,7 +111,7 @@ class ContentImageUrl(BaseModel):
     """Cache control entry for prompt caching."""
 
     def __str__(self) -> str:
-        return f"<ContentImageUrl url='{truncate_string(self.image_url.url, 50)}'>"
+        return f"<ContentImageUrl url='{shorten_string(self.image_url.url, 50)}'>"
 
     @classmethod
     def from_file(
@@ -241,7 +241,7 @@ class ContentAudioInput(BaseModel):
         return (
             f"<ContentAudioInput format='{self.input_audio.format}' "
             f"transcript='{self.input_audio.transcript}' "
-            f"data='{truncate_string(self.input_audio.data, 50)}'>"
+            f"data='{shorten_string(self.input_audio.data, 50)}'>"
         )
 
     @classmethod
@@ -655,6 +655,8 @@ class Message(BaseModel):
             self.role,
             copy.deepcopy(self.content_parts),
             parts=copy.deepcopy(self.parts),
+            tool_calls=copy.deepcopy(self.tool_calls),
+            tool_call_id=self.tool_call_id,
         )
 
     def cache(self, cache_control: dict[str, str] | bool = True) -> "Message":  # noqa: FBT002
@@ -703,6 +705,20 @@ class Message(BaseModel):
         new = self.clone()
         template = string.Template(new.content)
         new.content = template.safe_substitute(**kwargs)
+        return new
+
+    def truncate(self, max_length: int, suffix: str = "\n[truncated]") -> "Message":
+        """
+        Truncates the message content to a maximum length.
+
+        Args:
+            max_length: The maximum length of the message content.
+
+        Returns:
+            The truncated message.
+        """
+        new = self.clone()
+        new.content = truncate_string(new.content, max_length, suf=suffix)
         return new
 
     def strip(

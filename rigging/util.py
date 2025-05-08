@@ -150,14 +150,29 @@ def get_qualified_name(obj: t.Callable[..., t.Any]) -> str:
 # Formatting
 
 
-def truncate_string(content: str, max_length: int, *, sep: str = "...") -> str:
-    """Return a string at most max_length characters long."""
+def shorten_string(content: str, max_length: int, *, sep: str = "...") -> str:
+    """Return a string at most max_length characters long by removing the middle of the string."""
     if len(content) <= max_length:
         return content
 
     remaining = max_length - len(sep)
+    if remaining <= 0:
+        return sep
+
     middle = remaining // 2
     return content[:middle] + sep + content[-middle:]
+
+
+def truncate_string(content: str, max_length: int, *, suf: str = "...") -> str:
+    """Return a string at most max_length characters long by removing the end of the string."""
+    if len(content) <= max_length:
+        return content
+
+    remaining = max_length - len(suf)
+    if remaining <= 0:
+        return suf
+
+    return content[:remaining] + suf
 
 
 # List utilities

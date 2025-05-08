@@ -73,6 +73,8 @@ class Tool(t.Generic[P, R]):
     - `True`: Catch all exceptions.
     - `list[type[Exception]]`: Catch only the specified exceptions.
     """
+    truncate: int | None = None
+    """If set, the maximum number of characters to truncate any tool output to."""
 
     _signature: inspect.Signature | None = field(default=None, init=False, repr=False)
     _type_adapter: TypeAdapter[t.Any] | None = field(
@@ -100,6 +102,7 @@ class Tool(t.Generic[P, R]):
         name: str | None = None,
         description: str | None = None,
         catch: bool | t.Iterable[type[Exception]] = False,
+        truncate: int | None = None,
     ) -> te.Self:
         from rigging.prompt import Prompt
 
@@ -194,6 +197,7 @@ class Tool(t.Generic[P, R]):
             parameters_schema=schema,
             fn=fn,
             catch=catch if isinstance(catch, bool) else set(catch),
+            truncate=truncate,
         )
 
         self._signature = signature
@@ -367,6 +371,9 @@ class Tool(t.Generic[P, R]):
         else:
             message.content_parts = [ContentText(text=str(result))]
 
+        if self.truncate:
+            message = message.truncate(self.truncate)
+
         # If this is a native tool call, we should wrap up our
         # result in a NativeToolResult object to provide clarity to the
         # generator. Otherwise we can rely on the `tool` role and associated
@@ -402,6 +409,7 @@ def tool(
     name: str | None = None,
     description: str | None = None,
     catch: bool | t.Iterable[type[Exception]] = False,
+    truncate: int | None = None,
 ) -> t.Callable[[t.Callable[P, R]], Tool[P, R]]:
     ...
 
@@ -421,6 +429,7 @@ def tool(
     name: str | None = None,
     description: str | None = None,
     catch: bool | t.Iterable[type[Exception]] = False,
+    truncate: int | None = None,
 ) -> t.Callable[[t.Callable[P, R]], Tool[P, R]] | Tool[P, R]:
     """
     Decorator for creating a Tool, useful for overriding a name or description.
@@ -433,6 +442,7 @@ def tool(
             - `False`: Do not catch exceptions.
             - `True`: Catch all exceptions.
             - `list[type[Exception]]`: Catch only the specified exceptions.
+        truncate: If set, the maximum number of characters to truncate any tool output to.
 
     Returns:
         The decorated Tool object.
@@ -453,7 +463,13 @@ def tool(
                 stacklevel=3,
             )
 
-        return Tool.from_callable(func, name=name, description=description, catch=catch)
+        return Tool.from_callable(
+            func,
+            name=name,
+            description=description,
+            catch=catch,
+            truncate=truncate,
+        )
 
     if func is not None:
         return make_tool(func)
@@ -496,6 +512,7 @@ def tool_method(
     name: str | None = None,
     description: str | None = None,
     catch: bool | t.Iterable[type[Exception]] = False,
+    truncate: int | None = None,
 ) -> t.Callable[[t.Callable[t.Concatenate[t.Any, P], R]], ToolMethod[P, R]]:
     ...
 
@@ -515,6 +532,7 @@ def tool_method(
     name: str | None = None,
     description: str | None = None,
     catch: bool | t.Iterable[type[Exception]] = False,
+    truncate: int | None = None,
 ) -> t.Callable[[t.Callable[t.Concatenate[t.Any, P], R]], ToolMethod[P, R]] | ToolMethod[P, R]:
     """
     Decorator for creating a Tool from a class method.
@@ -570,6 +588,7 @@ def tool_method(
             name=name,
             description=description,
             catch=catch,
+            truncate=truncate,
         )
 
     if func is not None:
