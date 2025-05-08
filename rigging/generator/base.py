@@ -4,6 +4,7 @@ import abc
 import inspect
 import typing as t
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 from loguru import logger
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
@@ -30,8 +31,7 @@ T = t.TypeVar("T")
 
 @t.runtime_checkable
 class LazyGenerator(t.Protocol):
-    def __call__(self) -> type[Generator]:
-        ...
+    def __call__(self) -> type[Generator]: ...
 
 
 g_providers: dict[str, type[Generator] | LazyGenerator] = {}
@@ -460,16 +460,14 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[MessageDict],
         params: GenerateParams | None = None,
-    ) -> ChatPipeline:
-        ...
+    ) -> ChatPipeline: ...
 
     @t.overload
     def chat(
         self,
         messages: t.Sequence[Message] | MessageDict | Message | str | None = None,
         params: GenerateParams | None = None,
-    ) -> ChatPipeline:
-        ...
+    ) -> ChatPipeline: ...
 
     def chat(
         self,
@@ -538,8 +536,7 @@ def chat(
     generator: Generator,
     messages: t.Sequence[MessageDict],
     params: GenerateParams | None = None,
-) -> ChatPipeline:
-    ...
+) -> ChatPipeline: ...
 
 
 @t.overload
@@ -547,8 +544,7 @@ def chat(
     generator: Generator,
     messages: t.Sequence[Message] | MessageDict | Message | str | None = None,
     params: GenerateParams | None = None,
-) -> ChatPipeline:
-    ...
+) -> ChatPipeline: ...
 
 
 def chat(
@@ -617,6 +613,7 @@ def get_identifier(generator: Generator, params: GenerateParams | None = None) -
     return identifier
 
 
+@lru_cache(maxsize=128)
 def get_generator(identifier: str, *, params: GenerateParams | None = None) -> Generator:
     """
     Get a generator by an identifier string. Uses LiteLLM by default.
@@ -669,10 +666,10 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
         raise InvalidModelSpecifiedError(identifier)
 
     if not isinstance(g_providers[provider], type):
-        lazy_generator = t.cast(LazyGenerator, g_providers[provider])
+        lazy_generator = t.cast("LazyGenerator", g_providers[provider])
         g_providers[provider] = lazy_generator()
 
-    generator_cls = t.cast(type[Generator], g_providers[provider])
+    generator_cls = t.cast("type[Generator]", g_providers[provider])
 
     kwargs = {}
     if "," in model:
