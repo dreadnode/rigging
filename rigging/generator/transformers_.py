@@ -3,7 +3,7 @@ import typing as t
 
 import torch
 import transformers  # type: ignore [import-untyped]
-from transformers import (  # type: ignore [import-untyped]
+from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     PreTrainedTokenizer,
