@@ -7,7 +7,7 @@ import dataclasses
 import inspect
 import re
 import typing as t
-from xml.etree import ElementTree as ET  # noqa: N817
+from xml.etree import ElementTree as ET
 
 import typing_extensions as te
 import xmltodict  # type: ignore [import-untyped]
@@ -63,7 +63,7 @@ class XmlTagDescriptor:
         #   ...
         #
         if "[" in cls.__name__:
-            return t.cast(str, parent.__xml_tag__)
+            return t.cast("str", parent.__xml_tag__)
 
         return to_xml_tag(cls.__name__)
 
@@ -236,7 +236,7 @@ class Model(BaseXmlModel):
 
         schema = cls.model_json_schema()
         properties = schema["properties"]
-        structure = {cls.__xml_tag__: {field: None for field in properties}}
+        structure = {cls.__xml_tag__: dict.fromkeys(properties)}
         xml_string = xmltodict.unparse(
             structure,
             pretty=True,
@@ -244,7 +244,7 @@ class Model(BaseXmlModel):
             indent="  ",
             short_empty_elements=True,
         )
-        return t.cast(str, xml_string)  # Bad type hints in xmltodict
+        return t.cast("str", xml_string)  # Bad type hints in xmltodict
 
     @classmethod
     def ensure_valid(cls) -> None:

@@ -42,7 +42,7 @@ def write_chats_to_jsonl(file: str | Path, *, replace: bool = False) -> "WatchCh
             Path.unlink(file)
             replaced = True
 
-        with file.open("a") as f:
+        with file.open("a") as f:  # noqa: ASYNC230
             for chat in chats:
                 f.write(chat.model_dump_json(exclude_none=True) + "\n")
 
@@ -71,7 +71,7 @@ def write_messages_to_jsonl(file: str | Path, *, replace: bool = False) -> "Watc
             Path.unlink(file)
             replaced = True
 
-        with file.open("a") as f:
+        with file.open("a") as f:  # noqa: ASYNC230
             for chat in flatten_chats(chats):
                 f.write(json.dumps(chat) + "\n")
 

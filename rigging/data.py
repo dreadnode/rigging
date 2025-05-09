@@ -297,7 +297,7 @@ def elastic_data_to_chats(
     while all(hasattr(data, attr) for attr in ("keys", "__getitem__")) and "hits" in data:
         data = data["hits"]
 
-    objects = t.cast(t.Sequence[t.Mapping[str, t.Any]], data)
+    objects = t.cast("t.Sequence[t.Mapping[str, t.Any]]", data)
     if not isinstance(objects, t.Sequence):
         raise TypeError(
             f"Expected to find a sequence of objects (optionally under hits), found: {type(data)}",
@@ -341,7 +341,7 @@ async def elastic_to_chats(
         A pandas DataFrame containing the chat data.
     """
     data = await client.search(index=index, query=query, size=max_results, **kwargs)
-    return elastic_data_to_chats(t.cast(dict[str, t.Any], data))
+    return elastic_data_to_chats(t.cast("dict[str, t.Any]", data))
 
 
 async def s3_bucket_exists(client: S3Client, bucket: str) -> bool:

@@ -11,7 +11,7 @@ from rigging.message import Message
 # ruff: noqa: S101, PLR2004, ARG001, PT011, SLF001, FBT001, FBT002, N803
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_chats() -> list[Chat]:
     chat1 = Chat(
         messages=[
@@ -28,7 +28,7 @@ def sample_chats() -> list[Chat]:
     return [chat1, chat2]
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_write_chats_to_jsonl(tmp_path: Path, sample_chats: list[Chat]) -> None:
     output_file = tmp_path / "chats.jsonl"
     watcher = rg.watchers.write_chats_to_jsonl(output_file)
@@ -46,12 +46,12 @@ async def test_write_chats_to_jsonl(tmp_path: Path, sample_chats: list[Chat]) ->
         for i, line in enumerate(lines):
             saved_chat = json.loads(line)
             original_chat = sample_chats[i]
-            for i, message in enumerate(saved_chat["messages"]):
-                assert message["role"] == original_chat.messages[i].role
-                assert message["content"] == original_chat.messages[i].content
+            for k, message in enumerate(saved_chat["messages"]):
+                assert message["role"] == original_chat.messages[k].role
+                assert message["content"] == original_chat.messages[k].content
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_write_chats_to_jsonl_append(tmp_path: Path, sample_chats: list[Chat]) -> None:
     output_file = tmp_path / "chats.jsonl"
     watcher = rg.watchers.write_chats_to_jsonl(output_file)
@@ -67,7 +67,7 @@ async def test_write_chats_to_jsonl_append(tmp_path: Path, sample_chats: list[Ch
         assert len(lines) == 2
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_write_chats_to_jsonl_replace(tmp_path: Path, sample_chats: list[Chat]) -> None:
     output_file = tmp_path / "chats.jsonl"
 
@@ -147,7 +147,7 @@ class MockS3Client:
         self.buckets[Bucket][Key] = Body
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_write_chats_to_s3(sample_chats: list[Chat]) -> None:
     s3_mock_client = MockS3Client()
 

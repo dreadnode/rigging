@@ -263,7 +263,7 @@ class CompletionPipeline:
 
         ExhuastedMaxRounds is implicitly included.
         """
-        self.on_failed: "FailMode" = "raise"
+        self.on_failed: FailMode = "raise"
         """How to handle failures in the pipeline unless overriden in calls."""
 
         # (callback, all_text, max_rounds)
@@ -747,7 +747,7 @@ class CompletionPipeline:
                         raise inbound  # noqa: TRY301
 
                 inbounds = [inbound for inbound in _inbounds if isinstance(inbound, GeneratedText)]
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 if on_failed == "raise" or not any(
                     isinstance(e, t) for t in self.errors_to_fail_on
                 ):
@@ -768,14 +768,14 @@ class CompletionPipeline:
                         state.processor.send(inbound.text)
                         continue
                     except StopIteration as stop:
-                        output = t.cast(str, stop.value)
+                        output = t.cast("str", stop.value)
                     except CompletionExhaustedMaxRoundsError as exhausted:
                         if on_failed == "raise":
                             raise
                         output = exhausted.completion
                         failed = True
                         error = exhausted
-                    except Exception as e:  # noqa: BLE001
+                    except Exception as e:
                         if on_failed == "raise" or not any(
                             isinstance(e, t) for t in self.errors_to_fail_on
                         ):

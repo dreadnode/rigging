@@ -104,7 +104,9 @@ strict = true
 target-version = "py310"
 line-length = 100
 extend-exclude = [
-    "*.ipynb", # jupyter notebooks
+    "*.ipynb",    # jupyter notebooks
+    "examples/*", # example files
+    ".github/*",  # github files
 ]
 
 [tool.ruff.lint]

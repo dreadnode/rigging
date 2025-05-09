@@ -235,7 +235,7 @@ class Tool(t.Generic[P, R]):
                     if self._signature
                     else make_from_schema(self.parameters_schema, "params")
                 )
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 raise ToolDefinitionError(
                     f"Failed to create model for tool '{self.name}'. "
                     "This is likely due to constraints on arguments when the `xml` tool mode is used.",
@@ -258,7 +258,7 @@ class Tool(t.Generic[P, R]):
             parameters=json.dumps(self.parameters_schema),
         )
 
-    async def handle_tool_call(
+    async def handle_tool_call(  # noqa: PLR0912
         self,
         tool_call: ApiToolCall | XmlToolCall | JsonInXmlToolCall,
     ) -> tuple["Message", bool]:
@@ -305,7 +305,7 @@ class Tool(t.Generic[P, R]):
                         + tool_call_parameters
                         + self.model.xml_end_tag(),
                     )
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     raise ValueError(
                         f"Failed to parse parameters from:\n{tool_call_parameters}",
                     ) from e
@@ -334,7 +334,7 @@ class Tool(t.Generic[P, R]):
                 result: t.Any = self.fn(**kwargs)  # type: ignore [call-arg]
                 if inspect.isawaitable(result):
                     result = await result
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 if self.catch is True or (
                     not isinstance(self.catch, bool) and isinstance(e, tuple(self.catch))
                 ):
@@ -410,16 +410,14 @@ def tool(
     description: str | None = None,
     catch: bool | t.Iterable[type[Exception]] = False,
     truncate: int | None = None,
-) -> t.Callable[[t.Callable[P, R]], Tool[P, R]]:
-    ...
+) -> t.Callable[[t.Callable[P, R]], Tool[P, R]]: ...
 
 
 @t.overload
 def tool(
     func: t.Callable[P, R],
     /,
-) -> Tool[P, R]:
-    ...
+) -> Tool[P, R]: ...
 
 
 def tool(
@@ -513,16 +511,14 @@ def tool_method(
     description: str | None = None,
     catch: bool | t.Iterable[type[Exception]] = False,
     truncate: int | None = None,
-) -> t.Callable[[t.Callable[t.Concatenate[t.Any, P], R]], ToolMethod[P, R]]:
-    ...
+) -> t.Callable[[t.Callable[t.Concatenate[t.Any, P], R]], ToolMethod[P, R]]: ...
 
 
 @t.overload
 def tool_method(
     func: t.Callable[t.Concatenate[t.Any, P], R],
     /,
-) -> ToolMethod[P, R]:
-    ...
+) -> ToolMethod[P, R]: ...
 
 
 def tool_method(

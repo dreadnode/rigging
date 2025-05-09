@@ -273,7 +273,7 @@ class ContentAudioInput(BaseModel):
                 raise ValueError(
                     f"Could not determine format for file '{file}', please provide one",
                 )
-            format = t.cast(ContentAudioFormat, mimetype.split("/")[-1])  # noqa: A001
+            format = t.cast("ContentAudioFormat", mimetype.split("/")[-1])  # noqa: A001
 
         encoded = base64.b64encode(file.read_bytes()).decode()
         return cls(input_audio=cls.Audio(data=encoded, format=format, transcript=transcript))
@@ -904,12 +904,7 @@ class Message(BaseModel):
     @classmethod
     def fit_as_list(
         cls,
-        messages: t.Sequence[MessageDict]
-        | t.Sequence["Message"]
-        | MessageDict
-        | "Message"
-        | Content
-        | str,
+        messages: "t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | Content | str",
     ) -> list["Message"]:
         """Helper function to convert various common types to a strict list of Message objects."""
         if isinstance(messages, (Message, dict, str, *ContentTypes)):

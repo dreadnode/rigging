@@ -196,7 +196,7 @@ def test_tool_model_creation() -> None:
 class TestToolHandleCall:
     """Test suite for tool call handling."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def sample_tool(self) -> Tool[..., t.Any]:
         def calculator(a: int, b: int, operation: str = "add") -> int:
             """Perform math operations."""
@@ -210,7 +210,7 @@ class TestToolHandleCall:
 
         return Tool.from_callable(calculator)
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_handle_api_tool_call(self, sample_tool: Tool[..., t.Any]) -> None:
         """Test handling API format tool calls."""
         from rigging.tool.api import ApiFunctionCall, ApiToolCall
@@ -231,7 +231,7 @@ class TestToolHandleCall:
         assert message.tool_call_id == "call123"
         assert message.content == "15"
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_handle_xml_tool_call(self, sample_tool: Tool[..., t.Any]) -> None:
         """Test handling XML format tool calls."""
         tool_call = XmlToolCall(
@@ -252,7 +252,7 @@ class TestToolHandleCall:
         assert message.role == "user"
         assert message.content == '<tool-result name="calculator">8</tool-result>'
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_handle_json_xml_tool_call(self, sample_tool: Tool[..., t.Any]) -> None:
         """Test handling JSON-in-XML format tool calls."""
         tool_call = JsonInXmlToolCall(
@@ -312,7 +312,6 @@ def test_prompt_integration() -> None:
     @rg.prompt
     async def generate_greeting(name: str, formal: bool = False) -> str:  # type: ignore [empty-body]
         """Generate a greeting for the user."""
-        ...
 
     tool = Tool.from_callable(generate_greeting)
 
@@ -355,7 +354,7 @@ def test_complex_model_parameters() -> None:
         Tool.from_callable(process_settings).xml_definition  # noqa: B018
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_tool_error_catching() -> None:
     """Test that errors in tool functions are caught and reported."""
 

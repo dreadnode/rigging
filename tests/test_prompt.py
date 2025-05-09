@@ -15,7 +15,6 @@ def test_prompt_render_docstring_parse() -> None:
     @rg.prompt
     async def foo(name: str) -> str:
         """Say hello."""
-        ...
 
     assert foo.docstring == "Say hello."
 
@@ -23,7 +22,6 @@ def test_prompt_render_docstring_parse() -> None:
     async def bar(name: str) -> str:
         """
         Say hello."""
-        ...
 
     assert bar.docstring == "Say hello."
 
@@ -34,7 +32,6 @@ def test_prompt_render_docstring_parse() -> None:
         hello.
 
         """
-        ...
 
     assert baz.docstring == "Say hello."
 
@@ -43,7 +40,6 @@ def test_basic_prompt_render() -> None:
     @rg.prompt
     async def hello(name: str) -> str:
         """Say hello."""
-        ...
 
     rendered = hello.render("Alice")
     assert rendered == dedent(
@@ -63,7 +59,6 @@ def test_prompt_render_with_docstring_variables() -> None:
     @rg.prompt
     async def greet(name: str, greeting: str = "Hello") -> str:
         """Say '{{ greeting }}' to {{ name }}."""
-        ...
 
     rendered = greet.render("Bob")
     assert rendered == dedent(
@@ -85,7 +80,6 @@ def test_prompt_render_with_model_output() -> None:
     @rg.prompt
     async def create_person(name: str, age: int) -> Person:
         """Create a person."""
-        ...
 
     rendered = create_person.render("Alice", 30)
     assert rendered == dedent(
@@ -110,7 +104,6 @@ def test_prompt_render_with_list_output() -> None:
     @rg.prompt
     async def generate_numbers(count: int) -> list[int]:
         """Generate a list of numbers."""
-        ...
 
     rendered = generate_numbers.render(5)
     assert rendered == dedent(
@@ -130,7 +123,6 @@ def test_prompt_render_with_tuple_output() -> None:
     @rg.prompt
     async def create_user(username: str) -> tuple[str, int]:
         """Create a new user."""
-        ...
 
     rendered = create_user.render("johndoe")
     assert rendered == dedent(
@@ -152,7 +144,6 @@ def test_prompt_render_with_tuple_output_ctx() -> None:
     @rg.prompt
     async def create_user(username: str) -> tuple[Annotated[str, rg.Ctx(tag="id")], int]:
         """Create a new user."""
-        ...
 
     rendered = create_user.render("johndoe")
     assert rendered == dedent(
@@ -180,7 +171,6 @@ def test_prompt_render_with_dataclass_output() -> None:
     @rg.prompt
     async def register_user(username: str, email: str, age: int) -> User:
         """Register a new user: {{ username}}."""
-        ...
 
     rendered = register_user.render("johndoe", "johndoe@example.com", 25)
     assert rendered == dedent(
@@ -206,7 +196,6 @@ def test_prompt_render_with_chat_return() -> None:
     @rg.prompt
     async def foo(input_: str) -> Chat:
         """Do something."""
-        ...
 
     rendered = foo.render("bar")
     assert rendered == dedent(
@@ -228,7 +217,6 @@ def test_prompt_render_ctx_in_dataclass() -> None:
     @rg.prompt
     async def register_user(username: str, email: str, age: int) -> User:
         """Register a new user: {{ username }}."""
-        ...
 
     rendered = register_user.render("johndoe", "john@email.com", 30)
     assert rendered == dedent(

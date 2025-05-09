@@ -9,8 +9,8 @@ from rigging.tool.robopages import robopages
 
 __all__ = [
     "Tool",
-    "robopages",
     "mcp",
+    "robopages",
     "tool",
     "tool_method",
 ]

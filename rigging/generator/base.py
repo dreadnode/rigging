@@ -663,7 +663,7 @@ def get_identifier(generator: Generator, params: GenerateParams | None = None) -
     return identifier
 
 
-def get_generator(identifier: str, *, params: GenerateParams | None = None) -> Generator:  # noqa: PLR0912
+def get_generator(identifier: str, *, params: GenerateParams | None = None) -> Generator:
     """
     Get a generator by an identifier string. Uses LiteLLM by default.
 
@@ -708,24 +708,24 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
     if "!" in identifier:
         try:
             provider, model = identifier.split("!")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             raise InvalidModelSpecifiedError(identifier) from e
 
     if provider not in g_providers:
         raise InvalidModelSpecifiedError(identifier)
 
     if not isinstance(g_providers[provider], type):
-        lazy_generator = t.cast(LazyGenerator, g_providers[provider])
+        lazy_generator = t.cast("LazyGenerator", g_providers[provider])
         g_providers[provider] = lazy_generator()
 
-    generator_cls = t.cast(type[Generator], g_providers[provider])
+    generator_cls = t.cast("type[Generator]", g_providers[provider])
 
     kwargs = {}
     if "," in model:
         try:
             model, kwargs_str = model.split(",", 1)
             kwargs = dict(arg.split("=", 1) for arg in kwargs_str.split(","))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             raise InvalidModelSpecifiedError(identifier) from e
 
     # See if any of the kwargs would apply to the cls constructor directly
@@ -753,7 +753,7 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
 
     try:
         merged_params = GenerateParams(**kwargs).merge_with(params)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise InvalidModelSpecifiedError(identifier) from e
 
     return generator_cls(model=model, params=merged_params, **init_kwargs)

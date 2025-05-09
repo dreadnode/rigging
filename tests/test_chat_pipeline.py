@@ -17,7 +17,7 @@ from .generators import (
 # ruff: noqa: S101, PLR2004, ARG001, PT011, SLF001
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_basic_chat_pipeline() -> None:
     generator = FixedGenerator(
         model="fixed",
@@ -35,7 +35,7 @@ async def test_basic_chat_pipeline() -> None:
     assert not chat.failed
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_chat_until_parsed_as_basic() -> None:
     generator = FixedGenerator(
         model="fixed",
@@ -56,7 +56,7 @@ async def test_chat_until_parsed_as_basic() -> None:
     assert not chat.failed
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_max_depth_limit() -> None:
     max_depth = 3
     call_count = 0
@@ -79,7 +79,7 @@ async def test_max_depth_limit() -> None:
     assert call_count == max_depth + 1  # One initial call + max_depth recursive calls
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_pipeline_steps() -> None:
     should_continue = True
 
@@ -115,7 +115,7 @@ async def test_pipeline_steps() -> None:
     assert all_steps[0].chats[0].last.content == "test response"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_chat_pipeline_error_handling() -> None:
     generator = FailingGenerator(model="failing", params=GenerateParams())
 
@@ -147,7 +147,7 @@ async def test_chat_pipeline_error_handling() -> None:
     assert len(chat_skip) == 0
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_parsing_with_recovery() -> None:
     response_sequence = [
         "Invalid response",  # First response that fails to parse
@@ -174,7 +174,7 @@ async def test_parsing_with_recovery() -> None:
     assert len(chat.all) > 2  # Should have more than just the initial Q&A due to recovery attempts
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_map_callback() -> None:
     generator = FixedGenerator(model="fixed", text="Response 1", params=GenerateParams())
 
@@ -196,7 +196,7 @@ async def test_map_callback() -> None:
     assert chats[1].last.content == "Modified: Response 1"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_watch_callback() -> None:
     generator = FixedGenerator(model="fixed", text="Response", params=GenerateParams())
 

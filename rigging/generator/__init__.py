@@ -54,19 +54,19 @@ def get_transformers_lazy() -> type[Generator]:
 register_generator("transformers", get_transformers_lazy)
 
 __all__ = [
-    "get_generator",
-    "Generator",
     "GenerateParams",
     "GeneratedMessage",
     "GeneratedText",
+    "Generator",
+    "HTTPGenerator",
+    "LiteLLMGenerator",
     "StopReason",
     "Usage",
     "chat",
     "complete",
     "get_generator",
-    "register_generator",
+    "get_generator",
     "get_identifier",
-    "LiteLLMGenerator",
-    "HTTPGenerator",
+    "register_generator",
     # TODO: We can't add VLLM and Transformers here because they are lazy loaded
 ]

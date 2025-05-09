@@ -87,7 +87,7 @@ async def interact(
             else:
                 pipeline.add(user_input)
 
-            print("")
+            print()
 
             animation_task = asyncio.create_task(_animate())
             chat = await pipeline.run()

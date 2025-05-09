@@ -129,14 +129,14 @@ def try_parse_many(
         MissingModelError: If a model type is missing and `fail_on_missing` is True.
         Exception: If the model is malformed and `fail_on_missing` is True.
     """
-    model: "ModelT"
-    parsed: list[tuple["ModelT", slice]] = []
+    model: ModelT
+    parsed: list[tuple[ModelT, slice]] = []
 
     try:
         for model_class in types:
             for model, slice_ in model_class.from_text(text):
                 parsed.append((model, slice_))
-    except Exception:  # noqa: BLE001
+    except Exception:
         if fail_on_missing:
             raise
 

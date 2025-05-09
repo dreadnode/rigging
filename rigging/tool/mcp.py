@@ -126,10 +126,10 @@ class MCPClient:
         try:
             if self.transport == "stdio":
                 self._session = await self._connect_via_stdio(
-                    t.cast(StdioConnection, self.connection),
+                    t.cast("StdioConnection", self.connection),
                 )
             elif self.transport == "sse":
-                self._session = await self._connect_via_sse(t.cast(SSEConnection, self.connection))
+                self._session = await self._connect_via_sse(t.cast("SSEConnection", self.connection))
             else:
                 raise TypeError(  # noqa: TRY301
                     f"Unsupported transport: {self.transport}. Must be 'stdio' or 'sse'",
@@ -183,7 +183,6 @@ def mcp(
             )
         ```
     """
-    ...
 
 
 @t.overload
@@ -218,8 +217,7 @@ def mcp(
             )
         ```
     """
-    ...
 
 
 def mcp(transport: Transport, **connection: t.Any) -> MCPClient:
-    return MCPClient(transport, t.cast(StdioConnection | SSEConnection, connection))
+    return MCPClient(transport, t.cast("StdioConnection | SSEConnection", connection))

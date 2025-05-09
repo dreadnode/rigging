@@ -217,7 +217,7 @@ class Chat(BaseModel):
         """
         return [
             t.cast(
-                MessageDict,
+                "MessageDict",
                 m.model_dump(include={"role", "content_parts"}, exclude_none=True),
             )
             for m in self.all
@@ -409,7 +409,7 @@ class Chat(BaseModel):
 
         tool_system_prompt = tool_description_prompt_part(
             definitions,
-            t.cast(t.Literal["xml", "json-in-xml"], mode),
+            t.cast("t.Literal['xml', 'json-in-xml']", mode),
         )
         return self.inject_system_content(tool_system_prompt)
 
@@ -524,8 +524,7 @@ class _ThenChatCallback(t.Protocol):
         self,
         chat: Chat,
         /,
-    ) -> t.Awaitable[Chat | None]:
-        ...
+    ) -> t.Awaitable[Chat | None]: ...
 
 
 @runtime_checkable
@@ -534,8 +533,7 @@ class _ThenChatStepCallback(t.Protocol):
         self,
         chat: Chat,
         /,
-    ) -> "PipelineStepGenerator | PipelineStepContextManager | t.Awaitable[PipelineStepGenerator | PipelineStepContextManager | None]":
-        ...
+    ) -> "PipelineStepGenerator | PipelineStepContextManager | t.Awaitable[PipelineStepGenerator | PipelineStepContextManager | None]": ...
 
 
 ThenChatCallback = _ThenChatCallback | _ThenChatStepCallback
@@ -550,8 +548,7 @@ class _MapChatCallback(t.Protocol):
         self,
         chats: list[Chat],
         /,
-    ) -> t.Awaitable[list[Chat]]:
-        ...
+    ) -> t.Awaitable[list[Chat]]: ...
 
 
 @runtime_checkable
@@ -560,8 +557,7 @@ class _MapChatStepCallback(t.Protocol):
         self,
         chats: list[Chat],
         /,
-    ) -> "PipelineStepGenerator | PipelineStepContextManager | t.Awaitable[PipelineStepGenerator | PipelineStepContextManager]":
-        ...
+    ) -> "PipelineStepGenerator | PipelineStepContextManager | t.Awaitable[PipelineStepGenerator | PipelineStepContextManager]": ...
 
 
 MapChatCallback = _MapChatCallback | _MapChatStepCallback
@@ -658,9 +654,10 @@ class PipelineStep:
         This is useful for setting constraints on recursion depth.
         """
         depth = 0
-        while self.parent is not None:
+        current = self
+        while current.parent is not None:
             depth += 1
-            self = self.parent
+            current = current.parent
         return depth
 
 
@@ -852,8 +849,7 @@ class ChatPipeline:
             and self.chat.all[-1].role == message_list[0].role
             and (
                 merge_strategy == "all"
-                or merge_strategy == "only-user-role"
-                and self.chat.all[-1].role == "user"
+                or (merge_strategy == "only-user-role" and self.chat.all[-1].role == "user")
             )
         ):
             self.chat.all[-1].content_parts += message_list[0].content_parts
@@ -1263,7 +1259,7 @@ class ChatPipeline:
 
         # Parse the actual tool calls
 
-        tool_calls: (list[ApiToolCall] | list[XmlToolCall] | list[JsonInXmlToolCall] | None) = None
+        tool_calls: list[ApiToolCall] | list[XmlToolCall] | list[JsonInXmlToolCall] | None = None
         if self.tool_mode == "api":
             tool_calls = chat.last.tool_calls
         if self.tool_mode == "xml":
@@ -1435,7 +1431,7 @@ class ChatPipeline:
                     )
 
                 generator = t.cast(
-                    PipelineStepGenerator,
+                    "PipelineStepGenerator",
                     await exit_stack.enter_async_context(aclosing(result)),
                 )
                 async for step in generator:
@@ -1675,7 +1671,7 @@ class ChatPipeline:
 
                     if inspect.isasyncgen(chats_or_generator):
                         generator = t.cast(
-                            PipelineStepGenerator,
+                            "PipelineStepGenerator",
                             await exit_stack.enter_async_context(
                                 aclosing(chats_or_generator),
                             ),

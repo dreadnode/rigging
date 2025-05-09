@@ -122,7 +122,7 @@ def raise_as(
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             try:
                 return func(*args, **kwargs)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 error = error_type(message)
                 raise error from e
 

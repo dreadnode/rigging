@@ -33,12 +33,12 @@ def _to_str(v: str | dict[str, t.Any]) -> str:
 
 
 def _to_dict(v: str | dict[str, t.Any]) -> dict[str, t.Any]:
-    return t.cast(dict[str, t.Any], json.loads(v)) if isinstance(v, str) else v
+    return t.cast("dict[str, t.Any]", json.loads(v)) if isinstance(v, str) else v
 
 
 def _to_dict_or_str(v: str) -> dict[str, t.Any] | str:
     try:
-        return t.cast(dict[str, t.Any], json.loads(v))
+        return t.cast("dict[str, t.Any]", json.loads(v))
     except json.JSONDecodeError:
         return v
 
