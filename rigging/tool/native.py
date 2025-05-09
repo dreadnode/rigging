@@ -1,316 +1,198 @@
 """
-This module handles tools using internal flows, callbacks, and parsing with rigging models.
+Models and utilities for defining and working with native-parsed tools.
 """
-
-from __future__ import annotations
 
 import inspect
 import typing as t
 
-from pydantic import Field, computed_field, model_validator
-from pydantic_xml import attr, element, wrapped
+from pydantic.fields import FieldInfo
+from pydantic_xml import attr, element
 
 from rigging.model import Model
 
-SUPPORTED_TOOL_ARGUMENT_TYPES = t.Union[int, float, str, bool]
-"""Supported types for tool arguments."""
+TOOL_CALLS_TAG = "rg:tool-calls"
 
-SUPPORTED_TOOL_ARGUMENT_TYPES_LIST = [int, float, str, bool]
-"""Supported types for tool arguments as a list."""
-
-ToolArgumentTypesCast = {
-    "int": int,
-    "float": float,
-    "bool": bool,
-    "str": str,
-}
+# xml
 
 
-#
-# 1 - Inbound models from LLM -> functions
-#
+def _get_field_type_name(annotation: type[t.Any]) -> str:
+    """Extract a clean type name from a type annotation."""
+
+    origin = t.get_origin(annotation)
+    args = t.get_args(annotation)
+
+    if origin is list or origin is t.List:  # noqa: UP006
+        if args:
+            item_type = _get_field_type_name(args[0])
+            return f"list[{item_type}]"
+        return "list"
+
+    if origin is dict or origin is t.Dict:  # noqa: UP006
+        if len(args) == 2:  # noqa: PLR2004
+            key_type = _get_field_type_name(args[0])
+            value_type = _get_field_type_name(args[1])
+            return f"dict[{key_type}, {value_type}]"
+        return "dict"
+
+    if origin is not None:
+        origin_name = origin.__name__.lower()
+        args_str = ", ".join(_get_field_type_name(arg) for arg in args)
+        return f"{origin_name}[{args_str}]"
+
+    if inspect.isclass(annotation):
+        return annotation.__name__.lower()
+
+    return str(annotation).replace("class '", "").replace("'", "").split(".")[-1]
 
 
-class ToolCallParameter(Model):
+def _make_parameter_xml(field_name: str, field: FieldInfo) -> str:
+    """Create an XML representation of a parameter."""
+
+    if field.annotation is None:
+        raise ValueError(f"Field '{field_name}' has no type annotation")
+
+    type_name = _get_field_type_name(field.annotation)
+    description = field.description or ""
+    required = field.is_required()
+
+    nested_example = ""
+    if field.annotation is list or field.annotation is t.List:  # noqa: UP006
+        list_item_type = t.get_args(field.annotation)[0]
+        if hasattr(list_item_type, "xml_example"):
+            nested_example = list_item_type.xml_example()
+
+    if field.annotation is dict or field.annotation is t.Dict:  # noqa: UP006
+        key_type, value_type = t.get_args(field.annotation)
+        if hasattr(key_type, "xml_example"):
+            nested_example = key_type.xml_example()
+
+    if hasattr(field.annotation, "xml_example"):
+        nested_example = field.annotation.xml_example()
+
+    description_part = f' description="{description}"' if description else ""
+    required_part = f' required="{str(required).lower()}"'
+
+    if nested_example:
+        return f'<param name="{field_name}" type="{type_name}"{description_part}{required_part}>{nested_example}</param>'
+
+    return f'<param name="{field_name}" type="{type_name}"{description_part}{required_part}/>'
+
+
+class XmlToolDefinition(Model, tag="tool-def"):
     name: str = attr()
-    attr_value: SUPPORTED_TOOL_ARGUMENT_TYPES | None = attr("value", default=None, exclude=True)
-    text_value: SUPPORTED_TOOL_ARGUMENT_TYPES | None = Field(default=None, exclude=True)
-
-    @computed_field  # type: ignore [prop-decorator]
-    @property
-    def value(self) -> SUPPORTED_TOOL_ARGUMENT_TYPES:
-        return self.attr_value or self.text_value or ""
-
-    @model_validator(mode="after")
-    def validate_value(self) -> ToolCallParameter:
-        if self.value is None:
-            raise ValueError("Missing parameter value")
-        return self
-
-
-class ToolCall(Model, tag="call"):
-    tool: str = attr()
-    function: str = attr()
-    parameters: list[ToolCallParameter] = element(tag="parameter")
-
-
-#
-# 2 - Inbound function calls from a model
-#
-
-
-class ToolCalls(Model, tag="tool_calls"):
-    calls: list[ToolCall] = element()
-
-    # This can be used in prompts to teach the model
-    # the particular XML structure we're looking for
-    #
-    # TODO: We should consider building a base model
-    # interface for both simple tags (<thing></thing>)
-    # and full examples will filled in template vars
+    description: str = attr()
+    parameters: str  # don't use element() here, we want to keep the raw xml
 
     @classmethod
-    def xml_example(cls) -> str:
-        return cls(
-            calls=[
-                ToolCall(
-                    tool="$TOOL_A",
-                    function="$FUNCTION_A",
-                    parameters=[ToolCallParameter(name="$PARAMETER_NAME", text_value="$PARAMETER_VALUE")],
-                ),
-                ToolCall(
-                    tool="$TOOL_B",
-                    function="$FUNCTION_B",
-                    parameters=[ToolCallParameter(name="$PARAMETER_NAME", text_value="$PARAMETER_VALUE")],
-                ),
-            ]
-        ).to_pretty_xml()
+    def from_parameter_model(
+        cls,
+        model_class: type[Model],
+        name: str,
+        description: str,
+    ) -> "XmlToolDefinition":
+        params_xml = "<parameters>"
+        for field_name, field in model_class.model_fields.items():
+            params_xml += _make_parameter_xml(field_name, field)
+        params_xml += "</parameters>"
+
+        return cls(name=name, description=description, parameters=params_xml)
 
 
-#
-# 3 - Outbound models from functions -> LLM
-#
-
-
-# Description of a single tool parameter
-class ToolParameter(Model, tag="parameter"):
+class XmlToolCall(Model, tag="invoke"):
     name: str = attr()
-    type: str = attr()
-    description: str = attr()
+    parameters: str
 
 
-# Description of a single tool function
-class ToolFunction(Model, tag="function"):
+# json-in-xml
+
+
+class JsonInXmlToolDefinition(Model, tag="tool-def"):
     name: str = attr()
     description: str = attr()
-    parameters: list[ToolParameter] = wrapped("parameters", element())
+    parameters: str = element()
 
 
-# Description of an entire tool
-class ToolDescription(Model, tag="tool"):
+class JsonInXmlToolCall(Model, tag="invoke"):
     name: str = attr()
-    description: str = attr()
-    functions: list[ToolFunction] = wrapped("functions", element())
+    parameters: str
 
 
-# A list of tools to present to the model
-class ToolDescriptionList(Model, tag="tools"):
-    tools: list[ToolDescription] = element()
+# results
 
 
-# A single result from a tool call
-class ToolResult(Model, tag="result"):
-    tool: str = attr()
-    function: str = attr()
-    error: bool = attr()
-    content: str
+class NativeToolResult(Model, tag="tool-result"):
+    name: str = attr()
+    result: str
 
 
-# How we pass back results from a set of calls
-class ToolResults(Model, tag="tool_results"):
-    results: list[ToolResult] = element()
+# prompts
+
+XML_CALL_FORMAT = """\
+To use a tool, respond with the following format:
+
+<rg:tool-calls>
+    <invoke name="$tool_name">
+        <$param_name>argument one</$param_name>
+        <$param_name>123</$param_name>
+    </invoke>
+</rg:tool-calls>
+
+If a parameter is a primitive list, provide child elements as items:
+<numbers>
+    <item>1</item>
+    <item>2</item>
+</numbers>
+
+If a parameter is a list of objects, provide them as named child elements:
+<things>
+    <thing>
+        <foo>bar</foo>
+    </thing>
+    <thing>
+        <foo>baz</foo>
+    </thing>
+</things>
 
 
-#
-# 4 - Base class for implementing tools
-#
+If a parameter is a dictionary, provide key-value pairs as attributes:
+<dict key1="value1" key2="123" />\
+"""
+
+XML_IN_JSON_CALL_FORMAT = """\
+To use a tool, respond with the following format:
+
+<rg:tool-calls>
+    <invoke name="$tool_name">
+        {"$param_name": "argument one", "$param_name": 123}
+    </invoke>
+</rg:tool-calls>
+
+Arguments should be provided as a valid JSON object between the tags.\
+"""
 
 
-class Tool:
-    """
-    Base class for implementing internally-managed tools in the Rigging system.
-
-    You should subclass this to define your own tools:
-
-    ```py
-    def Hammer(Tool):
-        name = "Hammer"
-        description = "A tool for hitting things."
-
-        def hit(self, target: Annotated[str, "Target of the hit") -> str:
-            return f"Hit {target} with a hammer."
-
-    chat = await generator.chat(...).using(Hammer()).run()
-    ```
-
-    Note:
-        The `name` and `description` attributes are required and can be defined
-        as class attributes or properties. If you define them as properties,
-        you must also define a getter for them.
-
-    Note:
-        All functions on the tool must have type hints for their parameters and
-        use the `Annotated` type hint to provide a description for each parameter.
-    """
-
-    name: str
-    """Name of the tool"""
-    description: str
-    """Description of the tool"""
-
-    def __init_subclass__(cls, *, name: str | None = None, description: str | None = None, **kwargs: t.Any) -> None:
-        super().__init_subclass__(**kwargs)
-        if name is not None:
-            cls.name = name
-        if description is not None:
-            cls.description = description
-
-        # Ensure name and description are defined
-        if not (hasattr(cls, "name") or hasattr(cls, "name_property")):
-            raise TypeError(f"{cls.__name__} must define 'name' attribute or 'name' property.")
-        if not (hasattr(cls, "description") or hasattr(cls, "description_property")):
-            raise TypeError(f"{cls.__name__} must define 'description' attribute or 'description' property.")
-
-        # Check that they aren't empty or unset
-        if not getattr(cls, "name", None):
-            raise ValueError(f"{cls.__name__}.name must not be empty.")
-        if not getattr(cls, "description", None):
-            raise ValueError(f"{cls.__name__}.description must not be empty.")
-
-    # TODO: We could alternatively use the get_description()
-    # object and check against that (or even cast into it first)
-    #
-    # NOTE: We assume some sanity checks have already been performed
-    def _execute(self, call: ToolCall) -> str:
-        tool_description = self.get_description()
-
-        if call.function not in [f.name for f in tool_description.functions]:
-            raise ValueError(f"Function '{call.function}' does not exist on '{self.name}'")
-
-        function_description = next(f for f in tool_description.functions if f.name == call.function)
-
-        # TODO: The casting here is terrible, we should probably
-        # be exposing the raw types on the description, but I
-        # need to make sure they aren't serialized into the model
-        arguments: dict[str, SUPPORTED_TOOL_ARGUMENT_TYPES] = {}
-        for parameter in call.parameters:
-            if parameter.name not in [p.name for p in function_description.parameters]:
-                raise ValueError(f"Parameter '{parameter.name}' does not exist on '{self.name}.{call.function}'")
-
-            parameter_description = next(p for p in function_description.parameters if p.name == parameter.name)
-
-            arguments[parameter.name] = ToolArgumentTypesCast[parameter_description.type](parameter.value)
-
-        function = getattr(self, call.function)
-        result = function(**arguments)
-
-        # Cast back to string for simplicity despite us likely
-        # having more complex types underneath (we want them castable to str)
-        return str(result)
-
-    def execute(self, call: ToolCall) -> ToolResult:
-        """Executes a function call on the tool."""
-        try:
-            content = self._execute(call)
-            return ToolResult(tool=call.tool, function=call.function, error=False, content=content)
-        except Exception as e:
-            return ToolResult(tool=call.tool, function=call.function, error=True, content=str(e))
-
-    __call__ = execute
-
-    # Lots of sanity checks and validation, but we essentially
-    # want to use the class def, functions, params, etc. and
-    # build a ToolDescription object that can be serialized
-    # and passed to a model
-    def get_description(self) -> ToolDescription:
-        """Creates a full description of the tool for use in prompting"""
-        functions: list[ToolFunction] = []
-        for method_name, method in inspect.getmembers(self.__class__, predicate=inspect.isfunction):
-            if not method.__qualname__.startswith(self.__class__.__name__):
-                continue
-
-            if method_name.startswith("_"):
-                continue
-
-            signature = inspect.signature(method)
-
-            if signature.return_annotation is inspect.Signature.empty:
-                raise TypeError(f"Functions must have return type hints ({method_name})")
-
-            if signature.return_annotation is not str:
-                raise TypeError(f"Functions must return strings ({method_name})")
-
-            parameters: list[ToolParameter] = []
-            for param_name, param in signature.parameters.items():
-                if param_name == "self":
-                    continue
-
-                formatted_name = f"{method.__name__}#{param_name}"
-
-                if param.kind not in (
-                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                    inspect.Parameter.KEYWORD_ONLY,
-                ):
-                    raise TypeError(f"Parameters must be positional or keyword ({formatted_name})")
-
-                if param.annotation is inspect.Parameter.empty:
-                    raise TypeError(f"Parameters must have type hints ({formatted_name})")
-
-                if t.get_origin(param.annotation) != t.Annotated:
-                    raise TypeError(
-                        f'Parameters must be annotated like Annotated[<type>, "<description>"] ({formatted_name})'
-                    )
-
-                annotation_args = t.get_args(param.annotation)
-
-                if len(annotation_args) != 2 or not isinstance(annotation_args[1], str):
-                    raise TypeError(
-                        f'Parameters must be annotated like Annotated[<type>, "<description>"] ({formatted_name})'
-                    )
-
-                if annotation_args[0] not in SUPPORTED_TOOL_ARGUMENT_TYPES_LIST:
-                    raise TypeError(
-                        f"Parameters must be annotated with one of these types: {SUPPORTED_TOOL_ARGUMENT_TYPES_LIST} ({formatted_name})"
-                    )
-
-                type_name = annotation_args[0].__name__
-                description = annotation_args[1]
-
-                parameters.append(ToolParameter(name=param_name, type=type_name, description=description))
-
-            functions.append(
-                ToolFunction(
-                    name=method_name,
-                    description=method.__doc__ if method.__doc__ else "",
-                    parameters=parameters,
-                )
-            )
-
-        return ToolDescription(name=self.name, description=self.description, functions=functions)
-
-
-def system_tool_extension(call_format: str, tool_descriptions: str) -> str:
+def tool_description_prompt_part(
+    tool_descriptions: list[XmlToolDefinition] | list[JsonInXmlToolDefinition],
+    mode: t.Literal["xml", "json-in-xml"],
+) -> str:
+    call_format = XML_CALL_FORMAT if mode == "xml" else XML_IN_JSON_CALL_FORMAT
+    tool_definitions = "\n".join([tool.to_pretty_xml() for tool in tool_descriptions])
     return f"""\
 # Tool Use
-In this environment you have access to a set of tools you can use to improve your responses.
+In this environment you have access to a set of tools you can use.
+
+## Available Tools
+<tools>
+{tool_definitions}
+</tools>
 
 ## Tool Call Format
 {call_format}
 
-## Available Tools
-{tool_descriptions}
-
-You can use any of the available tools by responding in the call format above. The XML will be parsed and the tool(s) will be executed with the parameters you provided. The results of each tool call will be provided back to you before you continue the conversation. You can execute multiple tool calls by continuing to respond in the format above until you are finished. Function calls take explicit values and are independent of each other. Tool calls cannot share, re-use, and transfer values between eachother. The use of placeholders is forbidden.
-
-The user will not see the results of your tool calls, only the final message of your conversation. Wait to perform your full response until after you have used any required tools. If you intend to use a tool, please do so before you continue the conversation.
+## Tool Use Instructions
+- Answer the user's request using the relevant tool(s), if they are available.
+- You may issue multiple tools in a single response if needed.
+- Check that all the required parameters for each tool call are provided or can reasonably be inferred from context.
+- If there are no relevant tools or there are missing values for required parameters, ask the user to supply these values; otherwise proceed with the tool calls.
+- Carefully analyze descriptive terms in the request as they may indicate required parameter values that should be included even if not explicitly quoted.
 """

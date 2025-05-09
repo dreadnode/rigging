@@ -2,8 +2,6 @@
 Parsing helpers for extracting rigging models from text
 """
 
-from __future__ import annotations
-
 import typing as t
 
 from rigging.error import MissingModelError
@@ -12,7 +10,7 @@ if t.TYPE_CHECKING:
     from rigging.model import ModelT
 
 
-def parse(text: str, model_type: type[ModelT]) -> tuple[ModelT, slice]:
+def parse(text: str, model_type: type["ModelT"]) -> tuple["ModelT", slice]:
     """
     Parses a single model from text.
 
@@ -29,7 +27,7 @@ def parse(text: str, model_type: type[ModelT]) -> tuple[ModelT, slice]:
     return try_parse_many(text, model_type, fail_on_missing=True)[0]
 
 
-def try_parse(text: str, model_type: type[ModelT]) -> tuple[ModelT, slice] | None:
+def try_parse(text: str, model_type: type["ModelT"]) -> tuple["ModelT", slice] | None:
     """
     Tries to parse a model from text.
 
@@ -43,7 +41,12 @@ def try_parse(text: str, model_type: type[ModelT]) -> tuple[ModelT, slice] | Non
     return next(iter(try_parse_many(text, model_type)), None)
 
 
-def parse_set(text: str, model_type: type[ModelT], *, minimum: int | None = None) -> list[tuple[ModelT, slice]]:
+def parse_set(
+    text: str,
+    model_type: type["ModelT"],
+    *,
+    minimum: int | None = None,
+) -> list[tuple["ModelT", slice]]:
     """
     Parses a set of models with the specified identical type from text.
 
@@ -62,8 +65,12 @@ def parse_set(text: str, model_type: type[ModelT], *, minimum: int | None = None
 
 
 def try_parse_set(
-    text: str, model_type: type[ModelT], *, minimum: int | None = None, fail_on_missing: bool = False
-) -> list[tuple[ModelT, slice]]:
+    text: str,
+    model_type: type["ModelT"],
+    *,
+    minimum: int | None = None,
+    fail_on_missing: bool = False,
+) -> list[tuple["ModelT", slice]]:
     """
     Tries to parse a set of models with the specified identical type from text.
 
@@ -85,7 +92,7 @@ def try_parse_set(
     return models
 
 
-def parse_many(text: str, *types: type[ModelT]) -> list[tuple[ModelT, slice]]:
+def parse_many(text: str, *types: type["ModelT"]) -> list[tuple["ModelT", slice]]:
     """
     Parses multiple models of the specified non-identical types from text.
 
@@ -102,7 +109,11 @@ def parse_many(text: str, *types: type[ModelT]) -> list[tuple[ModelT, slice]]:
     return try_parse_many(text, *types, fail_on_missing=True)
 
 
-def try_parse_many(text: str, *types: type[ModelT], fail_on_missing: bool = False) -> list[tuple[ModelT, slice]]:
+def try_parse_many(
+    text: str,
+    *types: type["ModelT"],
+    fail_on_missing: bool = False,
+) -> list[tuple["ModelT", slice]]:
     """
     Tries to parses multiple models of the specified non-identical types from text.
 
@@ -120,12 +131,13 @@ def try_parse_many(text: str, *types: type[ModelT], fail_on_missing: bool = Fals
     """
     model: ModelT
     parsed: list[tuple[ModelT, slice]] = []
-    for model_class in types:
-        try:
+
+    try:
+        for model_class in types:
             for model, slice_ in model_class.from_text(text):
                 parsed.append((model, slice_))
-        except Exception as e:
-            if fail_on_missing:
-                raise e
+    except Exception:
+        if fail_on_missing:
+            raise
 
     return sorted(parsed, key=lambda x: x[1].start)

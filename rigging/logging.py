@@ -4,15 +4,11 @@ We use loguru for logging. This module provides a function to configure logging 
 To just enable rigging logs to flow, call `logger.enable("rigging")` after importing the module.
 """
 
-from __future__ import annotations
-
+import pathlib
 import sys
 import typing as t
 
 from loguru import logger
-
-if t.TYPE_CHECKING:
-    import pathlib
 
 g_configured: bool = False
 
@@ -35,7 +31,7 @@ def configure_logging(
             will only be done to the console.
         log_file_level: The log level for the log file.
     """
-    global g_configured
+    global g_configured  # noqa: PLW0603
 
     if g_configured:
         return

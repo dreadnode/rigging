@@ -16,6 +16,8 @@ from rigging.model import (
 )
 from rigging.parsing import parse_many
 
+# ruff: noqa: S101, PLR2004, ARG001, PT011, SLF001, FBT001, FBT002
+
 # Models to use during tests
 
 
@@ -57,12 +59,18 @@ class Wrapped(Model):
 
 
 @pytest.mark.parametrize(
-    "content, models",
+    ("content", "models"),
     [
         pytest.param("<answer>hello</answer>", [Answer(content="hello")], id="single_answer"),
-        pytest.param("Random data <question>hello</question>", [Question(content="hello")], id="single_question"),
         pytest.param(
-            "<answer> <question>hello</question>", [Question(content="hello")], id="single_question_with_unrelated_tag"
+            "Random data <question>hello</question>",
+            [Question(content="hello")],
+            id="single_question",
+        ),
+        pytest.param(
+            "<answer> <question>hello</question>",
+            [Question(content="hello")],
+            id="single_question_with_unrelated_tag",
         ),
         pytest.param(
             "<answer>hello</answer><question>world</question>",
@@ -86,13 +94,13 @@ class Wrapped(Model):
         ),
         pytest.param(
             "<question> Should I answer between <answer> tags? </question> <answer>hello</answer>",
-            [Question(content=" Should I answer between <answer> tags? "), Answer(content="hello")],
-            id="question_with_answer_tag",
+            [Question(content="Should I answer between <answer> tags?"), Answer(content="hello")],
+            id="question_with_answer_tag_1",
         ),
         pytest.param(
             "<question> Should I answer between <answer> tags? </question> <answer>hello</answer>",
-            [Question(content=" Should I answer between <answer> tags? "), Answer(content="hello")],
-            id="question_with_answer_tag",
+            [Question(content="Should I answer between <answer> tags?"), Answer(content="hello")],
+            id="question_with_answer_tag_2",
         ),
         pytest.param(
             "<question-answer><question>hello</question><answer>world</answer></question-answer>",
@@ -101,12 +109,17 @@ class Wrapped(Model):
         ),
         pytest.param(
             "<delimited-answer>\n- hello\n - world</delimited-answer>",
-            [DelimitedAnswer(content="\n- hello\n - world", _items=["hello", "world"])],
+            [DelimitedAnswer(content="- hello\n - world", _items=["hello", "world"])],
             id="newline_delimited_answer",
         ),
         pytest.param(
             "<delimited-answer>hello, world, foo | bar</delimited-answer>",
-            [DelimitedAnswer(content="hello, world, foo | bar", _items=["hello", "world", "foo | bar"])],
+            [
+                DelimitedAnswer(
+                    content="hello, world, foo | bar",
+                    _items=["hello", "world", "foo | bar"],
+                ),
+            ],
             id="comma_delimited_answer",
         ),
         pytest.param(
@@ -115,7 +128,7 @@ class Wrapped(Model):
                 DelimitedAnswer(
                     content="hello / world / foo / bar, test | value",
                     _items=["hello", "world", "foo", "bar, test | value"],
-                )
+                ),
             ],
             id="slash_delimited_answer",
         ),
@@ -126,7 +139,11 @@ class Wrapped(Model):
         ),
         pytest.param(
             '<wrapped><inner type="cat">meow</inner><inner type="dog">bark</inner></wrapped>',
-            [Wrapped(inners=[Inner(type="cat", content="meow"), Inner(type="dog", content="bark")])],
+            [
+                Wrapped(
+                    inners=[Inner(type="cat", content="meow"), Inner(type="dog", content="bark")],
+                ),
+            ],
             id="wrapped",
         ),
         pytest.param(
@@ -141,7 +158,7 @@ class Wrapped(Model):
         ),
         pytest.param(
             "Commentary about the `<inner>` tag\n\n<outer>\nsomething is <inner> and </inner>\n</outer>",
-            [Outer(content="\nsomething is <inner> and </inner>\n")],
+            [Outer(content="something is <inner> and </inner>")],
             id="comment_before_tag",
         ),
         pytest.param(
@@ -151,7 +168,11 @@ class Wrapped(Model):
         ),
         pytest.param(
             "<outer>level 1 <middle>level 2 <inner>level 3</inner> still 2</middle> back to 1</outer>",
-            [Outer(content="level 1 <middle>level 2 <inner>level 3</inner> still 2</middle> back to 1")],
+            [
+                Outer(
+                    content="level 1 <middle>level 2 <inner>level 3</inner> still 2</middle> back to 1",
+                ),
+            ],
             id="multiple_nested_levels",
         ),
         pytest.param(
@@ -173,27 +194,39 @@ class Wrapped(Model):
 )
 def test_xml_parsing(content: str, models: list[Model]) -> None:
     parsed = parse_many(content, *{type(m) for m in models})
-    print(models)
-    print(parsed)
-
     assert len(parsed) == len(models), "Failed to parse set"
-    for (obj, _), expected in zip(parsed, models):
-        print(obj)
+    for (obj, _), expected in zip(parsed, models, strict=False):
         assert (
             obj.model_dump() == expected.model_dump()
-        ), f"Failed to parse model {expected.__class__.__name__} <- {str(obj)} ({parsed})"
-
-    print("---")
+        ), f"Failed to parse model {expected.__class__.__name__} <- {obj!s} ({parsed})"
 
 
 @pytest.mark.parametrize(
-    "content, model, expectation",
+    ("content", "model", "expectation"),
     [
-        pytest.param("<yes-no-answer>yes</yes-no-answer>", YesNoAnswer, does_not_raise(), id="yes_no_answer_1"),
-        pytest.param("<yes-no-answer>no</yes-no-answer>", YesNoAnswer, does_not_raise(), id="yes_no_answer_2"),
-        pytest.param("<yes-no-answer>Yes</yes-no-answer>", YesNoAnswer, does_not_raise(), id="yes_no_answer_3"),
         pytest.param(
-            "<yes-no-answer>No, extra stuff</yes-no-answer>", YesNoAnswer, does_not_raise(), id="yes_no_answer_4"
+            "<yes-no-answer>yes</yes-no-answer>",
+            YesNoAnswer,
+            does_not_raise(),
+            id="yes_no_answer_1",
+        ),
+        pytest.param(
+            "<yes-no-answer>no</yes-no-answer>",
+            YesNoAnswer,
+            does_not_raise(),
+            id="yes_no_answer_2",
+        ),
+        pytest.param(
+            "<yes-no-answer>Yes</yes-no-answer>",
+            YesNoAnswer,
+            does_not_raise(),
+            id="yes_no_answer_3",
+        ),
+        pytest.param(
+            "<yes-no-answer>No, extra stuff</yes-no-answer>",
+            YesNoAnswer,
+            does_not_raise(),
+            id="yes_no_answer_4",
         ),
         pytest.param(
             "<yes-no-answer>No, stuff <internal-tag></yes-no-answer>",
@@ -202,7 +235,10 @@ def test_xml_parsing(content: str, models: list[Model]) -> None:
             id="yes_no_answer_5",
         ),
         pytest.param(
-            "<yes-no-answer>Invalid</yes-no-answer>", YesNoAnswer, pytest.raises(ValueError), id="yes_no_answer_invalid"
+            "<yes-no-answer>Invalid</yes-no-answer>",
+            YesNoAnswer,
+            pytest.raises(ValueError),
+            id="yes_no_answer_invalid",
         ),
         pytest.param(
             "<delimited-answer>hello world</delimited-answer>",
@@ -245,19 +281,29 @@ def test_xml_parsing(content: str, models: list[Model]) -> None:
         ),
     ],
 )
-def test_xml_parsing_with_validation(content: str, model: Model, expectation: t.ContextManager[t.Any]) -> None:
+def test_xml_parsing_with_validation(
+    content: str,
+    model: Model,
+    expectation: t.ContextManager[t.Any],
+) -> None:
     with expectation:
         model.from_text(content)
 
 
 @pytest.mark.parametrize(
-    "content, count, model",
+    ("content", "count", "model"),
     [
         pytest.param(
-            "<yes-no-answer>yes</yes-no-answer><yes-no-answer>no</yes-no-answer>", 2, YesNoAnswer, id="yes_no_many"
+            "<yes-no-answer>yes</yes-no-answer><yes-no-answer>no</yes-no-answer>",
+            2,
+            YesNoAnswer,
+            id="yes_no_many",
         ),
         pytest.param(
-            "<delimited-answer><delimited-answer>1, 2, 3</delimited-answer>", 1, DelimitedAnswer, id="delimited_single"
+            "<delimited-answer><delimited-answer>1, 2, 3</delimited-answer>",
+            1,
+            DelimitedAnswer,
+            id="delimited_single",
         ),
     ],
 )
@@ -287,16 +333,7 @@ def test_nested_tag_parsing() -> None:
     assert inner.content == "nested content"
 
 
-def test_same_tag_mentioned_in_text() -> None:
-    """Test that mentions of tags in text don't confuse the parser."""
-    content = "Commentary about the `<outer>` tag\n\n<outer>\nsomething is <inner> and </inner>\n</outer>"
-
-    outer, _ = Outer.one_from_text(content)
-    assert outer.content == "\nsomething is <inner> and </inner>\n"
-
-
 def test_nested_incomplete_tags() -> None:
-    """Test handling of content with incomplete nested tags."""
     content = "<outer>Content with <inner> incomplete tag</outer>"
 
     outer, _ = Outer.one_from_text(content)

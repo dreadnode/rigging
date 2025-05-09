@@ -1,4 +1,6 @@
-from __future__ import annotations
+"""
+Utilities for converting chat data between different formats.
+"""
 
 import itertools
 import json
@@ -7,13 +9,11 @@ import typing as t
 import elasticsearch as es
 import elasticsearch.helpers
 import pandas as pd
+from elastic_transport import ObjectApiResponse
+from mypy_boto3_s3 import S3Client
 
 from rigging.chat import Chat
 from rigging.message import Message
-
-if t.TYPE_CHECKING:
-    from elastic_transport import ObjectApiResponse
-    from mypy_boto3_s3 import S3Client
 
 
 def flatten_chats(chats: Chat | t.Sequence[Chat]) -> list[dict[t.Any, t.Any]]:
@@ -34,7 +34,10 @@ def flatten_chats(chats: Chat | t.Sequence[Chat]) -> list[dict[t.Any, t.Any]]:
         generator_id = chat.generator_id
 
         # We let pydantic do the heavy lifting here
-        chat_json = chat.model_dump(include={"uuid", "timestamp", "metadata", "usage", "extra"}, mode="json")
+        chat_json = chat.model_dump(
+            include={"uuid", "timestamp", "metadata", "usage", "extra"},
+            mode="json",
+        )
         metadata = chat_json.pop("metadata")
         usage = chat_json.pop("usage")
         extra = chat_json.pop("extra")
@@ -56,7 +59,7 @@ def flatten_chats(chats: Chat | t.Sequence[Chat]) -> list[dict[t.Any, t.Any]]:
                         "generated": generated,
                         "message_id": message_id,
                         **message_dict,
-                    }
+                    },
                 )
             generated = True
 
@@ -93,7 +96,7 @@ def unflatten_chats(messages: t.Sequence[dict[t.Any, t.Any]]) -> list[Chat]:
             message = Message(
                 role=message_data["role"],
                 content=message_data["content"],
-                **{"uuid": message_data["message_id"]},
+                uuid=message_data["message_id"],
             )
             if message_data["generated"]:
                 _generated.append(message)
@@ -112,7 +115,7 @@ def unflatten_chats(messages: t.Sequence[dict[t.Any, t.Any]]) -> list[Chat]:
             stop_reason=_first_message["chat_stop_reason"],
             usage=json.loads(_first_message["chat_usage"]),
             extra=json.loads(_first_message["chat_extra"]),
-            **{"generator_id": _first_message["chat_generator_id"]},
+            generator_id=_first_message["chat_generator_id"],
         )
         chats.append(chat)
 
@@ -141,7 +144,9 @@ def chats_to_df(chats: Chat | t.Sequence[Chat]) -> pd.DataFrame:
 
     flattened = flatten_chats(chats)
 
-    df = pd.DataFrame(flattened).astype(
+    # TODO: Come back to indexing
+
+    return pd.DataFrame(flattened).astype(
         {
             "chat_id": "string",
             "chat_metadata": "string",
@@ -155,12 +160,8 @@ def chats_to_df(chats: Chat | t.Sequence[Chat]) -> pd.DataFrame:
             "role": "category",
             "content": "string",
             "parts": "string",
-        }
+        },
     )
-
-    # TODO: Come back to indexing
-
-    return df
 
 
 def df_to_chats(df: pd.DataFrame) -> list[Chat]:
@@ -188,7 +189,7 @@ def df_to_chats(df: pd.DataFrame) -> list[Chat]:
             message = Message(
                 role=message_data["role"],
                 content=message_data["content"],
-                **{"uuid": message_data["message_id"]},
+                uuid=message_data["message_id"],
                 # TODO: I don't believe this is safe to deserialize
                 # here as we aren't bonded to the underlying rg.Model
                 # which was the original object. Skipping for now.
@@ -208,7 +209,7 @@ def df_to_chats(df: pd.DataFrame) -> list[Chat]:
             stop_reason=chat_data["chat_stop_reason"],
             usage=json.loads(chat_data["chat_usage"]),
             extra=json.loads(chat_data["chat_extra"]),
-            **{"generator_id": chat_data["chat_generator_id"]},
+            generator_id=chat_data["chat_generator_id"],
         )
         chats.append(chat)
 
@@ -225,7 +226,10 @@ ElasticMapping = {"properties": {"generated": {"type": "nested"}, "messages": {"
 
 
 def chats_to_elastic_data(
-    chats: Chat | t.Sequence[Chat], index: str, *, op_type: ElasticOpType = "index"
+    chats: Chat | t.Sequence[Chat],
+    index: str,
+    *,
+    op_type: ElasticOpType = "index",
 ) -> list[dict[str, t.Any]]:
     """
     Convert chat data to Elasticsearch bulk operation format.
@@ -275,7 +279,7 @@ async def chats_to_elastic(
     """
     es_data = chats_to_elastic_data(chats, index, op_type=op_type)
     if create_index:
-        if (await client.indices.exists(index=index)).meta.status != 200:
+        if (await client.indices.exists(index=index)).meta.status != 200:  # noqa: PLR2004
             await client.indices.create(index=index, mappings=ElasticMapping)
         else:
             await client.indices.put_mapping(index=index, properties=ElasticMapping["properties"])
@@ -293,9 +297,11 @@ def elastic_data_to_chats(
     while all(hasattr(data, attr) for attr in ("keys", "__getitem__")) and "hits" in data:
         data = data["hits"]
 
-    objects = t.cast(t.Sequence[t.Mapping[str, t.Any]], data)
+    objects = t.cast("t.Sequence[t.Mapping[str, t.Any]]", data)
     if not isinstance(objects, t.Sequence):
-        raise ValueError(f"Expected to find a sequence of objects (optionally under hits), found: {type(data)}")
+        raise TypeError(
+            f"Expected to find a sequence of objects (optionally under hits), found: {type(data)}",
+        )
 
     chats: list[Chat] = []
     for obj in objects:
@@ -335,7 +341,7 @@ async def elastic_to_chats(
         A pandas DataFrame containing the chat data.
     """
     data = await client.search(index=index, query=query, size=max_results, **kwargs)
-    return elastic_data_to_chats(t.cast(dict[str, t.Any], data))
+    return elastic_data_to_chats(t.cast("dict[str, t.Any]", data))
 
 
 async def s3_bucket_exists(client: S3Client, bucket: str) -> bool:
@@ -351,12 +357,12 @@ async def s3_bucket_exists(client: S3Client, bucket: str) -> bool:
     """
     try:
         client.head_bucket(Bucket=bucket)
-        return True
     except client.exceptions.ClientError as e:
         if e.response["Error"]["Code"] == "404":
             return False
-        else:
-            raise
+        raise
+
+    return True
 
 
 async def s3_object_exists(client: S3Client, bucket: str, key: str) -> bool:
@@ -373,9 +379,9 @@ async def s3_object_exists(client: S3Client, bucket: str, key: str) -> bool:
     """
     try:
         client.head_object(Bucket=bucket, Key=key)
-        return True
     except client.exceptions.ClientError as e:
         if e.response["Error"]["Code"] == "404":
             return False
-        else:
-            raise
+        raise
+
+    return True

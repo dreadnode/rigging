@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import gc
 import inspect
 import typing as t
@@ -77,7 +75,13 @@ class VLLMGenerator(Generator):
         return self._llm
 
     @classmethod
-    def from_obj(cls, model: str, llm: vllm.LLM, *, params: GenerateParams | None = None) -> VLLMGenerator:
+    def from_obj(
+        cls,
+        model: str,
+        llm: vllm.LLM,
+        *,
+        params: GenerateParams | None = None,
+    ) -> "VLLMGenerator":
         """Create a generator from an existing vLLM instance.
 
         Args:
@@ -90,11 +94,11 @@ class VLLMGenerator(Generator):
         generator._llm = llm
         return generator
 
-    def load(self) -> VLLMGenerator:
+    def load(self) -> "VLLMGenerator":
         _ = self.llm
         return self
 
-    def unload(self) -> VLLMGenerator:
+    def unload(self) -> "VLLMGenerator":
         del self._llm
         gc.collect()
         torch.cuda.empty_cache()
@@ -105,11 +109,17 @@ class VLLMGenerator(Generator):
         texts: list[str],
         params: t.Sequence[GenerateParams],
     ) -> list[GeneratedText]:
-        sampling_params_args = list(inspect.signature(vllm.SamplingParams.__init__).parameters.keys())
+        sampling_params_args = list(
+            inspect.signature(vllm.SamplingParams.__init__).parameters.keys(),
+        )
         sampling_params = (
             [
                 vllm.SamplingParams(
-                    **{k: v for k, v in self.params.merge_with(p).to_dict().items() if k in sampling_params_args}
+                    **{
+                        k: v
+                        for k, v in self.params.merge_with(p).to_dict().items()
+                        if k in sampling_params_args
+                    },
                 )
                 for p in params
             ]
@@ -144,17 +154,27 @@ class VLLMGenerator(Generator):
 
     async def generate_messages(
         self,
-        messages: t.Sequence[t.Sequence[Message]],
+        messages: t.Sequence[t.Sequence["Message"]],
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[GeneratedMessage]:
         message_dicts = [[m.to_openai_spec() for m in _messages] for _messages in messages]
-        texts = self.llm.get_tokenizer().apply_chat_template(message_dicts, add_generation_prompt=True, tokenize=False)
-        generated_texts = self._generate(texts, params=params)
+        tokenizer = self.llm.get_tokenizer()
+        if not hasattr(tokenizer, "apply_chat_template"):
+            raise RuntimeError(
+                "The tokenizer does not support the apply_chat_template method.",
+            )
+
+        texts = tokenizer.apply_chat_template(
+            message_dicts,
+            add_generation_prompt=True,
+            tokenize=False,
+        )
+        generated_texts = self._generate(t.cast("list[str]", texts), params=params)
         generated = [g.to_generated_message() for g in generated_texts]
 
-        for i, (in_messages, out_message) in enumerate(zip(messages, generated)):
-            trace_messages(in_messages, f"Messages {i+1}/{len(in_messages)}")
-            trace_messages([out_message], f"Response {i+1}/{len(in_messages)}")
+        for i, (in_messages, out_message) in enumerate(zip(messages, generated, strict=False)):
+            trace_messages(in_messages, f"Messages {i + 1}/{len(in_messages)}")
+            trace_messages([out_message], f"Response {i + 1}/{len(in_messages)}")
 
         return generated
 
@@ -165,8 +185,8 @@ class VLLMGenerator(Generator):
     ) -> t.Sequence[GeneratedText]:
         generated = self._generate(list(texts), params=params)
 
-        for i, (text, response) in enumerate(zip(texts, generated)):
-            trace_str(text, f"Text {i+1}/{len(texts)}")
-            trace_str(response, f"Generated {i+1}/{len(texts)}")
+        for i, (text, response) in enumerate(zip(texts, generated, strict=False)):
+            trace_str(text, f"Text {i + 1}/{len(texts)}")
+            trace_str(response, f"Generated {i + 1}/{len(texts)}")
 
         return generated

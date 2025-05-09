@@ -1,4 +1,6 @@
-from __future__ import annotations
+"""
+Utility functions for interactive chat sessions.
+"""
 
 import asyncio
 import itertools
@@ -6,14 +8,18 @@ import typing as t
 
 from colorama import Fore, Style
 
-from rigging.chat import ChatPipeline
+from rigging.chat import Chat, ChatPipeline
 from rigging.generator.base import Generator, get_generator
 
-if t.TYPE_CHECKING:
-    from rigging.chat import Chat
+# ruff: noqa: T201 (we use print() here for simplicity)
 
 
-async def _animate(*, delay: float = 0.5, chars: list[str] | None = None, color: str = Fore.BLUE) -> None:
+async def _animate(
+    *,
+    delay: float = 0.5,
+    chars: list[str] | None = None,
+    color: str = Fore.BLUE,
+) -> None:
     cycle = itertools.cycle(chars or ["   ", ".  ", ".. ", "..."])
     while True:
         print(f"{color}{next(cycle)}{Style.RESET_ALL}", end="\r", flush=True)
@@ -21,7 +27,9 @@ async def _animate(*, delay: float = 0.5, chars: list[str] | None = None, color:
 
 
 async def interact(
-    entrypoint: ChatPipeline | Generator | str, *, reset_callback: t.Callable[[Chat | None], None] | None = None
+    entrypoint: ChatPipeline | Generator | str,
+    *,
+    reset_callback: t.Callable[[Chat | None], None] | None = None,
 ) -> Chat | None:
     """
     Start an interactive chat session using the given pipeline, generator, or generator id.
@@ -79,7 +87,7 @@ async def interact(
             else:
                 pipeline.add(user_input)
 
-            print("")
+            print()
 
             animation_task = asyncio.create_task(_animate())
             chat = await pipeline.run()
@@ -92,8 +100,8 @@ async def interact(
         except KeyboardInterrupt:
             print(f"\n\n{Fore.YELLOW}Chat interrupted. Exiting.{Style.RESET_ALL}")
             break
-        except Exception as e:
-            print(f"\n\n{Fore.RED}An error occurred: {str(e)}{Style.RESET_ALL}")
+        except Exception as e:  # noqa: BLE001
+            print(f"\n\n{Fore.RED}An error occurred: {e!s}{Style.RESET_ALL}")
             break
 
     return chat

@@ -19,7 +19,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b
         with:
-          python-version: "3.9"
+          python-version: "3.10"
 
       - name: Install Poetry
         uses: abatilo/actions-poetry@e78f54a89cb052fff327414dd9ff010b5d2b4dbd
@@ -36,17 +36,6 @@ jobs:
         run: |
           TAG_VERSION=${GITHUB_REF#refs/tags/v}
           POETRY_VERSION=$(poetry version -s)
-          INIT_VERSION=$(poetry run python -c "import rigging; print(rigging.__version__)")
-
-          if ! [[ $TAG_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Invalid tag format: $TAG_VERSION. Must be vX.X.X"
-            exit 1
-          fi
-
-          if [ "$POETRY_VERSION" != "$INIT_VERSION" ]; then
-            echo "Version mismatch: pyproject.toml ($POETRY_VERSION) != __init__.py ($INIT_VERSION)"
-            exit 1
-          fi
 
           if [ "$TAG_VERSION" != "$POETRY_VERSION" ]; then
             echo "Tag ($TAG_VERSION) doesn't match pyproject.toml ($POETRY_VERSION)"

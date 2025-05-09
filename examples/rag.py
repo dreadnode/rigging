@@ -2,8 +2,6 @@
 # Credit to https://github.com/kyleavery for the contribution
 #
 
-from __future__ import annotations
-
 import asyncio
 import os
 import time
@@ -80,7 +78,9 @@ def chunk_document(document: RawDocument) -> t.Generator[Document, None, None]:
         }
 
 
-def read_documents_from_path(directory: Path, extensions: list[str]) -> t.Generator[Document, None, None]:
+def read_documents_from_path(
+    directory: Path, extensions: list[str]
+) -> t.Generator[Document, None, None]:
     if not directory.is_dir():
         raise ValueError(f"{directory} is not a directory")
 
@@ -171,7 +171,7 @@ class ReferenceDB:
                 "title": {"type": "text"},
                 "slice_start": {"type": "integer"},
                 "slice_end": {"type": "integer"},
-            }
+            },
         }
 
         self.es_client.indices.create(index=VECTOR_INDEX, mappings=index_mapping)
@@ -237,10 +237,10 @@ class ReferenceDB:
                             "query": search_phrase,
                             "fields": ["content", "title"],
                             "fuzziness": "AUTO",
-                        }
-                    }
-                ]
-            }
+                        },
+                    },
+                ],
+            },
         }
 
         try:
@@ -271,7 +271,9 @@ class ReferenceDB:
         return self.handle_elastic_results(es_response)
 
     def reciprocal_rank_fusion(
-        self, fuzzy_results: list[Reference], semantic_results: list[Reference]
+        self,
+        fuzzy_results: list[Reference],
+        semantic_results: list[Reference],
     ) -> list[Reference]:
         """
         Implementation copied from Nemesis:
@@ -287,13 +289,19 @@ class ReferenceDB:
         unique_refs_dict = {result.id: result for result in fuzzy_results + semantic_results}
 
         fused_scores: dict[str, float] = {}
-        for rank, result in enumerate(sorted(fuzzy_results, key=lambda x: x.score, reverse=True), 1):
+        for rank, result in enumerate(
+            sorted(fuzzy_results, key=lambda x: x.score, reverse=True), 1
+        ):
             fused_scores[result.id] = fused_scores.get(result.id, 0) + 1 / (k_fuzzy + rank)
 
-        for rank, result in enumerate(sorted(semantic_results, key=lambda x: x.score, reverse=True), 1):
+        for rank, result in enumerate(
+            sorted(semantic_results, key=lambda x: x.score, reverse=True), 1
+        ):
             fused_scores[result.id] = fused_scores.get(result.id, 0) + 1 / (k_semantic + rank)
 
-        combined_results_sorted = sorted(unique_refs_dict.values(), key=lambda x: fused_scores[x.id], reverse=True)
+        combined_results_sorted = sorted(
+            unique_refs_dict.values(), key=lambda x: fused_scores[x.id], reverse=True
+        )
 
         for result in combined_results_sorted:
             result.score = round(
@@ -302,7 +310,7 @@ class ReferenceDB:
             )
 
         logger.trace(
-            f"Combined results:\n{chr(10).join([f'    {ref.title} ({ref.score})' for ref in combined_results_sorted])}"
+            f"Combined results:\n{chr(10).join([f'    {ref.title} ({ref.score})' for ref in combined_results_sorted])}",
         )
         return combined_results_sorted
 
@@ -335,7 +343,7 @@ class ReferenceDB:
             </ref>
             """
                 for ref in sorted_refs
-            ]
+            ],
         )
 
         return f"""\
@@ -363,9 +371,23 @@ class ReferenceDB:
     default="mistral/mistral-embed",
     help="LiteLLM embedding model identifier",
 )
-@click.option("-eH", "--elastic-host", envvar="ES_HOST", required=True, help="Elasticsearch host (ES_HOST)")
-@click.option("-eU", "--elastic-username", envvar="ES_USER", required=True, help="Elasticsearch username (ES_USER)")
-@click.option("-eP", "--elastic-password", envvar="ES_PASS", required=True, help="Elasticsearch password (ES_PASS)")
+@click.option(
+    "-eH", "--elastic-host", envvar="ES_HOST", required=True, help="Elasticsearch host (ES_HOST)"
+)
+@click.option(
+    "-eU",
+    "--elastic-username",
+    envvar="ES_USER",
+    required=True,
+    help="Elasticsearch username (ES_USER)",
+)
+@click.option(
+    "-eP",
+    "--elastic-password",
+    envvar="ES_PASS",
+    required=True,
+    help="Elasticsearch password (ES_PASS)",
+)
 @click.option(
     "--log-level",
     type=click.Choice(logging.LogLevelList),
@@ -433,14 +455,19 @@ async def search(ctx: click.Context, query: str, generator_id: str, max_refs: in
 
     ref_db = ReferenceDB(embedding_id, elastic_host, elastic_username, elastic_password)
     if not ref_db.index_exists(VECTOR_INDEX):
-        logger.error(f"Elasticsearch index '{VECTOR_INDEX}' is empty. Please run the 'populate' command first.")
+        logger.error(
+            f"Elasticsearch index '{VECTOR_INDEX}' is empty. Please run the 'populate' command first."
+        )
         return
 
     generator = rg.get_generator(generator_id)
 
     chat = await generator.chat(
         [
-            {"role": "system", "content": SYSTEM_PROMPT + "\n\n" + ref_db.hybrid_search(query, max_refs)},
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT + "\n\n" + ref_db.hybrid_search(query, max_refs),
+            },
             {"role": "user", "content": query},
         ],
     ).run()

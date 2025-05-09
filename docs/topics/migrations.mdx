@@ -1,0 +1,316 @@
+---
+title: "Migrations"
+description: "Migrating from one version of Rigging to another"
+public: true
+---
+
+As we continue to develop and improve Rigging, we may introduce changes that break backwards compatibility and/or signficantly
+change mechanics of the library. In general we try to follow best practices for semantic versioning:
+
+- **Major version**: Significant and breaking changes (e.g. v1.X to v2.X)
+- **Minor version**: New features or improvements (e.g. v1.0 to v1.1)
+- **Patch version**: Bug fixes or minor improvements (e.g. v1.0.0 to v1.0.1)
+
+## Migrating from v2.x to v3.x
+
+### Python 3.9 Support Dropped
+
+As we move forward with Rigging and other libraries, we've settled on Python 3.10 as the minimum supported version. This allows us to leverage new language features and optimizations that are otherwise difficult to support in older versions.
+
+```toml:pyproject.toml
+[tool.poetry.dependencies]
+python = "^3.10"
+rigging = "^3.0.0"
+```
+
+<Info>
+**Action Required**
+
+Ensure your environment uses Python 3.10 or later. Update your `pyproject.toml` or `requirements.txt` if necessary.
+</Info>
+
+### Chat Pipeline Refactor (`ChatPipeline`)
+
+The internal mechanics of `ChatPipeline` have been substantially rewritten to allow for better control over iterative generation within `then()`, `map()`, and associated parsing and tool invocation. Previously it was difficult to control the process of multiple pipelines being executed within each other and callbacks. We've standardized the interface to use `PipelineStep` objects and a context manager to yield moments of control back to the user and wrapping libraries (`.step()`). For the most part, users don't need to worry about this interface directly, but it does have some downstream effects on the pipeline flow.
+
+#### Moving from `until()` to `then()`
+
+The `until()` mechanism inside pipelines and its parameters (`attempt_recovery`, `drop_dialog`, `max_rounds`) have been **removed**. In the early days of Rigging we used this interface to support iterative parsing, but it's been largely replaced by the new `then()` and `map()` callbacks since v2. We're commited to using this new structure and avoid internal complexities like calling a generator multiple times within a single pipeline step.
+
+<Info>
+**Action Required**
+
+Logic previously implemented with `until()` needs to be refactored.
+
+- For simple validation/recovery based on parsing, the updated `until_parsed_as()` (see below) might suffice.
+- For more complex iterative loops, use the `then()` or `map()` callbacks. These callbacks can now return or yield `PipelineStepContextManager` or `PipelineStepGenerator` objects, allowing you to recursively call the pipeline or trigger further generation steps.
+- The new `step()` async context manager provides fine-grained control for advanced custom iteration patterns.
+</Info>
+
+The `.until_parsed_as()` method still exists, but its internal implementation and parameters have changed as a function of migrating from `until()` to `then()`.
+- The `max_rounds` parameter is deprecated. Use the new `max_depth` parameter, which controls the maximum *depth* of recursive parsing attempts (defaulting to `DEFAULT_MAX_DEPTH`).
+- The `attempt_recovery` and `drop_dialog` parameters are deprecated and have no effect. Recovery is now implicit within the `max_depth` limit, and the full dialog history is 
+
+We've also found much more success leveraging tool calling as the primary mechanism to parse structured data out of models and it presents a strong alternative to lots of parsing logic. We cover additional changes to the tool system below.
+
+<CodeGroup>
+```python v2.x
+from rigging.model import YesNoAnswer
+
+chat = (
+    await pipeline
+    .until_parsed_as(YesNoAnswer, max_rounds=5, attempt_recovery=True, drop_dialog=False)
+    .run()
+)
+```
+
+```python v3.x
+from rigging.model import YesNoAnswer
+
+# max_depth controls parsing retry depth
+chat = (
+    await pipeline
+    .until_parsed_as(YesNoAnswer, max_depth=5) 
+    .run()
+)
+```
+</CodeGroup>
+
+<Info>
+**Action Required**
+
+Update calls to `.until_parsed_as()`:
+- Replace `max_rounds=N` with `max_depth=N`.
+- Remove `attempt_recovery` and `drop_dialog` arguments.
+</Info>
+
+
+#### Error Handling
+
+- `MessagesExhaustedMaxRoundsError` is replaced by `MaxDepthError`. This error is now raised when the recursive depth limit (set via `max_depth` in `then`, `map`, or `until_parsed_as`) is exceeded.
+- The `errors_to_fail_on` parameter in the `.catch()` method is renamed to `errors_to_catch`.
+
+<CodeGroup>
+```python v2.x
+from rigging.error import MessagesExhaustedMaxRoundsError
+
+try:
+    chat = await pipeline.run()
+except MessagesExhaustedMaxRoundsError:
+    # Handle max rounds error
+    ...
+```
+
+```python v3.x
+from rigging.error import MaxDepthError
+
+try:
+    chat = await pipeline.run() 
+except MaxDepthError:
+    # Handle max depth error
+    ...
+```
+</CodeGroup>
+
+<Info>
+**Action Required**
+
+- Update any `try...except` blocks catching `MessagesExhaustedMaxRoundsError` to catch `MaxDepthError`.
+- Rename `errors_to_fail_on` to `errors_to_catch` in calls to `.catch()`. Review the default caught errors if relying on implicit behavior.
+</Info>
+
+### Unified Tool System (`rigging.tool`)
+
+We worked hard in v3 to bring together some of the early tool systems and unify them under a single interface with clean support for **Robopages** and **MCP**. The previous `ApiTool` and native `Tool` classes have been merged into a single, more flexible system. This change simplifies the way tools are defined, used, and integrated into pipelines. Beyond that, the new system allows for the same tools to be used by models using various calling conventions - regardless of whether they underlying provider supports JSON tool calling or not.
+
+- `ApiTool` and the previous native `Tool` class are **removed**. Just build functions or methods inside classes, decorate them, and use them as tools anywhere.
+- The primary way to define tools is now via the **`@tool`** and **`@tool_method`** decorators applied to functions and class methods, respectively.
+- The `ChatPipeline.using()` method signature has changed significantly:
+    - It now accepts `Tool` instances or callables directly: `using(*tools: Tool | Callable)`
+    - It uses a `mode: ToolMode` parameter (`"auto"`, `"api"`, `"xml"`, `"json-in-xml"`) to control calling convention.
+    - It uses `max_depth: int` to limit recursive tool calls.
+    - Parameters like `force`, `attempt_recovery`, `drop_dialog`, `max_rounds` are removed.
+- The `rigging.integrations` module is removed. Use `rigging.tool.robopages` and the new `rigging.tool.mcp` to use those integrations as tools.
+
+<CodeGroup>
+```python v2.x
+from rigging.tool import ApiTool, Tool as NativeTool
+
+# API Tool definition
+def get_weather_v2(city: str) -> str:
+    ...
+
+# Native Tool definition
+class CalculatorV2(NativeTool):
+    name = "calculator"
+    description = "Performs calculations"
+
+    def add(
+        self,
+        a: Annotated[int, "First number"],
+        b: Annotated[int, "Second number"]
+    ) -> str:
+        ...
+
+native_tool = CalculatorV2()
+
+# Pipeline usage
+chat = (
+    await pipeline
+    .using_api_tools(get_weather_v2)
+    .using_native_tools(native_tool, max_rounds=3)
+    .run()
+)
+
+```
+
+```python v3.x
+import rigging as rg
+from typing import Annotated
+
+# Tool definition using decorators
+@rg.tool
+def get_weather_v3(city: str) -> str:
+    ...
+
+class CalculatorV3:
+    @rg.tool_method # Use tool_method for class methods needing `self`
+    def add(
+        self,
+        a: Annotated[int, "First number"],
+        b: Annotated[int, "Second number"]
+    ) -> str:
+        ...
+
+calc = CalculatorV3()
+
+# Robopages Tools
+robo_tools = rg.tool.robopages("http://localhost:8080")
+
+# MCP Tools
+async with rg.mcp("sse", url="http://localhost:8787/sse") as mcp:
+    
+    # Pipeline usage
+    chat = (
+        await pipeline
+        .using(mcp.tools, robo_tools, get_weather_v3, calc.add) 
+        .run()
+    )
+
+```
+</CodeGroup>
+
+<Info>
+**Action Required**
+
+- **Redefine Tools**: Convert all tool definitions to use the `@tool` or `@tool_method` decorators instead of inheriting from `Tool` in your class.
+- **Update `using()` Calls**: Modify calls to `.using()` to pass `Tool` instances/callables directly and use the new parameters (`mode`, `max_depth`, etc.).
+- **Update Imports**: Change imports for integrations like Robopages and MCP.
+</Info>
+
+### Message Content Model (`rigging.message`)
+
+Handling of message content, especially multi-modal content, has been standardized.
+
+- `Message.all_content` is **deprecated**. Use `Message.content_parts` (a `list[Content]`) to access the full list of text, image, and audio parts.
+- `Message.content` property now *only* gets/sets the concatenated text from `ContentText` parts. Use it for simple text manipulation.
+- New `ContentAudioInput` type for audio messages.
+- Message serialization (e.g., `to_openai_spec()`) is updated for the `content_parts` structure.
+
+<CodeGroup>
+```python v2.x
+# Accessing content
+text_content = message.content 
+mixed_content = message.all_content # Could be str or list[Content]
+
+# Modifying content
+message.content = "New text" 
+# Handling mixed types required checking type of all_content
+```
+
+```python v3.x
+# Accessing content
+text_content = message.content    # Gets only text parts joined by \n
+all_parts = message.content_parts # Access list directly
+
+# Modifying text content
+message.content = "New text" # Replaces only the ContentText parts
+
+# Adding different content types
+from rigging.message import ContentImageUrl, ContentText
+message.content_parts.append(ContentText(text="More text"))
+message.content_parts.append(ContentImageUrl.from_file("image.png"))
+```
+</CodeGroup>
+
+<Info>
+**Action Required**
+
+- Replace `message.all_content` with `message.content_parts` when dealing with multi-modal data.
+- Use `message.content` only when working solely with the text components.
+- Verify any custom serialization or direct API interactions involving message content.
+</Info>
+
+### Other Changes & Notes
+
+*   **`ChatPipeline.add` Default**: The `merge_strategy` default changed to `"none"`. Messages of the same role are *not* merged automatically anymore. Use `merge_strategy="all"` or `"only-user-role"` explicitly if merging is desired.
+*   **Caching**: New `ChatPipeline.cache()` method provides basic control over prompt caching hints.
+*   **Dependencies**: Check for updated versions of core dependencies (`litellm`, `openai`, etc.) and new additions (`mcp`, `httpx-sse`).
+
+## Migrating from v1.x to v2.x
+
+### Rigging is now exclusivley async
+
+Maintaining dual interface support was complex and error-prone, and we always tried to implement the more performant code in the async interface.
+
+Ideally we could have maintained synchronous "gates" which managed asyncio loops for the user, but this is has caveats in notebook/jupyter environments. Ultimately we've decided to migrate exclusively to async to simplify the codebase and improve performance.
+
+- There are no longer any `a`-prefixed functions. Functions like `run() and `generate_messages()` are now coroutines that need to be awaited.
+- `map()` and `then()`callbacks are now expected to be coroutines.
+
+Adapting these changes should be relatively straightforward. `await` can be used directly in Jupyter nodebooks by default. Wrapping any entrypoint with `asyncio.run(...)` is a simple way to manage an event loop. If you're in a more unique scenario, check out the [greenback](https://github.com/oremanj/greenback)to allow stepping in/out of async code in a larger system.
+
+We also provide a helper `rg.await_` function which can be used in place of standard `await` in synchronous code.Underneath rigging will manage an event loop for you in a separate thread and pass coroutines into it for resolution.
+
+<CodeGroup>
+```python rg.await_() {7}
+import rigging as rg
+
+def main():
+    generator = rg.get_generator(...)
+    pipeline = generator.chat(...)
+
+    chat = rg.await_(pipeline.run())
+
+if __name__ == "__main__":
+    main()
+```
+
+```python asyncio.run()
+import asyncio
+import rigging as rg
+
+async def main():
+    generator = rg.get_generator(...)
+    pipeline = generatore.chat(...)
+
+    chat = await pipeline.run()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+</CodeGroup>
+
+1. You can pass a single coroutine or a positional list of coroutines to `await_`. This will manage an event loop for you in a separate thread and resolve the coroutines.
+
+### "Pending" -> "Pipeline"
+
+Language around chat pipelines and completions was confusing, and didn't accurately communicate the power of the pipeline system. We'verenamed `PendingChat` to `ChatPipeline` and `PendingCompletion` to `CompletionPipeline`.
+
+This shouldn't affect most users unless you were manually accessing these classes. You'll see us replace the frequently use of `pending` variables with `pipeline` in our code.
+
+### `on_failed` replaces `skip_failed`/`include_failed`
+
+Pipelines now provide better clarity for catching errors and translating them into failed outputs. We've replaced the `skip_failed` and `include_failed` arguments for a general string literal `on_failed` mapped to `FailMode`. 
+
+This should help us clarity behaviors and expand them in the future without causing argument bloat.

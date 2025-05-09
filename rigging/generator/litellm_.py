@@ -1,7 +1,7 @@
-from __future__ import annotations
-
 import asyncio
+import base64
 import datetime
+import re
 import typing as t
 
 import litellm
@@ -18,7 +18,9 @@ from rigging.generator.base import (
     trace_messages,
     trace_str,
 )
-from rigging.message import Message
+from rigging.message import ContentAudioInput, ContentImageUrl, ContentText, Message
+from rigging.tool.api import ApiFunctionDefinition, ApiToolDefinition
+from rigging.tracing import tracer
 
 # We should probably let people configure
 # this independently, but for now we'll
@@ -50,8 +52,13 @@ class OpenAIToolsWithImageURLsFixup(Fixup):
         updated_messages: list[Message] = []
         append_queue: list[Message] = []
         for message in items:
-            if message.role == "tool" and isinstance(message.all_content, list):
-                updated_messages.append(message.model_copy(deep=True, update={"all_content": "See next message"}))
+            if message.role == "tool" and isinstance(message.content_parts, list):
+                updated_messages.append(
+                    message.model_copy(
+                        deep=True,
+                        update={"content_parts": [ContentText(text="See next message")]},
+                    ),
+                )
                 append_queue.append(message.model_copy(deep=True, update={"role": "user"}))
             else:
                 updated_messages.extend(append_queue)
@@ -81,7 +88,7 @@ class LiteLLMGenerator(Generator):
         or [`min_delay_between_requests`][rigging.generator.litellm_.LiteLLMGenerator.min_delay_between_requests
         if you run into API limits. You can pass this directly in the generator id:
 
-        ```py
+        ```
         get_generator("litellm!openai/gpt-4o,max_connections=2,min_delay_between_requests=1000")
         ```
     """
@@ -102,6 +109,7 @@ class LiteLLMGenerator(Generator):
 
     _semaphore: asyncio.Semaphore | None = None
     _last_request_time: datetime.datetime | None = None
+    _supports_function_calling: bool | None = None
 
     _fixups = Fixups(available=[OpenAIToolsWithImageURLsFixup()])
 
@@ -113,11 +121,58 @@ class LiteLLMGenerator(Generator):
             self._semaphore = asyncio.Semaphore(max_connections)
         return self._semaphore
 
+    async def supports_function_calling(self) -> bool | None:
+        if self._supports_function_calling is not None:
+            return self._supports_function_calling
+
+        self._supports_function_calling = litellm.utils.supports_function_calling(self.model)
+        if self._supports_function_calling:
+            return self._supports_function_calling
+
+        self._supports_function_calling = False
+
+        # Otherwise we'll run a small check to see if we can
+
+        with tracer.span(f"Checking '{self.model}' for function calling support") as span:
+            try:
+                generated = await self.generate_messages(
+                    [[Message(role="user", content="Call the test function")]],
+                    [
+                        GenerateParams(
+                            tools=[
+                                ApiToolDefinition(
+                                    function=ApiFunctionDefinition(
+                                        name="test_function",
+                                        description="Test function",
+                                    ),
+                                ),
+                            ],
+                        ),
+                    ],
+                )
+
+                if generated:
+                    if isinstance(generated[0], BaseException):
+                        raise generated[0]  # noqa: TRY301
+
+                    if (
+                        isinstance(generated[0], GeneratedMessage)
+                        and generated[0].message.tool_calls
+                    ):
+                        self._supports_function_calling = True
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Failed to check for function calling support: {e}")
+                span.set_attribute("error", str(e))
+
+            span.set_attribute("supports_function_calling", self._supports_function_calling)
+
+        return self._supports_function_calling
+
     async def _ensure_delay_between_requests(self) -> None:
         if self._last_request_time is None:
             return
 
-        delta = datetime.datetime.now() - self._last_request_time
+        delta = datetime.datetime.now(tz=datetime.timezone.utc) - self._last_request_time
         delta_ms = delta.total_seconds() * 1000
 
         if delta_ms < self.min_delay_between_requests:
@@ -136,16 +191,19 @@ class LiteLLMGenerator(Generator):
     # This seems like a brittle feature at the moment, so we'll
     # leave it out for now.
 
-    def _parse_model_response(self, response: litellm.types.utils.ModelResponse) -> GeneratedMessage:
+    def _parse_model_response(
+        self,
+        response: litellm.types.utils.ModelResponse,
+    ) -> GeneratedMessage:
         choice = response.choices[-1]
         usage = None
         if getattr(response, "usage", None) is not None:
-            usage = response.usage.model_dump()  # type: ignore
+            usage = response.usage.model_dump()  # type: ignore [attr-defined]
             usage["input_tokens"] = usage.pop("prompt_tokens")
             usage["output_tokens"] = usage.pop("completion_tokens")
 
         if isinstance(choice, litellm.types.utils.StreamingChoices):
-            raise ValueError("Streaming choices are not supported")
+            raise TypeError("Streaming choices are not supported")
 
         tool_calls: list[dict[str, t.Any]] | None = None
         if (
@@ -158,20 +216,64 @@ class LiteLLMGenerator(Generator):
         ):
             tool_calls = [call.model_dump() for call in choice.message.tool_calls]
 
-        extra = {"response_id": response.id}
+        extra: dict[str, t.Any] = {"response_id": response.id}
         if hasattr(response, "provider"):
             extra["provider"] = response.provider
-        if hasattr(choice.message, "provider_specific_fields") and choice.message.provider_specific_fields is not None:
+        if (
+            hasattr(choice.message, "provider_specific_fields")
+            and choice.message.provider_specific_fields is not None
+        ):
             extra.update(choice.message.provider_specific_fields)
+        if (
+            hasattr(choice.message, "reasoning_content")
+            and choice.message.reasoning_content is not None
+        ):
+            extra["reasoning_content"] = choice.message.reasoning_content
+        if (
+            hasattr(choice.message, "thinking_blocks")
+            and choice.message.thinking_blocks is not None
+        ):
+            extra["thinking_blocks"] = choice.message.thinking_blocks
+
+        message = Message(
+            role="assistant",
+            content=[],
+            tool_calls=tool_calls,
+        )
+
+        if choice.message.content is not None:
+            # Check for lazy litellm handling
+            # https://github.com/BerriAI/litellm/blob/0f9ebc23a5c1e386195267dfc8d91ba7169c4508/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py#L578C1-L599C48
+            if match := re.match(r"(data:[\w/]+?;base64,[A-Za-z0-9+/=]+)", choice.message.content):
+                encoded_data = match.group(1)
+                choice.message.content = choice.message.content.replace(encoded_data, "").strip()
+                message.content_parts.append(ContentImageUrl.from_url(encoded_data))
+
+            message.content_parts.append(
+                ContentText(
+                    text=choice.message.content,
+                ),
+            )
+
+        if hasattr(choice.message, "audio") and choice.message.audio is not None:
+            message.content_parts.append(
+                ContentAudioInput.from_bytes(
+                    base64.b64decode(choice.message.audio.data),
+                    transcript=choice.message.audio.transcript,
+                ),
+            )
 
         return GeneratedMessage(
-            message=Message(role="assistant", content=choice.message.content, tool_calls=tool_calls),
+            message=message,
             stop_reason=choice.finish_reason,
             usage=usage,
             extra=extra,
         )
 
-    def _parse_text_completion_response(self, response: litellm.types.utils.TextCompletionResponse) -> GeneratedText:
+    def _parse_text_completion_response(
+        self,
+        response: litellm.types.utils.TextCompletionResponse,
+    ) -> GeneratedText:
         choice = response.choices[-1]
         usage = None
         if response.usage is not None:
@@ -185,7 +287,11 @@ class LiteLLMGenerator(Generator):
             extra={"response_id": response.id},
         )
 
-    async def _generate_message(self, messages: t.Sequence[Message], params: GenerateParams) -> GeneratedMessage:
+    async def _generate_message(
+        self,
+        messages: t.Sequence[Message],
+        params: GenerateParams,
+    ) -> GeneratedMessage:
         async with self.semaphore:
             # if params.max_tokens is None:
             #     params.max_tokens = get_max_tokens_for_model(self.model)
@@ -210,7 +316,7 @@ class LiteLLMGenerator(Generator):
                     return await self._generate_message(messages, params)
                 raise
 
-            self._last_request_time = datetime.datetime.now()
+            self._last_request_time = datetime.datetime.now(tz=datetime.timezone.utc)
             return self._parse_model_response(response)
 
     async def _generate_text(self, text: str, params: GenerateParams) -> GeneratedText:
@@ -224,23 +330,32 @@ class LiteLLMGenerator(Generator):
                 atext_completion = self._wrap(atext_completion)
 
             response = await atext_completion(
-                prompt=text, model=self.model, api_key=self.api_key, **self.params.merge_with(params).to_dict()
+                prompt=text,
+                model=self.model,
+                api_key=self.api_key,
+                **self.params.merge_with(params).to_dict(),
             )
 
-            self._last_request_time = datetime.datetime.now()
+            self._last_request_time = datetime.datetime.now(tz=datetime.timezone.utc)
             return self._parse_text_completion_response(response)
 
     async def generate_messages(
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[GeneratedMessage]:
-        coros = [self._generate_message(_messages, _params) for _messages, _params in zip(messages, params)]
-        generated = await asyncio.gather(*coros)
+    ) -> t.Sequence[GeneratedMessage | BaseException]:
+        coros = [
+            self._generate_message(_messages, _params)
+            for _messages, _params in zip(messages, params, strict=True)
+        ]
+        generated = await asyncio.gather(*coros, return_exceptions=True)
 
-        for i, (_messages, response) in enumerate(zip(messages, generated)):
+        for i, (_messages, response) in enumerate(zip(messages, generated, strict=True)):
             trace_messages(_messages, f"Messages {i+1}/{len(messages)}")
-            trace_messages([response], f"Response {i+1}/{len(messages)}")
+            if isinstance(response, BaseException):
+                trace_str(str(response), f"Response {i+1}/{len(messages)}")
+            else:
+                trace_messages([response], f"Response {i+1}/{len(messages)}")
 
         return generated
 
@@ -248,20 +363,15 @@ class LiteLLMGenerator(Generator):
         self,
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[GeneratedText]:
-        generated: list[GeneratedText] = []
-        max_connections = self.max_connections if self.max_connections > 0 else len(texts)
-        for i in range(0, len(texts), max_connections):
-            chunk_texts = texts[i : i + max_connections]
-            chunk_params = params[i : i + max_connections]
-            chunk_generated = await asyncio.gather(
-                *[self._generate_text(text, _params) for text, _params in zip(chunk_texts, chunk_params)]
-            )
-            generated.extend(chunk_generated)
+    ) -> t.Sequence[GeneratedText | BaseException]:
+        coros = [
+            self._generate_text(text, _params) for text, _params in zip(texts, params, strict=True)
+        ]
+        generated = await asyncio.gather(*coros, return_exceptions=True)
 
-            for i, (text, response) in enumerate(zip(chunk_texts, chunk_generated)):
-                trace_str(text, f"Text {i+1}/{len(texts)}")
-                trace_str(response, f"Generated {i+1}/{len(texts)}")
+        for i, (text, response) in enumerate(zip(texts, generated, strict=True)):
+            trace_str(text, f"Text {i+1}/{len(texts)}")
+            trace_str(response, f"Response {i+1}/{len(texts)}")
 
         return generated
 
@@ -281,4 +391,4 @@ def get_max_tokens_for_model(model: str) -> int | None:
             return None
         model = "/".join(model.split("/")[1:])
 
-    return litellm.model_cost[model].get("max_tokens")  # type: ignore
+    return litellm.model_cost[model].get("max_tokens")  # type: ignore [no-any-return]

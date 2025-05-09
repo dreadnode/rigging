@@ -1,4 +1,6 @@
-from __future__ import annotations
+"""
+Common utilities used throughout the library.
+"""
 
 import asyncio
 import functools
@@ -29,7 +31,7 @@ def _run_loop(loop: asyncio.AbstractEventLoop) -> None:
 
 
 def _get_event_loop() -> asyncio.AbstractEventLoop:
-    global g_event_loop
+    global g_event_loop  # noqa: PLW0603
 
     if g_event_loop is None:
         g_event_loop = asyncio.new_event_loop()
@@ -84,9 +86,7 @@ def deref_json(obj: dict[str, t.Any], *, is_json_schema: bool = False) -> dict[s
 
 def escape_xml(xml_string: str) -> str:
     """Escape XML special characters in a string."""
-    prepared = re.sub(r"&(?!(?:amp|lt|gt|apos|quot);)", "&amp;", xml_string)
-
-    return prepared
+    return re.sub(r"&(?!(?:amp|lt|gt|apos|quot);)", "&amp;", xml_string)
 
 
 def unescape_xml(xml_string: str) -> str:
@@ -95,9 +95,7 @@ def unescape_xml(xml_string: str) -> str:
     unescaped = re.sub(r"&lt;", "<", unescaped)
     unescaped = re.sub(r"&gt;", ">", unescaped)
     unescaped = re.sub(r"&apos;", "'", unescaped)
-    unescaped = re.sub(r"&quot;", '"', unescaped)
-
-    return unescaped
+    return re.sub(r"&quot;", '"', unescaped)
 
 
 def to_snake(text: str) -> str:
@@ -143,8 +141,7 @@ def get_qualified_name(obj: t.Callable[..., t.Any]) -> str:
     if callable(obj):
         if isinstance(obj, type):
             return obj.__qualname__
-        else:
-            return f"{obj.__class__.__qualname__}.__call__"
+        return f"{obj.__class__.__qualname__}.__call__"
 
     # Fallback
     return obj.__class__.__qualname__
@@ -153,11 +150,74 @@ def get_qualified_name(obj: t.Callable[..., t.Any]) -> str:
 # Formatting
 
 
-def truncate_string(content: str, max_length: int, *, sep: str = "...") -> str:
-    """Return a string at most max_length characters long."""
+def shorten_string(content: str, max_length: int, *, sep: str = "...") -> str:
+    """Return a string at most max_length characters long by removing the middle of the string."""
     if len(content) <= max_length:
         return content
 
     remaining = max_length - len(sep)
+    if remaining <= 0:
+        return sep
+
     middle = remaining // 2
     return content[:middle] + sep + content[-middle:]
+
+
+def truncate_string(content: str, max_length: int, *, suf: str = "...") -> str:
+    """Return a string at most max_length characters long by removing the end of the string."""
+    if len(content) <= max_length:
+        return content
+
+    remaining = max_length - len(suf)
+    if remaining <= 0:
+        return suf
+
+    return content[:remaining] + suf
+
+
+# List utilities
+
+
+def flatten_list(nested_list: t.Iterable[t.Iterable[t.Any] | t.Any]) -> list[t.Any]:
+    flattened = []
+    for item in nested_list:
+        if isinstance(item, list):
+            flattened.extend(flatten_list(item))
+        else:
+            flattened.append(item)
+    return flattened
+
+
+# Audio
+
+AudioFormat = t.Literal["wav", "mp3", "ogg", "flac"]
+
+
+def identify_audio_format(data: bytes) -> AudioFormat | None:
+    """
+    Identify audio format by checking the first few bytes of data
+    """
+    if len(data) < 12:  # noqa: PLR2004
+        return None  # Not enough data to identify format
+
+    header = data[:12]
+
+    signatures: dict[bytes, AudioFormat] = {
+        b"RIFF": "wav",  # WAV files start with 'RIFF'
+        b"ID3": "mp3",  # MP3 files often start with 'ID3' (ID3 tag)
+        b"\xFF\xFB": "mp3",  # MP3 files without ID3 tag
+        b"\xFF\xF3": "mp3",  # MP3 files (MPEG-1 Layer 3)
+        b"\xFF\xF2": "mp3",  # MP3 files (MPEG-2 Layer 3)
+        b"OggS": "ogg",  # Ogg files
+        b"fLaC": "flac",  # FLAC files
+    }
+
+    for signature, format_name in signatures.items():
+        if header.startswith(signature):
+            return format_name
+
+    # Check for MP3 without ID3 tag (check for MP3 frame sync)
+    if header[0] == 0xFF and (header[1] & 0xE0) == 0xE0:  # noqa: PLR2004
+        return "mp3"
+
+    return None

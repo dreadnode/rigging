@@ -10,6 +10,7 @@ import typing as t
 import typing_extensions as te
 
 if t.TYPE_CHECKING:
+    from rigging.chat import PipelineStep
     from rigging.message import Message
 
 
@@ -22,6 +23,15 @@ class UnknownToolError(Exception):
         super().__init__(f"Unknown tool call was requested for '{tool_name}'")
         self.tool_name = tool_name
         """The name of the tool which was unknown."""
+
+
+class ToolDefinitionError(Exception):
+    """
+    Raised when a tool cannot be properly defined.
+    """
+
+    def __init__(self, message: str):
+        super().__init__(message)
 
 
 class ExhaustedMaxRoundsError(Exception):
@@ -57,6 +67,19 @@ class CompletionExhaustedMaxRoundsError(ExhaustedMaxRoundsError):
         """The completion which was being generated when the exception occured."""
 
 
+class MaxDepthError(Exception):
+    """
+    Raised when the maximum depth is exceeded while generating.
+    """
+
+    def __init__(self, max_depth: int, step: "PipelineStep", reference: str):
+        super().__init__(f"Exceeded max depth ({max_depth}) while generating ('{reference}')")
+        self.max_depth = max_depth
+        """The maximum depth of nested pipeline generations which was exceeded."""
+        self.step = step
+        """The pipeline step which cause the depth error."""
+
+
 class InvalidModelSpecifiedError(Exception):
     """
     Raised when an invalid identifier is specified when getting a generator.
@@ -88,7 +111,10 @@ P = te.ParamSpec("P")
 R = t.TypeVar("R")
 
 
-def raise_as(error_type: type[Exception], message: str) -> t.Callable[[t.Callable[P, R]], t.Callable[P, R]]:
+def raise_as(
+    error_type: type[Exception],
+    message: str,
+) -> t.Callable[[t.Callable[P, R]], t.Callable[P, R]]:
     "When the wrapped function raises an exception, `raise ... from` with the new error type."
 
     def _raise_as(func: t.Callable[P, R]) -> t.Callable[P, R]:

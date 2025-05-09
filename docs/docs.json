@@ -1,0 +1,73 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Dreadnode Documentation",
+  "colors": {
+    "primary": "#ea580c",
+    "light": "#F47150",
+    "dark": "#333333"
+  },
+  "banner": {
+    "content": "Docs are in beta testing. If you experience any issues, contact us at support@dreadnode.io."
+  },
+  "background": {
+    "color": {
+      "light": "#e3e3e8",
+      "dark": "#09090b"
+    }
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Basics",
+        "pages": ["intro", "install"]
+      },
+      {
+        "group": "Topics",
+        "pages": [
+          "topics/workflow",
+          "topics/pipelines",
+          "topics/prompt-functions",
+          "topics/chats-and-messages",
+          "topics/generators",
+          "topics/data-models",
+          "topics/tools",
+          "topics/iterating-and-batching",
+          "topics/tracing",
+          "topics/completions",
+          "topics/migrations",
+          "topics/serialization",
+          "topics/logging"
+        ]
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Home",
+        "href": "https://docs.dreadnode.io"
+      },
+      {
+        "label": "Support",
+        "href": "mailto:support@dreadnode.io"
+      },
+      {
+        "label": "Blog",
+        "href": "https://dreadnode.io/blog"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Platform",
+      "href": "https://platform.dreadnode.io"
+    }
+  },
+  "footer": {
+    "socials": {
+      "x": "https://x.com/dreadnode",
+      "github": "https://github.com/dreadnode",
+      "linkedin": "https://linkedin.com/company/dreadnode"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+---
+title: "Installation"
+description: "Installation and Setup"
+public: true
+---
+
+We publish every version to Pypi:
+
+<CodeGroup>
+```bash pip
+pip install -U rigging
+```
+
+```bash uv
+uv pip install -U rigging
+```
+
+```bash poetry
+poetry add rigging
+```
+</CodeGroup>
+
+If you want all the extras (vLLM, transformers, examples), just specify the `all` extra:
+
+<CodeGroup>
+```bash pip
+pip install -U rigging[all]
+```
+
+```bash uv
+uv pip install -U rigging[all]
+```
+
+```bash poetry
+poetry add rigging[all]
+```
+</CodeGroup>
+
+If you want to build from source:
+
+```bash
+cd rigging/
+poetry install
+```
+
+## Migration Guides
+
+- **[Migrating from v2 -> v3](topics/migrations.md#migrating-from-v2x-to-v3x)**
+- **[Migrating from v1 -> v2](topics/migrations.md#migrating-from-v1x-to-v2x)**

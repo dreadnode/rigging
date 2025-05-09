@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import abc
 import inspect
 import typing as t
@@ -11,18 +9,17 @@ from typing_extensions import Self
 
 from rigging.error import InvalidModelSpecifiedError
 from rigging.message import Message, MessageDict
-from rigging.tool.api import ToolChoice, ToolDefinition
+from rigging.tool.api import ApiToolChoice, ApiToolDefinition
 
 if t.TYPE_CHECKING:
     from rigging.chat import ChatPipeline, WatchChatCallback
     from rigging.completion import CompletionPipeline, WatchCompletionCallback
-    from rigging.prompt import P, Prompt, R
-
-    WatchCallbacks = t.Union[WatchChatCallback, WatchCompletionCallback]
-
+    from rigging.prompt import Prompt
 
 CallableT = t.TypeVar("CallableT", bound=t.Callable[..., t.Any])
 
+P = t.ParamSpec("P")
+R = t.TypeVar("R")
 T = t.TypeVar("T")
 
 # Global provider map
@@ -30,11 +27,11 @@ T = t.TypeVar("T")
 
 @t.runtime_checkable
 class LazyGenerator(t.Protocol):
-    def __call__(self) -> type[Generator]:
+    def __call__(self) -> type["Generator"]:
         ...
 
 
-g_providers: dict[str, type[Generator] | LazyGenerator] = {}
+g_providers: dict[str, type["Generator"] | LazyGenerator] = {}
 
 # Fixups
 
@@ -125,37 +122,45 @@ class GenerateParams(BaseModel):
     seed: int | None = None
     """The random seed."""
 
-    tools: list[ToolDefinition] | None = None
+    tools: list[ApiToolDefinition] | None = None
     """The tools to be used in the generation."""
 
-    tool_choice: ToolChoice | None = None
+    tool_choice: ApiToolChoice | None = None
     """The tool choice to be used in the generation."""
 
     parallel_tool_calls: bool | None = None
     """Whether to run allow tool calls in parallel."""
 
+    modalities: list[str] | None = None
+    """The modalities to be used in the generation."""
+
+    audio: dict[str, str] | None = None
+    """The audio parameters to be used in the generation."""
+
     extra: dict[str, t.Any] = Field(default_factory=dict)
     """Extra parameters to be passed to the API."""
 
     @field_validator("tools", mode="before")
+    @classmethod
     def validate_tools(cls, value: t.Any) -> t.Any:
         if isinstance(value, list) and all(isinstance(v, dict) for v in value):
-            return [ToolDefinition.model_validate(v) for v in value]
-        elif isinstance(value, list) and all(isinstance(v, str) for v in value):
-            return [ToolDefinition.model_validate_json(v) for v in value]
+            return [ApiToolDefinition.model_validate(v) for v in value]
+        if isinstance(value, list) and all(isinstance(v, str) for v in value):
+            return [ApiToolDefinition.model_validate_json(v) for v in value]
         return value
 
     @field_validator("stop", mode="before")
+    @classmethod
     def validate_stop(cls, value: t.Any) -> t.Any:
         if value is None:
             return None
         if isinstance(value, str):
             return value.split(";")
-        elif isinstance(value, list) and all(isinstance(v, str) for v in value):
+        if isinstance(value, list) and all(isinstance(v, str) for v in value):
             return value
         raise ValueError("Stop sequences must be a list or a string separated by ';'")
 
-    def merge_with(self, *others: t.Optional[GenerateParams]) -> GenerateParams:
+    def merge_with(self, *others: "GenerateParams | None") -> "GenerateParams":
         """
         Apply a series of parameter overrides to the current instance and return a copy.
 
@@ -172,7 +177,7 @@ class GenerateParams(BaseModel):
         updates: dict[str, t.Any] = {}
         for other in [o for o in others if o is not None]:
             other_dict = other.model_dump(exclude_unset=True, exclude_none=True)
-            for name in other_dict.keys():
+            for name in other_dict:
                 updates[name] = getattr(other, name)
 
         return self.model_copy(update=updates)
@@ -194,21 +199,25 @@ StopReason = t.Literal["stop", "length", "content_filter", "tool_calls", "unknow
 """Reporting reason for generation completing."""
 
 
-def convert_stop_reason(reason: t.Optional[str]) -> StopReason:
+def convert_stop_reason(reason: str | None) -> StopReason:
     if reason in ["stop", "eos"]:
         return "stop"
-    elif reason in ["model_length"]:
+    if reason in ["model_length"]:
         return "length"
-    elif reason in ["length"]:
+    if reason in ["length"]:
         return "length"
-    elif reason in ["content_filter"]:
+    if reason in ["content_filter"]:
         return "content_filter"
-    elif reason and "tool" in reason:
+    if reason and "tool" in reason:
         return "tool_calls"
     return "unknown"
 
 
 class Usage(BaseModel):
+    """Usage statistics for a generation."""
+
+    model_config = ConfigDict(extra="allow")
+
     input_tokens: int
     """The number of input tokens."""
     output_tokens: int
@@ -229,7 +238,7 @@ class GeneratedMessage(BaseModel):
     stop_reason: t.Annotated[StopReason, BeforeValidator(convert_stop_reason)] = "unknown"
     """The reason for stopping generation."""
 
-    usage: t.Optional[Usage] = None
+    usage: Usage | None = None
     """The usage statistics for the generation if available."""
 
     extra: dict[str, t.Any] = Field(default_factory=dict)
@@ -239,7 +248,7 @@ class GeneratedMessage(BaseModel):
         return str(self.message)
 
     @classmethod
-    def from_text(cls, text: str, stop_reason: StopReason = "unknown") -> GeneratedMessage:
+    def from_text(cls, text: str, stop_reason: StopReason = "unknown") -> "GeneratedMessage":
         return cls(message=Message(role="assistant", content=text), stop_reason=stop_reason)
 
 
@@ -252,7 +261,7 @@ class GeneratedText(BaseModel):
     stop_reason: t.Annotated[StopReason, BeforeValidator(convert_stop_reason)] = "unknown"
     """The reason for stopping generation."""
 
-    usage: t.Optional[Usage] = None
+    usage: Usage | None = None
     """The usage statistics for the generation if available."""
 
     extra: dict[str, t.Any] = Field(default_factory=dict)
@@ -262,7 +271,7 @@ class GeneratedText(BaseModel):
         return self.text
 
     @classmethod
-    def from_text(cls, text: str, stop_reason: StopReason = "unknown") -> GeneratedText:
+    def from_text(cls, text: str, stop_reason: StopReason = "unknown") -> "GeneratedText":
         return cls(text=text, stop_reason=stop_reason)
 
     def to_generated_message(self) -> GeneratedMessage:
@@ -293,7 +302,7 @@ class Generator(BaseModel):
     params: GenerateParams
     """The parameters used for generating completion messages."""
 
-    _watch_callbacks: list[WatchCallbacks] = []
+    _watch_callbacks: list["WatchChatCallback | WatchCompletionCallback"] = []
     _wrap: t.Callable[[CallableT], CallableT] | None = None
 
     _fixups: Fixups = Fixups()
@@ -312,7 +321,11 @@ class Generator(BaseModel):
         """
         return get_identifier(self, params)
 
-    def watch(self, *callbacks: WatchCallbacks, allow_duplicates: bool = False) -> Generator:
+    def watch(
+        self,
+        *callbacks: "WatchChatCallback | WatchCompletionCallback",
+        allow_duplicates: bool = False,
+    ) -> "Generator":
         """
         Registers watch callbacks to be passed to any created
         [rigging.chat.ChatPipeline][] or [rigging.completion.CompletionPipeline][].
@@ -321,15 +334,16 @@ class Generator(BaseModel):
             *callbacks: The callback functions to be executed.
             allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
 
-        ```
-        async def log(chats: list[Chat]) -> None:
-            ...
-
-        await pipeline.watch(log).run()
-        ```
-
         Returns:
             The current instance of the chat.
+
+        Example:
+            ```
+            async def log(chats: list[Chat]) -> None:
+                ...
+
+            await pipeline.watch(log).run()
+            ```
         """
         for callback in callbacks:
             if allow_duplicates or callback not in self._watch_callbacks:
@@ -370,6 +384,15 @@ class Generator(BaseModel):
         self._wrap = func  # type: ignore [assignment]
         return self
 
+    async def supports_function_calling(self) -> bool | None:
+        """
+        Check if the generator supports calling functions explicitly or is unknown.
+
+        Returns:
+            True/False if the generator supports function calling, None if unknown.
+        """
+        return None
+
     def _check_fixups(self, error: Exception) -> bool:
         """
         Check if any fixer can handle this error.
@@ -406,7 +429,7 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[t.Sequence[Message]],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[GeneratedMessage]:
+    ) -> t.Sequence[GeneratedMessage | BaseException]:
         """
         Generate a batch of messages using the specified parameters.
 
@@ -429,7 +452,7 @@ class Generator(BaseModel):
         self,
         texts: t.Sequence[str],
         params: t.Sequence[GenerateParams],
-    ) -> t.Sequence[GeneratedText]:
+    ) -> t.Sequence[GeneratedText | BaseException]:
         """
         Generate a batch of text completions using the generator.
 
@@ -460,7 +483,7 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[MessageDict],
         params: GenerateParams | None = None,
-    ) -> ChatPipeline:
+    ) -> "ChatPipeline":
         ...
 
     @t.overload
@@ -468,14 +491,19 @@ class Generator(BaseModel):
         self,
         messages: t.Sequence[Message] | MessageDict | Message | str | None = None,
         params: GenerateParams | None = None,
-    ) -> ChatPipeline:
+    ) -> "ChatPipeline":
         ...
 
     def chat(
         self,
-        messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str | None = None,
+        messages: t.Sequence[MessageDict]
+        | t.Sequence[Message]
+        | MessageDict
+        | Message
+        | str
+        | None = None,
         params: GenerateParams | None = None,
-    ) -> ChatPipeline:
+    ) -> "ChatPipeline":
         """
         Build a chat pipeline with the given messages and optional params overloads.
 
@@ -484,11 +512,13 @@ class Generator(BaseModel):
             params: Optional parameters for generating responses.
 
         Returns:
-            chat pipeline to run.
+            The chat pipeline to run.
         """
         from rigging.chat import ChatPipeline, WatchChatCallback
 
-        chat_watch_callbacks = [cb for cb in self._watch_callbacks if isinstance(cb, (WatchChatCallback))]
+        chat_watch_callbacks = [
+            cb for cb in self._watch_callbacks if isinstance(cb, (WatchChatCallback))
+        ]
 
         return ChatPipeline(
             self,
@@ -499,7 +529,7 @@ class Generator(BaseModel):
 
     # Helper alternative to complete(generator) -> generator.complete(...)
 
-    def complete(self, text: str, params: GenerateParams | None = None) -> CompletionPipeline:
+    def complete(self, text: str, params: GenerateParams | None = None) -> "CompletionPipeline":
         """
         Build a completion pipeline of the given text with optional param overloads.
 
@@ -512,11 +542,18 @@ class Generator(BaseModel):
         """
         from rigging.completion import CompletionPipeline, WatchCompletionCallback
 
-        completion_watch_callbacks = [cb for cb in self._watch_callbacks if isinstance(cb, (WatchCompletionCallback))]
+        completion_watch_callbacks = [
+            cb for cb in self._watch_callbacks if isinstance(cb, (WatchCompletionCallback))
+        ]
 
-        return CompletionPipeline(self, text, params=params, watch_callbacks=completion_watch_callbacks)
+        return CompletionPipeline(
+            self,
+            text,
+            params=params,
+            watch_callbacks=completion_watch_callbacks,
+        )
 
-    def prompt(self, func: t.Callable[P, t.Coroutine[None, None, R]]) -> Prompt[P, R]:
+    def prompt(self, func: t.Callable[P, t.Coroutine[None, None, R]]) -> "Prompt[P, R]":
         """
         Decorator to convert a function into a prompt bound to this generator.
 
@@ -538,7 +575,7 @@ def chat(
     generator: Generator,
     messages: t.Sequence[MessageDict],
     params: GenerateParams | None = None,
-) -> ChatPipeline:
+) -> "ChatPipeline":
     ...
 
 
@@ -547,22 +584,26 @@ def chat(
     generator: Generator,
     messages: t.Sequence[Message] | MessageDict | Message | str | None = None,
     params: GenerateParams | None = None,
-) -> ChatPipeline:
+) -> "ChatPipeline":
     ...
 
 
 def chat(
     generator: Generator,
-    messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str | None = None,
+    messages: t.Sequence[MessageDict]
+    | t.Sequence[Message]
+    | MessageDict
+    | Message
+    | str
+    | None = None,
     params: GenerateParams | None = None,
-) -> ChatPipeline:
+) -> "ChatPipeline":
     """
     Creates a chat pipeline using the given generator, messages, and params.
 
     Args:
         generator: The generator to use for creating the chat.
-        messages:
-            The messages to include in the chat. Can be a single message or a sequence of messages.
+        messages: The messages to include in the chat. Can be a single message or a sequence of messages.
         params: Additional parameters for generating the chat.
 
     Returns:
@@ -575,7 +616,7 @@ def complete(
     generator: Generator,
     text: str,
     params: GenerateParams | None = None,
-) -> CompletionPipeline:
+) -> "CompletionPipeline":
     return generator.complete(text, params)
 
 
@@ -595,11 +636,16 @@ def get_identifier(generator: Generator, params: GenerateParams | None = None) -
     """
 
     provider = next(
-        name for name, klass in g_providers.items() if isinstance(klass, type) and isinstance(generator, klass)
+        name
+        for name, klass in g_providers.items()
+        if isinstance(klass, type) and isinstance(generator, klass)
     )
     identifier = f"{provider}!{generator.model}"
 
-    extra_cls_args = generator.model_dump(exclude_unset=True, exclude={"model", "api_key", "params"})
+    extra_cls_args = generator.model_dump(
+        exclude_unset=True,
+        exclude={"model", "api_key", "params"},
+    )
     if extra_cls_args:
         identifier += f",{','.join([f'{k}={v}' for k, v in extra_cls_args.items()])}"
 
@@ -651,7 +697,7 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
         InvalidModelSpecified: If the identifier is invalid.
     """
 
-    provider: str = list(g_providers.keys())[0]
+    provider: str = next(iter(g_providers.keys()))
     model: str = identifier
 
     if not identifier:
@@ -669,10 +715,10 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
         raise InvalidModelSpecifiedError(identifier)
 
     if not isinstance(g_providers[provider], type):
-        lazy_generator = t.cast(LazyGenerator, g_providers[provider])
+        lazy_generator = t.cast("LazyGenerator", g_providers[provider])
         g_providers[provider] = lazy_generator()
 
-    generator_cls = t.cast(type[Generator], g_providers[provider])
+    generator_cls = t.cast("type[Generator]", g_providers[provider])
 
     kwargs = {}
     if "," in model:
@@ -684,7 +730,9 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
 
     # See if any of the kwargs would apply to the cls constructor directly
     init_signature = inspect.signature(generator_cls)
-    init_kwargs: dict[str, t.Any] = {k: kwargs.pop(k) for k in list(kwargs.keys())[:] if k in init_signature.parameters}
+    init_kwargs: dict[str, t.Any] = {
+        k: kwargs.pop(k) for k in list(kwargs.keys())[:] if k in init_signature.parameters
+    }
 
     # Do some subtle type conversion
     for k, v in init_kwargs.items():
@@ -720,12 +768,18 @@ def register_generator(provider: str, generator_cls: type[Generator] | LazyGener
     Args:
         provider: The name of the provider.
         generator_cls: The generator class to register.
+
+    Returns:
+        None
     """
-    global g_providers
+    global g_providers  # noqa: PLW0602
     g_providers[provider] = generator_cls
 
 
-def trace_messages(messages: t.Sequence[Message] | t.Sequence[GeneratedMessage], title: str) -> None:
+def trace_messages(
+    messages: t.Sequence[Message] | t.Sequence[GeneratedMessage],
+    title: str,
+) -> None:
     """
     Helper function to trace log a sequence of Message objects.
 
@@ -741,11 +795,11 @@ def trace_messages(messages: t.Sequence[Message] | t.Sequence[GeneratedMessage],
     logger.trace("---")
 
 
-def trace_str(content: str | GeneratedText, title: str) -> None:
+def trace_str(content: str | GeneratedText | BaseException, title: str) -> None:
     """
     Helper function to trace log a string.
 
-    Parameters:
+    Args:
         content: The string content to be logged.
         title: The title of the log entry.
 

@@ -1,6 +1,19 @@
-from rigging import data, error, generator, integrations, logging, model, parsing, tool, watchers
-from rigging.chat import Chat, ChatPipeline, MapChatCallback, ThenChatCallback
-from rigging.completion import Completion, CompletionPipeline, MapCompletionCallback, ThenCompletionCallback
+from rigging import data, error, generator, logging, model, parsing, watchers
+from rigging.chat import (
+    Chat,
+    ChatPipeline,
+    MapChatCallback,
+    PipelineStep,
+    PipelineStepContextManager,
+    PipelineStepGenerator,
+    ThenChatCallback,
+)
+from rigging.completion import (
+    Completion,
+    CompletionPipeline,
+    MapCompletionCallback,
+    ThenCompletionCallback,
+)
 from rigging.generator import (
     GeneratedMessage,
     GeneratedText,
@@ -12,57 +25,69 @@ from rigging.generator import (
     register_generator,
 )
 from rigging.interact import interact
-from rigging.message import ContentImageUrl, ContentText, Message, MessageDict, Messages
+from rigging.message import (
+    ContentAudioInput,
+    ContentImageUrl,
+    ContentText,
+    Message,
+    MessageDict,
+    Messages,
+)
 from rigging.model import Model, attr, element, wrapped
 from rigging.prompt import Ctx, Prompt, prompt
-from rigging.tool import ApiTool, Tool
+from rigging.tool import Tool, mcp, robopages, tool, tool_method
 from rigging.util import await_
+from rigging.version import VERSION
 
-# TODO: Migrate to importlib for this
-__version__ = "2.3.0"
+__version__ = VERSION
 
 __all__ = [
-    "get_generator",
-    "Message",
-    "MessageDict",
-    "Messages",
-    "ContentText",
-    "ContentImageUrl",
-    "Tool",
-    "ApiTool",
-    "Model",
-    "attr",
-    "element",
-    "wrapped",
     "Chat",
     "ChatPipeline",
-    "Generator",
+    "Completion",
+    "CompletionPipeline",
+    "ContentAudioInput",
+    "ContentImageUrl",
+    "ContentText",
+    "Ctx",
     "GenerateParams",
     "GeneratedMessage",
     "GeneratedText",
+    "Generator",
+    "MapChatCallback",
+    "MapCompletionCallback",
+    "Message",
+    "MessageDict",
+    "Messages",
+    "Model",
+    "PipelineStep",
+    "PipelineStepContextManager",
+    "PipelineStepGenerator",
+    "Prompt",
+    "ThenChatCallback",
+    "ThenCompletionCallback",
+    "Tool",
+    "attr",
+    "await_",
     "chat",
     "complete",
-    "Completion",
-    "CompletionPipeline",
-    "register_generator",
-    "prompt",
-    "Prompt",
-    "Ctx",
     "data",
-    "watchers",
-    "model",
+    "element",
     "error",
-    "parsing",
-    "tool",
-    "integrations",
-    "logging",
-    "await_",
-    "interact",
-    "ThenChatCallback",
-    "MapChatCallback",
-    "ThenCompletionCallback",
-    "MapCompletionCallback",
     "generator",
+    "get_generator",
+    "interact",
+    "logging",
+    "mcp",
+    "model",
+    "parsing",
+    "prompt",
+    "register_generator",
+    "robopages",
+    "tool",
+    "tool_method",
+    "watchers",
+    "wrapped",
 ]
 
 from loguru import logger
