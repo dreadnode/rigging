@@ -2,11 +2,10 @@ import gc
 import typing as t
 
 import torch
-import transformers  # type: ignore [import-untyped]
-from transformers import (
+import transformers  # type: ignore [import-untyped, unused-ignore]
+from transformers import (  # type: ignore [attr-defined]
     AutoModelForCausalLM,
     AutoTokenizer,
-    PreTrainedTokenizer,
     TextGenerationPipeline,
 )
 
@@ -85,7 +84,7 @@ class TransformersGenerator(Generator):
         return self._llm
 
     @property
-    def tokenizer(self) -> PreTrainedTokenizer:
+    def tokenizer(self) -> AutoTokenizer:
         """The underlying `AutoTokenizer` instance."""
         if self._tokenizer is None:
             self._tokenizer = AutoTokenizer.from_pretrained(self.model)
@@ -95,19 +94,19 @@ class TransformersGenerator(Generator):
     def pipeline(self) -> TextGenerationPipeline:
         """The underlying `TextGenerationPipeline` instance."""
         if self._pipeline is None:
-            self._pipeline = transformers.pipeline(
+            self._pipeline = transformers.pipeline(  # type: ignore [attr-defined, assignment]
                 "text-generation",
                 return_full_text=False,
-                model=self.llm,
-                tokenizer=self.tokenizer,
+                model=self.llm,  # type: ignore [arg-type]
+                tokenizer=self.tokenizer,  # type: ignore [arg-type]
             )
-        return self._pipeline
+        return self._pipeline  # type: ignore [return-value]
 
     @classmethod
     def from_obj(
         cls,
-        model: str,
-        tokenizer: PreTrainedTokenizer,
+        model: t.Any,
+        tokenizer: AutoTokenizer,
         *,
         pipeline: TextGenerationPipeline | None = None,
         params: GenerateParams | None = None,
@@ -124,9 +123,9 @@ class TransformersGenerator(Generator):
             The TransformersGenerator instance.
         """
         instance = cls(model=model, params=params or GenerateParams())
-        instance._llm = model  # noqa: SLF001
-        instance._tokenizer = tokenizer  # noqa: SLF001
-        instance._pipeline = pipeline  # noqa: SLF001
+        instance._llm = model
+        instance._tokenizer = tokenizer
+        instance._pipeline = pipeline
         return instance
 
     def load(self) -> "TransformersGenerator":
@@ -176,8 +175,8 @@ class TransformersGenerator(Generator):
         generated = [o.to_generated_message() for o in outputs]
 
         for i, (in_messages, out_message) in enumerate(zip(messages, generated, strict=False)):
-            trace_messages(in_messages, f"Messages {i+1}/{len(in_messages)}")
-            trace_messages([out_message], f"Response {i+1}/{len(in_messages)}")
+            trace_messages(in_messages, f"Messages {i + 1}/{len(in_messages)}")
+            trace_messages([out_message], f"Response {i + 1}/{len(in_messages)}")
 
         return generated
 
@@ -189,7 +188,7 @@ class TransformersGenerator(Generator):
         generated = self._generate(texts, params)
 
         for i, (text, response) in enumerate(zip(texts, generated, strict=False)):
-            trace_str(text, f"Text {i+1}/{len(texts)}")
-            trace_str(response, f"Generated {i+1}/{len(texts)}")
+            trace_str(text, f"Text {i + 1}/{len(texts)}")
+            trace_str(response, f"Generated {i + 1}/{len(texts)}")
 
         return generated

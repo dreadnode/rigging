@@ -27,6 +27,7 @@ logfire-api = "^3.1.1"
 jsonpath-ng = "^1.7.0"
 ruamel-yaml = "^0.18.10"
 jsonref = "^1.1.0"
+mcp = "^1.5.0"
 
 vllm = { version = "^0.5.0", optional = true }
 transformers = { version = "^4.41.0", optional = true }
@@ -37,7 +38,6 @@ click = { version = "^8.1.7", optional = true }
 httpx = { version = "^0.27.0", optional = true }
 aiodocker = { version = "^0.22.2", optional = true }
 websockets = { version = "^13.0", optional = true }
-mcp = "^1.5.0"
 
 [tool.poetry.extras]
 tracing = ["logfire"]
@@ -56,8 +56,8 @@ all = [
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.27.1"
-mypy = "^1.8.0"
-ruff = "^0.1.14"
+mypy = "^1.15.0"
+ruff = "^0.10.0"
 pytest = "^8.0.0"
 pandas-stubs = "^2.2.1.240316"
 coverage = "^7.5.1"
@@ -65,15 +65,6 @@ ipywidgets = "^8.1.3"
 pytest-asyncio = "^0.23.7"
 types-colorama = "^0.4.15.20240311"
 types-requests = "2.31.0.6"
-
-[tool.poetry.group.docs.dependencies]
-mkdocs = "^1.6.0"
-mkdocs-material = { extras = ["imaging"], version = "^9.5.20" }
-mkdocstrings = "^0.25.0"
-mkdocstrings-python = "^1.10.0"
-mkdocs-section-index = "^0.3.9"
-pymdown-extensions = "^10.8.1"
-pygments = "^2.18.0"
 
 # Build
 

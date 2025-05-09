@@ -91,7 +91,7 @@ class VLLMGenerator(Generator):
             The VLLMGenerator instance.
         """
         generator = cls(model=model, params=params or GenerateParams())
-        generator._llm = llm  # noqa: SLF001
+        generator._llm = llm
         return generator
 
     def load(self) -> "VLLMGenerator":
@@ -158,17 +158,23 @@ class VLLMGenerator(Generator):
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[GeneratedMessage]:
         message_dicts = [[m.to_openai_spec() for m in _messages] for _messages in messages]
-        texts = self.llm.get_tokenizer().apply_chat_template(
+        tokenizer = self.llm.get_tokenizer()
+        if not hasattr(tokenizer, "apply_chat_template"):
+            raise RuntimeError(
+                "The tokenizer does not support the apply_chat_template method.",
+            )
+
+        texts = tokenizer.apply_chat_template(
             message_dicts,
             add_generation_prompt=True,
             tokenize=False,
         )
-        generated_texts = self._generate(texts, params=params)
+        generated_texts = self._generate(t.cast("list[str]", texts), params=params)
         generated = [g.to_generated_message() for g in generated_texts]
 
         for i, (in_messages, out_message) in enumerate(zip(messages, generated, strict=False)):
-            trace_messages(in_messages, f"Messages {i+1}/{len(in_messages)}")
-            trace_messages([out_message], f"Response {i+1}/{len(in_messages)}")
+            trace_messages(in_messages, f"Messages {i + 1}/{len(in_messages)}")
+            trace_messages([out_message], f"Response {i + 1}/{len(in_messages)}")
 
         return generated
 
@@ -180,7 +186,7 @@ class VLLMGenerator(Generator):
         generated = self._generate(list(texts), params=params)
 
         for i, (text, response) in enumerate(zip(texts, generated, strict=False)):
-            trace_str(text, f"Text {i+1}/{len(texts)}")
-            trace_str(response, f"Generated {i+1}/{len(texts)}")
+            trace_str(text, f"Text {i + 1}/{len(texts)}")
+            trace_str(response, f"Generated {i + 1}/{len(texts)}")
 
         return generated
