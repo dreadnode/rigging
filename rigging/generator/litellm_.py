@@ -69,6 +69,18 @@ class OpenAIToolsWithImageURLsFixup(Fixup):
         return updated_messages
 
 
+class CacheTooSmallFixup(Fixup):
+    # Attempt to enable caching on chat messages which
+    # are below a certain threshold can result in a 400
+    # error from APIs (Vertex/Gemini).
+
+    def can_fix(self, exception: Exception) -> bool:
+        return "Cached content is too small." in str(exception)
+
+    def fix(self, items: t.Sequence[Message]) -> t.Sequence[Message]:
+        return [message.cache(False) for message in items]
+
+
 class LiteLLMGenerator(Generator):
     """
     Generator backed by the LiteLLM library.
@@ -111,7 +123,7 @@ class LiteLLMGenerator(Generator):
     _last_request_time: datetime.datetime | None = None
     _supports_function_calling: bool | None = None
 
-    _fixups = Fixups(available=[OpenAIToolsWithImageURLsFixup()])
+    _fixups = Fixups(available=[OpenAIToolsWithImageURLsFixup(), CacheTooSmallFixup()])
 
     @property
     def semaphore(self) -> asyncio.Semaphore:
@@ -351,11 +363,11 @@ class LiteLLMGenerator(Generator):
         generated = await asyncio.gather(*coros, return_exceptions=True)
 
         for i, (_messages, response) in enumerate(zip(messages, generated, strict=True)):
-            trace_messages(_messages, f"Messages {i+1}/{len(messages)}")
+            trace_messages(_messages, f"Messages {i + 1}/{len(messages)}")
             if isinstance(response, BaseException):
-                trace_str(str(response), f"Response {i+1}/{len(messages)}")
+                trace_str(str(response), f"Response {i + 1}/{len(messages)}")
             else:
-                trace_messages([response], f"Response {i+1}/{len(messages)}")
+                trace_messages([response], f"Response {i + 1}/{len(messages)}")
 
         return generated
 
@@ -370,8 +382,8 @@ class LiteLLMGenerator(Generator):
         generated = await asyncio.gather(*coros, return_exceptions=True)
 
         for i, (text, response) in enumerate(zip(texts, generated, strict=True)):
-            trace_str(text, f"Text {i+1}/{len(texts)}")
-            trace_str(response, f"Response {i+1}/{len(texts)}")
+            trace_str(text, f"Text {i + 1}/{len(texts)}")
+            trace_str(response, f"Response {i + 1}/{len(texts)}")
 
         return generated
 
