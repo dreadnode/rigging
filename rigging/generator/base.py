@@ -1,7 +1,7 @@
 import abc
+import functools
 import inspect
 import typing as t
-from dataclasses import dataclass, field
 from functools import lru_cache
 
 from loguru import logger
@@ -42,7 +42,7 @@ class Fixup(abc.ABC):
     """
 
     @abc.abstractmethod
-    def can_fix(self, exception: Exception) -> bool:
+    def can_fix(self, exception: Exception) -> bool | t.Literal["once"]:
         """
         Check if the fixup can resolve the given exception if made active.
 
@@ -68,10 +68,62 @@ class Fixup(abc.ABC):
         ...
 
 
-@dataclass
-class Fixups:
-    available: list[Fixup] = field(default_factory=list)
-    active: list[Fixup] = field(default_factory=list)
+FixupCompatibleFunc = t.Callable[
+    t.Concatenate[t.Any, t.Sequence[Message], P],
+    t.Awaitable[R],
+]
+
+
+def with_fixups(
+    *fixups: Fixup,
+) -> t.Callable[[FixupCompatibleFunc[P, R]], FixupCompatibleFunc[P, R]]:
+    """
+    Decorator that adds fixup retry logic with persistent state.
+
+    Args:
+        fixups: Sequence of fixups to try
+    """
+    available_fixups: list[Fixup] = list(fixups)
+    active_fixups: list[Fixup] = []
+    once_fixups: list[Fixup] = []
+
+    def decorator(func: FixupCompatibleFunc[P, R]) -> FixupCompatibleFunc[P, R]:
+        @functools.wraps(func)
+        async def wrapper(
+            self: t.Any,
+            messages: t.Sequence[Message],
+            *args: P.args,
+            **kwargs: P.kwargs,
+        ) -> R:
+            nonlocal available_fixups, active_fixups
+
+            for fixup in [*active_fixups, *once_fixups]:
+                messages = fixup.fix(messages)
+
+            try:
+                result = await func(self, messages, *args, **kwargs)
+                available_fixups = [*available_fixups, *once_fixups]
+                once_fixups.clear()
+            except Exception as e:
+                for fixup in list(available_fixups):
+                    if (can_fix := fixup.can_fix(e)) is False:
+                        continue
+
+                    if can_fix == "once":
+                        once_fixups.append(fixup)
+                    else:
+                        active_fixups.append(fixup)
+                    available_fixups.remove(fixup)
+
+                    return await wrapper(self, messages, *args, **kwargs)
+
+                raise
+
+            return result
+
+        return wrapper  # type: ignore[return-value]
+
+    return decorator
 
 
 # TODO: We also would like to support N-style
@@ -305,8 +357,6 @@ class Generator(BaseModel):
     _watch_callbacks: list["WatchChatCallback | WatchCompletionCallback"] = []
     _wrap: t.Callable[[CallableT], CallableT] | None = None
 
-    _fixups: Fixups = Fixups()
-
     def to_identifier(self, params: GenerateParams | None = None) -> str:
         """
         Converts the generator instance back into a rigging identifier string.
@@ -392,38 +442,6 @@ class Generator(BaseModel):
             True/False if the generator supports function calling, None if unknown.
         """
         return None
-
-    def _check_fixups(self, error: Exception) -> bool:
-        """
-        Check if any fixer can handle this error.
-
-        Args:
-            error: The error to be checked.
-
-        Returns:
-            Whether a fixer was able to handle the error.
-        """
-        for fixup in self._fixups.available[:]:
-            if fixup.can_fix(error):
-                self._fixups.active.append(fixup)
-                self._fixups.available.remove(fixup)
-                return True
-        return False
-
-    async def _apply_fixups(self, messages: t.Sequence[Message]) -> t.Sequence[Message]:
-        """
-        Apply all active fixups to the messages.
-
-        Args:
-            messages: The messages to be fixed.
-
-        Returns:
-            The fixed messages.
-        """
-        current_messages = messages
-        for fixup in self._fixups.active:
-            current_messages = fixup.fix(current_messages)
-        return current_messages
 
     async def generate_messages(
         self,

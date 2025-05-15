@@ -336,6 +336,8 @@ Content = ContentText | ContentImageUrl | ContentAudioInput
 """The types of content that can be included in a message."""
 ContentTypes = (ContentText, ContentImageUrl, ContentAudioInput)
 
+CompatibilityFlag = t.Literal["content_as_str"]
+
 
 class Message(BaseModel):
     """
@@ -363,6 +365,8 @@ class Message(BaseModel):
     """The tool calls associated with the message."""
     tool_call_id: str | None = Field(None)
     """Associated call id if this message is a response to a tool call."""
+
+    _compability_flags: list[CompatibilityFlag] = []
 
     def __init__(
         self,
@@ -546,7 +550,7 @@ class Message(BaseModel):
                 isinstance(current, dict)
                 and current.get("type") == "text"
                 and next_.get("type") == "text"
-                and not current.get("text", "").endswith("\n")
+                and not str(current.get("text", "")).endswith("\n")
             ):
                 current["text"] += "\n"
 
@@ -555,6 +559,17 @@ class Message(BaseModel):
         for part in obj.get("content", []):
             if isinstance(part, dict) and part.get("type") == "input_audio":
                 part.get("input_audio", {}).pop("transcript", None)
+
+        # If enabled, we need to convert our content to a flat
+        # string for API compatibility. Groq is an example of an API
+        # which will complain for some roles if we send a list of content parts.
+
+        if "content_as_str" in self._compability_flags:
+            obj["content"] = "".join(
+                part["text"]
+                for part in obj["content"]
+                if isinstance(part, dict) and part.get("type") == "text"
+            )
 
         return obj
 
