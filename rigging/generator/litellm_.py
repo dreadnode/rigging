@@ -10,13 +10,13 @@ from loguru import logger
 
 from rigging.generator.base import (
     Fixup,
-    Fixups,
     GeneratedMessage,
     GeneratedText,
     GenerateParams,
     Generator,
     trace_messages,
     trace_str,
+    with_fixups,
 )
 from rigging.message import ContentAudioInput, ContentImageUrl, ContentText, Message
 from rigging.tool.api import ApiFunctionDefinition, ApiToolDefinition
@@ -74,11 +74,40 @@ class CacheTooSmallFixup(Fixup):
     # are below a certain threshold can result in a 400
     # error from APIs (Vertex/Gemini).
 
-    def can_fix(self, exception: Exception) -> bool:
-        return "Cached content is too small." in str(exception)
+    def can_fix(self, exception: Exception) -> bool | t.Literal["once"]:
+        return "once" if "Cached content is too small." in str(exception) else False
 
-    def fix(self, items: t.Sequence[Message]) -> t.Sequence[Message]:
-        return [message.cache(False) for message in items]
+    def fix(self, messages: t.Sequence[Message]) -> t.Sequence[Message]:
+        return [message.cache(False) for message in messages]
+
+
+class GroqAssistantContentFixup(Fixup):
+    # Groq can complain if we try to send fully
+    # structured content parts when working with
+    # the assistant role.
+    #
+    # Compatibility flags are a poor workaround for the
+    # fact that we don't have direct control over the
+    # conversion to the OpenAI spec.
+
+    def can_fix(self, exception: Exception) -> bool:
+        return "Groq" in str(exception) and "content' : value must be a string" in str(exception)
+
+    def fix(self, messages: t.Sequence[Message]) -> t.Sequence[Message]:
+        updated_messages: list[Message] = []
+        for message in messages:
+            if message.role == "assistant":
+                message = message.clone()  # noqa: PLW2901
+                message._compability_flags.add("content_as_str")  # noqa: SLF001
+            updated_messages.append(message)
+        return updated_messages
+
+
+g_fixups = [
+    OpenAIToolsWithImageURLsFixup(),
+    CacheTooSmallFixup(),
+    GroqAssistantContentFixup(),
+]
 
 
 class LiteLLMGenerator(Generator):
@@ -122,8 +151,6 @@ class LiteLLMGenerator(Generator):
     _semaphore: asyncio.Semaphore | None = None
     _last_request_time: datetime.datetime | None = None
     _supports_function_calling: bool | None = None
-
-    _fixups = Fixups(available=[OpenAIToolsWithImageURLsFixup(), CacheTooSmallFixup()])
 
     @property
     def semaphore(self) -> asyncio.Semaphore:
@@ -299,6 +326,7 @@ class LiteLLMGenerator(Generator):
             extra={"response_id": response.id},
         )
 
+    @with_fixups(*g_fixups)
     async def _generate_message(
         self,
         messages: t.Sequence[Message],
@@ -313,20 +341,12 @@ class LiteLLMGenerator(Generator):
             if self._wrap is not None:
                 acompletion = self._wrap(acompletion)
 
-            # Prepare messages for specific providers
-            messages = await self._apply_fixups(messages)
-
-            try:
-                response = await acompletion(
-                    model=self.model,
-                    messages=[message.to_openai_spec() for message in messages],
-                    api_key=self.api_key,
-                    **self.params.merge_with(params).to_dict(),
-                )
-            except Exception as e:
-                if self._check_fixups(e):
-                    return await self._generate_message(messages, params)
-                raise
+            response = await acompletion(
+                model=self.model,
+                messages=[message.to_openai_spec() for message in messages],
+                api_key=self.api_key,
+                **self.params.merge_with(params).to_dict(),
+            )
 
             self._last_request_time = datetime.datetime.now(tz=datetime.timezone.utc)
             return self._parse_model_response(response)
