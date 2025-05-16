@@ -366,7 +366,7 @@ class Message(BaseModel):
     tool_call_id: str | None = Field(None)
     """Associated call id if this message is a response to a tool call."""
 
-    _compability_flags: list[CompatibilityFlag] = []
+    _compability_flags: set[CompatibilityFlag] = set()
 
     def __init__(
         self,

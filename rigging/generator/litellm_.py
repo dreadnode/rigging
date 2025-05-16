@@ -98,7 +98,7 @@ class GroqAssistantContentFixup(Fixup):
         for message in messages:
             if message.role == "assistant":
                 message = message.clone()  # noqa: PLW2901
-                message._compability_flags.append("content_as_str")  # noqa: SLF001
+                message._compability_flags.add("content_as_str")  # noqa: SLF001
             updated_messages.append(message)
         return updated_messages
 
