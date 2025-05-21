@@ -14,6 +14,7 @@ from rigging.completion import (
     MapCompletionCallback,
     ThenCompletionCallback,
 )
+from rigging.error import Stop
 from rigging.generator import (
     GeneratedMessage,
     GeneratedText,
@@ -64,6 +65,7 @@ __all__ = [
     "PipelineStepContextManager",
     "PipelineStepGenerator",
     "Prompt",
+    "Stop",
     "ThenChatCallback",
     "ThenCompletionCallback",
     "Tool",

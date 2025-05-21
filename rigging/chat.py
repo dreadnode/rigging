@@ -720,7 +720,7 @@ class ChatPipeline:
         self.tool_mode: ToolMode = "auto"
         self.api_tool_choice: ApiToolChoice | None = None
         self.inject_tool_prompt = True
-        self.stop_on_tool_calls = True
+        self.add_tool_stop_token = True
         self.then_callbacks: list[tuple[ThenChatCallback, int]] = []
         self.map_callbacks: list[tuple[MapChatCallback, int]] = []
         self.watch_callbacks: list[WatchChatCallback] = watch_callbacks or []
@@ -880,6 +880,7 @@ class ChatPipeline:
         *,
         only_messages: bool = False,
         chat: Chat | None = None,
+        callbacks: bool | t.Sequence[MapChatCallback | ThenChatCallback] = True,
     ) -> "ChatPipeline":
         """
         Creates a clone of the current `ChatPipeline` instance.
@@ -890,6 +891,8 @@ class ChatPipeline:
                 including until callbacks, types, tools, metadata, etc.
             chat: An optional chat object clone for use in the new pipeline, otherwise the current
                 internal chat object will be cloned.
+            callbacks: If True (default), all callbacks will be cloned. If False, no callbacks will be cloned.
+                Otherwise provide a sequence of callbacks which should be maintained in the new pipeline.
 
         Returns:
             The cloned ChatPipeline.
@@ -906,15 +909,19 @@ class ChatPipeline:
             new.tools = self.tools.copy()
             new.tool_mode = self.tool_mode
             new.metadata = deepcopy(self.metadata)
-            new.map_callbacks = self.map_callbacks.copy()
             new.on_failed = self.on_failed
             new.errors_to_catch = self.errors_to_catch.copy()
             new.errors_to_exclude = self.errors_to_exclude.copy()
             new.caching = self.caching
 
+            new.watch_callbacks = self.watch_callbacks.copy()
+
             # Check if any of our callbacks are bound methods to a ChatPipline.
             # If so, we should rebind them to `self` to ensure they work correctly
             # and aren't operating with old state.
+
+            if callbacks is False:
+                return new
 
             new.then_callbacks = [
                 (callback, max_depth)
@@ -930,6 +937,18 @@ class ChatPipeline:
                 else (types.MethodType(callback.__func__, new), max_depth)  # type: ignore [union-attr]
                 for callback, max_depth in self.map_callbacks.copy()
             ]
+
+            if not isinstance(callbacks, bool):
+                new.then_callbacks = [
+                    (callback, max_depth)
+                    for callback, max_depth in self.then_callbacks
+                    if callback in callbacks
+                ]
+                new.map_callbacks = [
+                    (callback, max_depth)
+                    for callback, max_depth in self.map_callbacks
+                    if callback in callbacks
+                ]
 
         return new
 
@@ -1105,7 +1124,7 @@ class ChatPipeline:
         mode: ToolMode | None = None,
         choice: ApiToolChoice | None = None,
         max_depth: int = DEFAULT_MAX_DEPTH,
-        stop_on_tool_calls: bool | None = None,
+        add_stop_token: bool | None = None,
     ) -> "ChatPipeline":
         """
         Adds a tool or a sequence of tools to participate in the generation process.
@@ -1119,7 +1138,8 @@ class ChatPipeline:
             mode: The tool calling mode to use (e.g., "xml", "json-in-xml", "api").
             choice: The API tool choice to use. This is only relevant when using the "api" tool mode.
             max_depth: The maximum depth for recursive tool calls (this is shared between all tools).
-            stop_on_tool_calls: When using natively parsed tools, whether to stop generation when a tool call block is observed.
+            add_stop_token: When using natively parsed tools ("xml", "json-in-xml"), use stop tokens to
+                immediately process a tool call when observed.
 
         Returns:
             The updated pipeline.
@@ -1172,8 +1192,8 @@ class ChatPipeline:
         if choice is not None:
             self.api_tool_choice = choice
 
-        if stop_on_tool_calls is not None:
-            self.stop_on_tool_calls = stop_on_tool_calls
+        if add_stop_token is not None:
+            self.add_tool_stop_token = add_stop_token
 
         return self
 
@@ -1237,7 +1257,7 @@ class ChatPipeline:
 
     async def _then_tools(self, chat: Chat) -> PipelineStepContextManager | None:
         if (
-            self.stop_on_tool_calls
+            self.add_tool_stop_token
             and self.tool_mode in ["xml", "json-in-xml"]
             and chat.stop_reason == "stop"
         ):
@@ -1270,23 +1290,18 @@ class ChatPipeline:
         if not tool_calls:
             return None
 
-        next_pipeline = self.clone(chat=chat)
+        next_pipeline = self.clone(chat=chat, callbacks=[self._then_tools])
 
-        should_continue = True
+        stop = False
 
         for tool_call in tool_calls:
             tool = next((t for t in self.tools if t.name == tool_call.name), None)
             if tool is None:
                 raise UnknownToolError(tool_call.name)
 
-            message, _should_continue = await tool.handle_tool_call(tool_call)
+            message, _stop = await tool.handle_tool_call(tool_call)
+            stop = _stop if not _stop else stop
             next_pipeline.add(message)
-
-            # If the tool returns none, we should resolve tool calls, but
-            # not continue the pipeline.
-
-            if not _should_continue:
-                should_continue = _should_continue
 
         # Need to prevent infinite loops and treat tool_choice like
         # an ephemeral setting which resets after the first tool call.
@@ -1294,7 +1309,7 @@ class ChatPipeline:
         if self.tool_mode == "api" and next_pipeline.params:
             next_pipeline.params.tool_choice = None
 
-        if not should_continue:
+        if stop:
             # TODO(nick): Type hints here stop us from mixing step generators
             # and basic chat returns.
             return next_pipeline.chat  # type: ignore [return-value]
@@ -1302,7 +1317,7 @@ class ChatPipeline:
         return next_pipeline.step()
 
     async def _then_parse(self, chat: Chat) -> PipelineStepContextManager | None:
-        next_pipeline = self.clone(chat=chat)
+        next_pipeline = self.clone(chat=chat, callbacks=[self._then_parse])
 
         try:
             chat.last.parse_many(*self.until_types)
@@ -1310,14 +1325,14 @@ class ChatPipeline:
             next_pipeline.add(
                 Message.from_model(
                     ValidationErrorModel(content=str(e)),
-                    suffix="Rewrite your entire message with all the required xml structure.",
+                    suffix="Rewrite your entire message with all of the required xml elements.",
                 ),
             )
         except Exception as e:  # noqa: BLE001
             next_pipeline.add(
                 Message.from_model(
                     SystemErrorModel(content=str(e)),
-                    suffix="Rewrite your entire message with all the required xml structure.",
+                    suffix="Rewrite your entire message with all of the required xml elements.",
                 ),
             )
         else:  # parsed successfully
@@ -1336,7 +1351,7 @@ class ChatPipeline:
                 self.chat.inject_tool_prompt(self.tools, self.tool_mode)
                 self.inject_native_tool_prompt = False
 
-            if self.stop_on_tool_calls:
+            if self.add_tool_stop_token:
                 self.params = self.params = GenerateParams()
                 self.params.stop = self.params.stop or []
                 self.params.stop.append(f"</{TOOL_CALLS_TAG}>")

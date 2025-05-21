@@ -14,6 +14,38 @@ if t.TYPE_CHECKING:
     from rigging.message import Message
 
 
+# User Throwable Exceptions
+
+
+class Stop(Exception):  # noqa: N818
+    """
+    Raise inside a pipeline to indicate a stopping condition.
+
+    Example:
+        ```
+        import rigging as rg
+
+        async def read_file(path: str) -> str:
+            "Read the contents of a file."
+
+            if no_more_files(path):
+                raise rg.Stop("There are no more files to read.")
+
+            ...
+
+        chat = await pipeline.using(read_file).run()
+        ```
+    """
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+        """The message associated with the stop."""
+
+
+# System Exceptions
+
+
 class UnknownToolError(Exception):
     """
     Raised when the an api tool call is made for an unknown tool.
