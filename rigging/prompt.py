@@ -566,14 +566,14 @@ class Prompt(t.Generic[P, R]):
             next_pipeline.add(
                 Message.from_model(
                     ValidationErrorModel(content=str(e)),
-                    suffix="Rewrite your entire message with all the required xml structure.",
+                    suffix="Rewrite your entire message with all of the required xml elements.",
                 ),
             )
         except Exception as e:  # noqa: BLE001
             next_pipeline.add(
                 Message.from_model(
                     SystemErrorModel(content=str(e)),
-                    suffix="Rewrite your entire message with all the required xml structure.",
+                    suffix="Rewrite your entire message with all of the required xml elements.",
                 ),
             )
         else:  # parsed successfully
@@ -1084,8 +1084,7 @@ def prompt(
     generator_id: str | None = None,
     tools: list[Tool[..., t.Any] | t.Callable[..., t.Any]] | None = None,
     system_prompt: str | None = None,
-) -> t.Callable[[t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R]], Prompt[P, R]]:
-    ...
+) -> t.Callable[[t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R]], Prompt[P, R]]: ...
 
 
 @t.overload
@@ -1098,8 +1097,7 @@ def prompt(
     generator_id: str | None = None,
     tools: list[Tool[..., t.Any] | t.Callable[..., t.Any]] | None = None,
     system_prompt: str | None = None,
-) -> Prompt[P, R]:
-    ...
+) -> Prompt[P, R]: ...
 
 
 @t.overload
@@ -1112,8 +1110,7 @@ def prompt(
     generator_id: str | None = None,
     tools: list[Tool[..., t.Any] | t.Callable[..., t.Any]] | None = None,
     system_prompt: str | None = None,
-) -> Prompt[P, R]:
-    ...
+) -> Prompt[P, R]: ...
 
 
 def prompt(
@@ -1214,8 +1211,12 @@ def prompt(
 
 
 @t.overload
-def make_prompt(content: str, return_type: type[R], *, ctx: Ctx | None = None) -> Prompt[..., R]:
-    ...
+def make_prompt(
+    content: str,
+    return_type: type[R],
+    *,
+    ctx: Ctx | None = None,
+) -> Prompt[..., R]: ...
 
 
 @t.overload
@@ -1224,8 +1225,7 @@ def make_prompt(
     return_type: None = None,
     *,
     ctx: Ctx | None = None,
-) -> Prompt[..., str]:
-    ...
+) -> Prompt[..., str]: ...
 
 
 def make_prompt(

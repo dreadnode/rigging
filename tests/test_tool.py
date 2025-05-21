@@ -223,9 +223,9 @@ class TestToolHandleCall:
             ),
         )
 
-        message, should_continue = await sample_tool.handle_tool_call(tool_call)
+        message, stop = await sample_tool.handle_tool_call(tool_call)
 
-        assert should_continue is True
+        assert stop is False
         assert message is not None
         assert message.role == "tool"
         assert message.tool_call_id == "call123"
@@ -245,9 +245,9 @@ class TestToolHandleCall:
             ).strip(),
         )
 
-        message, should_continue = await sample_tool.handle_tool_call(tool_call)
+        message, stop = await sample_tool.handle_tool_call(tool_call)
 
-        assert should_continue is True
+        assert stop is False
         assert message is not None
         assert message.role == "user"
         assert message.content == '<tool-result name="calculator">8</tool-result>'
@@ -260,9 +260,9 @@ class TestToolHandleCall:
             parameters=json.dumps({"a": 4, "b": 4, "operation": "add"}),
         )
 
-        message, should_continue = await sample_tool.handle_tool_call(tool_call)
+        message, stop = await sample_tool.handle_tool_call(tool_call)
 
-        assert should_continue is True
+        assert stop is False
         assert message is not None
         assert message.role == "user"
         assert message.content == '<tool-result name="calculator">8</tool-result>'
@@ -378,7 +378,7 @@ async def test_tool_error_catching() -> None:
 
     tool = Tool.from_callable(faulty_function, catch={ValueError})
 
-    message, should_continue = await tool.handle_tool_call(tool_call)
+    message, stop = await tool.handle_tool_call(tool_call)
 
-    assert should_continue is True
+    assert stop is False
     assert "This is a test error" in message.content

@@ -14,7 +14,7 @@ from functools import cached_property
 import typing_extensions as te
 from pydantic import TypeAdapter
 
-from rigging.error import ToolDefinitionError
+from rigging.error import Stop, ToolDefinitionError
 from rigging.model import Model, make_from_schema, make_from_signature
 from rigging.tool.api import ApiFunctionDefinition, ApiToolCall, ApiToolDefinition
 from rigging.tool.native import (
@@ -258,7 +258,7 @@ class Tool(t.Generic[P, R]):
             parameters=json.dumps(self.parameters_schema),
         )
 
-    async def handle_tool_call(  # noqa: PLR0912
+    async def handle_tool_call(  # noqa: PLR0912, PLR0915
         self,
         tool_call: ApiToolCall | XmlToolCall | JsonInXmlToolCall,
     ) -> tuple["Message", bool]:
@@ -269,7 +269,8 @@ class Tool(t.Generic[P, R]):
             tool_call: The tool call to handle.
 
         Returns:
-            The message to send back to the generator or `None` if iterative tool calling should not proceed any further.
+            A tuple containing the message to send back to the generator and a
+            boolean indicating whether tool calling should stop.
         """
 
         from rigging.message import ContentText, ContentTypes, Message
@@ -330,10 +331,16 @@ class Tool(t.Generic[P, R]):
 
             # Call the function
 
+            stop = False
+
             try:
                 result: t.Any = self.fn(**kwargs)  # type: ignore [call-arg]
                 if inspect.isawaitable(result):
                     result = await result
+            except Stop as e:
+                result = f"<rg:stop>{e.message}</rg:stop>"
+                span.set_attribute("stop", True)
+                stop = True
             except Exception as e:
                 if self.catch is True or (
                     not isinstance(self.catch, bool) and isinstance(e, tuple(self.catch))
@@ -349,11 +356,6 @@ class Tool(t.Generic[P, R]):
             if isinstance(tool_call, ApiToolCall)
             else Message("user")
         )
-
-        # If the tool returns nothing back to us, we'll assume that
-        # they do not want to proceed with additional tool calling
-
-        should_continue = result is not None
 
         # If the tool gave us back anything that looks like a message, we'll
         # just pass it along. Otherwise we need to box up the result.
@@ -395,7 +397,7 @@ class Tool(t.Generic[P, R]):
                 result=message.content_parts[0].text,
             ).to_pretty_xml()
 
-        return message, should_continue
+        return message, stop
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         return self.fn(*args, **kwargs)
