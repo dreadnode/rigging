@@ -1212,7 +1212,10 @@ def prompt(
 
 @t.overload
 def make_prompt(
-    content: str, return_type: type[R], *, ctx: Ctx | None = None
+    content: str,
+    return_type: type[R],
+    *,
+    ctx: Ctx | None = None,
 ) -> Prompt[..., R]: ...
 
 
