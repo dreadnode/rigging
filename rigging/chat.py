@@ -1283,9 +1283,9 @@ class ChatPipeline:
         if self.tool_mode == "api":
             tool_calls = chat.last.tool_calls
         if self.tool_mode == "xml":
-            tool_calls = chat.last.try_parse_set(XmlToolCall)
+            tool_calls = chat.last.parse_xml_tool_calls()
         elif self.tool_mode == "json-in-xml":
-            tool_calls = chat.last.try_parse_set(JsonInXmlToolCall)
+            tool_calls = chat.last.parse_json_in_xml_tool_calls()
 
         if not tool_calls:
             return None

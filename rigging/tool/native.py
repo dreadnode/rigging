@@ -5,6 +5,7 @@ Models and utilities for defining and working with native-parsed tools.
 import inspect
 import typing as t
 
+from pydantic import field_validator
 from pydantic.fields import FieldInfo
 from pydantic_xml import attr, element
 
@@ -102,6 +103,9 @@ class XmlToolCall(Model, tag="invoke"):
     name: str = attr()
     parameters: str
 
+    def __str__(self) -> str:
+        return f"<XmlToolCall {self.name}({self.parameters})>"
+
 
 # json-in-xml
 
@@ -116,11 +120,21 @@ class JsonInXmlToolCall(Model, tag="invoke"):
     name: str = attr()
     parameters: str
 
+    @field_validator("parameters")
+    @classmethod
+    def handle_empty_parameters(cls, v: t.Any) -> t.Any:
+        if isinstance(v, str) and v.strip() == "":
+            return "{}"
+        return v
+
+    def __str__(self) -> str:
+        return f"<JsonInXmlToolCall {self.name}({self.parameters})>"
+
 
 # results
 
 
-class NativeToolResult(Model, tag="tool-result"):
+class NativeToolResult(Model, tag="rg:tool-result"):
     name: str = attr()
     result: str
 

@@ -250,7 +250,7 @@ class TestToolHandleCall:
         assert stop is False
         assert message is not None
         assert message.role == "user"
-        assert message.content == '<tool-result name="calculator">8</tool-result>'
+        assert message.content == '<rg:tool-result name="calculator">8</rg:tool-result>'
 
     @pytest.mark.asyncio
     async def test_handle_json_xml_tool_call(self, sample_tool: Tool[..., t.Any]) -> None:
@@ -265,7 +265,7 @@ class TestToolHandleCall:
         assert stop is False
         assert message is not None
         assert message.role == "user"
-        assert message.content == '<tool-result name="calculator">8</tool-result>'
+        assert message.content == '<rg:tool-result name="calculator">8</rg:tool-result>'
 
 
 def test_make_from_signature() -> None:

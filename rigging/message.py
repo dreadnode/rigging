@@ -16,10 +16,12 @@ import typing_extensions as te
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Discriminator,
     Field,
     PlainSerializer,
     SerializeAsAny,
     SerializerFunctionWrapHandler,
+    Tag,
     WithJsonSchema,
     field_validator,
     model_serializer,
@@ -30,6 +32,7 @@ from rigging.error import MissingModelError
 from rigging.model import Model, ModelT
 from rigging.parsing import try_parse_many
 from rigging.tool.api import ApiToolCall
+from rigging.tool.native import JsonInXmlToolCall, XmlToolCall
 from rigging.util import AudioFormat, identify_audio_format, shorten_string, truncate_string
 
 Role = t.Literal["system", "user", "assistant", "tool"]
@@ -339,6 +342,25 @@ ContentTypes = (ContentText, ContentImageUrl, ContentAudioInput)
 CompatibilityFlag = t.Literal["content_as_str"]
 
 
+def tool_call_discriminator(v: t.Any) -> str | None:
+    if isinstance(v, BaseModel):
+        v = v.model_dump()
+
+    if not isinstance(v, dict):
+        return None
+
+    if "function" in v:
+        return "api"
+
+    if v.get("parameters", "").startswith("{"):
+        return "json-in-xml"
+
+    if "parameters" in v:
+        return "xml"
+
+    return None
+
+
 class Message(BaseModel):
     """
     Represents a message with role, content, and parsed message parts.
@@ -361,7 +383,17 @@ class Message(BaseModel):
     """The parsed message parts."""
     content_parts: list[Content] = Field([], repr=False)
     """Interior str content or structured content parts."""
-    tool_calls: list[ApiToolCall] | None = Field(None)
+    tool_calls: (
+        list[
+            t.Annotated[
+                t.Annotated[ApiToolCall, Tag("api")]
+                | t.Annotated[XmlToolCall, Tag("xml")]
+                | t.Annotated[JsonInXmlToolCall, Tag("json-in-xml")],
+                Discriminator(tool_call_discriminator),
+            ]
+        ]
+        | None
+    ) = Field(None)
     """The tool calls associated with the message."""
     tool_call_id: str | None = Field(None)
     """Associated call id if this message is a response to a tool call."""
@@ -373,7 +405,9 @@ class Message(BaseModel):
         role: Role,
         content: str | t.Sequence[str | Content] | None = None,
         parts: t.Sequence[ParsedMessagePart] | None = None,
-        tool_calls: t.Sequence[ApiToolCall] | t.Sequence[dict[str, t.Any]] | None = None,
+        tool_calls: t.Sequence[ApiToolCall | XmlToolCall | JsonInXmlToolCall]
+        | t.Sequence[dict[str, t.Any]]
+        | None = None,
         tool_call_id: str | None = None,
         cache_control: t.Literal["ephemeral"] | dict[str, str] | None = None,
         **kwargs: t.Any,
@@ -387,12 +421,6 @@ class Message(BaseModel):
         content_parts = [
             ContentText(text=dedent(part)) if isinstance(part, str) else part for part in content
         ]
-
-        if tool_calls is not None and not all(isinstance(call, ApiToolCall) for call in tool_calls):
-            tool_calls = [
-                ApiToolCall.model_validate(call) if isinstance(call, dict) else call
-                for call in tool_calls
-            ]
 
         if cache_control is not None and content_parts:
             content_parts[-1].cache_control = (
@@ -529,8 +557,15 @@ class Message(BaseModel):
             The serialized message.
         """
         # `content_parts` will be moved to `content`
+        include = {"role", "content_parts"}
+
+        # If we have api tool calls, we should include them here
+        if all(isinstance(call, ApiToolCall) for call in self.tool_calls or []):
+            include.add("tool_calls")
+            include.add("tool_call_id")
+
         obj = self.model_dump(
-            include={"role", "content_parts", "tool_calls", "tool_call_id"},
+            include=include,
             exclude_none=True,
         )
 
@@ -885,6 +920,42 @@ class Message(BaseModel):
         self._sync_parts()
         return [p[0] for p in parsed]
 
+    def parse_xml_tool_calls(self, *, fail_on_missing: bool = False) -> list[XmlToolCall]:
+        """
+        Parses XML tool calls from the message content and assigns them to the `tool_calls` attribute.
+
+        Args:
+            fail_on_missing: If True, raises a TypeError if no matching model is found.
+
+        Returns:
+            A list of parsed XML tool calls.
+        """
+        if not (tool_calls := self.try_parse_set(XmlToolCall, fail_on_missing=fail_on_missing)):
+            return []
+        self.tool_calls = [*tool_calls]
+        return tool_calls
+
+    def parse_json_in_xml_tool_calls(
+        self,
+        *,
+        fail_on_missing: bool = False,
+    ) -> list[JsonInXmlToolCall]:
+        """
+        Parses JSON-in-XML tool calls from the message content and assigns them to the `tool_calls` attribute.
+
+        Args:
+            fail_on_missing: If True, raises a TypeError if no matching model is found.
+
+        Returns:
+            A list of parsed JSON-in-XML tool calls.
+        """
+        if not (
+            tool_calls := self.try_parse_set(JsonInXmlToolCall, fail_on_missing=fail_on_missing)
+        ):
+            return []
+        self.tool_calls = [*tool_calls]
+        return tool_calls
+
     @classmethod
     def from_model(
         cls: type["Message"],
@@ -931,7 +1002,11 @@ class Message(BaseModel):
         """Helper function to convert various common types to a Message object."""
         if isinstance(message, (str, *ContentTypes)):
             return cls(role="user", content=[message])
-        return cls(**message) if isinstance(message, dict) else message.model_copy(deep=True)
+        return (
+            cls.model_validate(message)
+            if isinstance(message, dict)
+            else message.model_copy(deep=True)
+        )
 
     @classmethod
     def apply_to_list(cls, messages: t.Sequence["Message"], **kwargs: str) -> list["Message"]:
