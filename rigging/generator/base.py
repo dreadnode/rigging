@@ -1,11 +1,13 @@
 import abc
+import base64
+import contextlib
 import functools
 import inspect
 import typing as t
 from functools import lru_cache
 
 from loguru import logger
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, field_validator
 from typing_extensions import Self
 
 from rigging.error import InvalidModelSpecifiedError
@@ -656,23 +658,39 @@ def get_identifier(generator: Generator, params: GenerateParams | None = None) -
     )
     identifier = f"{provider}!{generator.model}"
 
-    extra_cls_args = generator.model_dump(
+    identifier_extra = generator.model_dump(
         exclude_unset=True,
         exclude={"model", "api_key", "params"},
     )
-    if extra_cls_args:
-        identifier += f",{','.join([f'{k}={v}' for k, v in extra_cls_args.items()])}"
 
     merged_params = generator.params.merge_with(params)
     if merged_params.extra:
         logger.debug("Extra parameters are not supported in identifiers.")
         merged_params.extra = {}
 
-    params_dict = merged_params.to_dict()
-    if params_dict:
-        if "stop" in params_dict:
-            params_dict["stop"] = ";".join(params_dict["stop"])
-        identifier += f",{','.join([f'{k}={v}' for k, v in params_dict.items()])}"
+    identifier_extra.update(merged_params.to_dict())
+
+    # Small correction for stop sequences
+    if identifier_extra and "stop" in identifier_extra:
+        identifier_extra["stop"] = ";".join(identifier_extra["stop"])
+
+    # Encode any complex values
+    def encode_value(val: t.Any) -> t.Any:
+        if isinstance(val, str | int | float | bool):
+            return val
+
+        with contextlib.suppress(Exception):
+            serialized = TypeAdapter(t.Any).dump_json(val)
+            encoded = base64.b64encode(serialized).decode()
+            return f"base64:{encoded}"
+
+        return val
+
+    identifier_extra = {k: encode_value(v) for k, v in identifier_extra.items()}
+
+    # Append them to the identifier
+    if identifier_extra:
+        identifier += f",{','.join([f'{k}={v}' for k, v in identifier_extra.items()])}"
 
     return identifier
 
@@ -742,6 +760,16 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
             kwargs = dict(arg.split("=", 1) for arg in kwargs_str.split(","))
         except Exception as e:
             raise InvalidModelSpecifiedError(identifier) from e
+
+    # Decode any base64 values if present
+    def decode_value(value: str) -> t.Any:
+        if value.startswith("base64:"):
+            with contextlib.suppress(Exception):
+                decoded = base64.b64decode(value[7:])
+                return TypeAdapter(t.Any).validate_json(decoded)
+        return value
+
+    kwargs = {k: decode_value(v) for k, v in kwargs.items()}
 
     # See if any of the kwargs would apply to the cls constructor directly
     init_signature = inspect.signature(generator_cls)
