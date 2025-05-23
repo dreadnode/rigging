@@ -455,6 +455,21 @@ class Chat(BaseModel):
             **kwargs,
         )
 
+    def to_tokens(self, tokenizer: str) -> dict[str, t.Any]:
+        """
+        Converts the chat list to a dictionary of tokenized messages.
+
+        Args:
+            tokenizer: The tokenizer to use for conversion.
+
+        Returns:
+            A dictionary containing the tokenized messages.
+        """
+
+        from rigging.data import chats_to_tokens
+
+        return chats_to_tokens(self, tokenizer)
+
 
 # List Helper Type
 
@@ -513,6 +528,21 @@ class ChatList(list[Chat]):
         Helper to convert the chat list to a list of dictionaries.
         """
         return [chat.model_dump() for chat in self]
+
+    def to_tokens(self, tokenizer: str) -> dict[str, t.Any]:
+        """
+        Converts the chat list to a dictionary of tokenized messages.
+
+        Args:
+            tokenizer: The tokenizer to use for conversion.
+
+        Returns:
+            A dictionary containing the tokenized messages.
+        """
+
+        from rigging.data import chats_to_tokens
+
+        return chats_to_tokens(self, tokenizer)
 
 
 # Callbacks

@@ -11,6 +11,7 @@ import elasticsearch.helpers
 import pandas as pd
 from elastic_transport import ObjectApiResponse
 from mypy_boto3_s3 import S3Client
+from transformers import AutoTokenizer
 
 from rigging.chat import Chat
 from rigging.message import Message
@@ -385,3 +386,35 @@ async def s3_object_exists(client: S3Client, bucket: str, key: str) -> bool:
         raise
 
     return True
+
+
+async def chats_to_tokens(
+    chats: Chat | t.Sequence[Chat],
+    tokenizer: str,
+) -> dict[str, t.Any]:
+    """
+    Convert a list of chats into a tokenized format.
+    Args:
+        chats: A Chat or list of Chat objects.
+        tokenizer: The tokenizer to use for tokenization.
+    Returns:
+        A dictionary containing the tokenized chats and their attention masks.
+    """
+    _tokenizer = AutoTokenizer.from_pretrained(tokenizer)
+
+    chats = [chats] if isinstance(chats, Chat) else chats
+
+    for chat in chats:
+        if not isinstance(chat, Chat):
+            raise TypeError(f"Expected a Chat object, found: {type(chat)}")
+
+        for msg in chat.messages:
+            if not isinstance(msg, Message):
+                raise TypeError(f"Expected a Message object, found: {type(msg)}")
+
+            parsed_messages = [{"role": msg.role, "content": msg.content} for msg in chat.messages]
+
+    tokens = _tokenizer.apply_chat_template(parsed_messages)
+    attention_mask = [1] * len(tokens)
+
+    return {"tokens": tokens, "attention_mask": attention_mask}
