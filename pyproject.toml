@@ -62,7 +62,7 @@ pytest = "^8.0.0"
 pandas-stubs = "^2.2.1.240316"
 coverage = "^7.5.1"
 ipywidgets = "^8.1.3"
-pytest-asyncio = "^0.23.7"
+pytest-asyncio = "^1.0.0"
 types-colorama = "^0.4.15.20240311"
 types-requests = "2.32.0.20250515"
 
