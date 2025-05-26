@@ -4211,14 +4211,14 @@ yaml = ["pyyaml (>=6.0.1)"]
 
 [[package]]
 name = "pydantic-xml"
-version = "2.16.0"
+version = "2.17.0"
 description = "pydantic xml extension"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
 files = [
-    {file = "pydantic_xml-2.16.0-py3-none-any.whl", hash = "sha256:e1ecd513287e30070ce0a9f8c0e461187ebf5b18da79ca62f5dd4219fb93b68e"},
-    {file = "pydantic_xml-2.16.0.tar.gz", hash = "sha256:64ae5d8538a23706471f0b2007c9252ef290dff40c216dbc3051c79030aaf03f"},
+    {file = "pydantic_xml-2.17.0-py3-none-any.whl", hash = "sha256:ea287cb0cb90834e0454a502aaeefb4e961d93506175b476b81c31b62e335840"},
+    {file = "pydantic_xml-2.17.0.tar.gz", hash = "sha256:136d6e61277871b40fe49f0aafa946ef46eeb1db8d6f86a30ce0557cf8fc204d"},
 ]
 
 [package.dependencies]
