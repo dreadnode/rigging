@@ -547,10 +547,12 @@ def tool_method(
         class Thing:
             delta: int = 5
 
+            # Use @tool_method to create a tool from a class method with a `self` argument.
             @tool_method(name="add_numbers_with_delta", description="This is my tool")
             def delta_add(self, x: int, y: int) -> int:
                 return x + y + self.delta
 
+            # Use @staticmethod + @tool to avoid the 'self' argument altogether
             @tool(name="add_numbers", description="This is my tool")
             @staticmethod
             def static_add(x: int, y: int) -> int:
