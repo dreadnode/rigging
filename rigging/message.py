@@ -16,12 +16,10 @@ import typing_extensions as te
 from pydantic import (
     BaseModel,
     ConfigDict,
-    Discriminator,
     Field,
     PlainSerializer,
     SerializeAsAny,
     SerializerFunctionWrapHandler,
-    Tag,
     WithJsonSchema,
     field_validator,
     model_serializer,
@@ -31,8 +29,7 @@ from pydantic import (
 from rigging.error import MissingModelError
 from rigging.model import Model, ModelT
 from rigging.parsing import try_parse_many
-from rigging.tool.api import ApiToolCall
-from rigging.tool.native import JsonInXmlToolCall, XmlToolCall
+from rigging.tool.base import ToolCall
 from rigging.util import AudioFormat, identify_audio_format, shorten_string, truncate_string
 
 Role = t.Literal["system", "user", "assistant", "tool"]
@@ -342,25 +339,6 @@ ContentTypes = (ContentText, ContentImageUrl, ContentAudioInput)
 CompatibilityFlag = t.Literal["content_as_str"]
 
 
-def tool_call_discriminator(v: t.Any) -> str | None:
-    if isinstance(v, BaseModel):
-        v = v.model_dump()
-
-    if not isinstance(v, dict):
-        return None
-
-    if "function" in v:
-        return "api"
-
-    if v.get("parameters", "").startswith("{"):
-        return "json-in-xml"
-
-    if "parameters" in v:
-        return "xml"
-
-    return None
-
-
 class Message(BaseModel):
     """
     Represents a message with role, content, and parsed message parts.
@@ -383,17 +361,7 @@ class Message(BaseModel):
     """The parsed message parts."""
     content_parts: list[Content] = Field([], repr=False)
     """Interior str content or structured content parts."""
-    tool_calls: (
-        list[
-            t.Annotated[
-                t.Annotated[ApiToolCall, Tag("api")]
-                | t.Annotated[XmlToolCall, Tag("xml")]
-                | t.Annotated[JsonInXmlToolCall, Tag("json-in-xml")],
-                Discriminator(tool_call_discriminator),
-            ]
-        ]
-        | None
-    ) = Field(None)
+    tool_calls: list[ToolCall] | None = Field(None)
     """The tool calls associated with the message."""
     tool_call_id: str | None = Field(None)
     """Associated call id if this message is a response to a tool call."""
@@ -405,9 +373,7 @@ class Message(BaseModel):
         role: Role,
         content: str | t.Sequence[str | Content] | None = None,
         parts: t.Sequence[ParsedMessagePart] | None = None,
-        tool_calls: t.Sequence[ApiToolCall | XmlToolCall | JsonInXmlToolCall]
-        | t.Sequence[dict[str, t.Any]]
-        | None = None,
+        tool_calls: t.Sequence[ToolCall] | t.Sequence[dict[str, t.Any]] | None = None,
         tool_call_id: str | None = None,
         cache_control: t.Literal["ephemeral"] | dict[str, str] | None = None,
         **kwargs: t.Any,
@@ -548,7 +514,22 @@ class Message(BaseModel):
                 self.parts.remove(part)
         return self
 
+    @te.deprecated(".to_openai_spec() is deprecated, use .to_openai() instead.", category=None)
     def to_openai_spec(self) -> dict[str, t.Any]:
+        """
+        Converts the message to the OpenAI-compatible JSON format. This should
+        be the primary way to serialize a message for use with APIs.
+
+        Deprecated - Use `.to_openai` instead
+        """
+        warnings.warn(
+            ".to_openai_spec() is deprecated, use .to_openai() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.to_openai()
+
+    def to_openai(self) -> dict[str, t.Any]:
         """
         Converts the message to the OpenAI-compatible JSON format. This should
         be the primary way to serialize a message for use with APIs.
@@ -556,16 +537,8 @@ class Message(BaseModel):
         Returns:
             The serialized message.
         """
-        # `content_parts` will be moved to `content`
-        include = {"role", "content_parts"}
-
-        # If we have api tool calls, we should include them here
-        if all(isinstance(call, ApiToolCall) for call in self.tool_calls or []):
-            include.add("tool_calls")
-            include.add("tool_call_id")
-
         obj = self.model_dump(
-            include=include,
+            include={"role", "content_parts", "tool_calls", "tool_call_id"},
             exclude_none=True,
         )
 
@@ -920,42 +893,6 @@ class Message(BaseModel):
         self._sync_parts()
         return [p[0] for p in parsed]
 
-    def parse_xml_tool_calls(self, *, fail_on_missing: bool = False) -> list[XmlToolCall]:
-        """
-        Parses XML tool calls from the message content and assigns them to the `tool_calls` attribute.
-
-        Args:
-            fail_on_missing: If True, raises a TypeError if no matching model is found.
-
-        Returns:
-            A list of parsed XML tool calls.
-        """
-        if not (tool_calls := self.try_parse_set(XmlToolCall, fail_on_missing=fail_on_missing)):
-            return []
-        self.tool_calls = [*tool_calls]
-        return tool_calls
-
-    def parse_json_in_xml_tool_calls(
-        self,
-        *,
-        fail_on_missing: bool = False,
-    ) -> list[JsonInXmlToolCall]:
-        """
-        Parses JSON-in-XML tool calls from the message content and assigns them to the `tool_calls` attribute.
-
-        Args:
-            fail_on_missing: If True, raises a TypeError if no matching model is found.
-
-        Returns:
-            A list of parsed JSON-in-XML tool calls.
-        """
-        if not (
-            tool_calls := self.try_parse_set(JsonInXmlToolCall, fail_on_missing=fail_on_missing)
-        ):
-            return []
-        self.tool_calls = [*tool_calls]
-        return tool_calls
-
     @classmethod
     def from_model(
         cls: type["Message"],
@@ -1015,3 +952,26 @@ class Message(BaseModel):
 
 
 Messages = t.Sequence[MessageDict] | t.Sequence[Message]
+
+
+def inject_system_content(messages: list[Message], content: str) -> list[Message]:
+    """
+    Injects content into a list of messages as a system message.
+
+    Note:
+        If the message list is empty or the first message is not a system message,
+        a new system message with the given content is inserted at the beginning of the list.
+        If the first message is a system message, the content is appended to it.
+
+    Args:
+        messages: The list of messages to modify.
+        content: The content to be injected.
+
+    Returns:
+        The modified list of messages
+    """
+    if len(messages) == 0 or messages[0].role != "system":
+        messages.insert(0, Message(role="system", content=content))
+    elif messages[0].role == "system" and content not in messages[0].content:
+        messages[0].content += "\n\n" + content
+    return messages

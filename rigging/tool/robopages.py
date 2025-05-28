@@ -10,8 +10,7 @@ import requests
 from loguru import logger
 from pydantic import TypeAdapter
 
-from rigging.tool.api import ApiToolDefinition
-from rigging.tool.base import Tool
+from rigging.tool.base import Tool, ToolDefinition
 
 DEFAULT_HTTP_TIMEOUT = 10
 
@@ -78,7 +77,7 @@ def robopages(url: str, *, name_filter: str | None = None) -> list[Tool[..., t.A
     response.raise_for_status()
     tools_data = response.json()
 
-    adapter = TypeAdapter(list[ApiToolDefinition])
+    adapter = TypeAdapter(list[ToolDefinition])
     tool_definitions = adapter.validate_python(tools_data)
 
     logger.info(f"Fetched {len(tool_definitions)} functions from Robopages ({url})")

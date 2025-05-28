@@ -326,7 +326,7 @@ class HTTPGenerator(Generator):
             role=messages[-1].role,
             content=messages[-1].content,
             all_content="\n".join(m.content for m in messages),
-            messages=[m.to_openai_spec() for m in messages],
+            messages=[m.to_openai() for m in messages],
             params=params.to_dict(),
             api_key=self.api_key,
             model=self.model,

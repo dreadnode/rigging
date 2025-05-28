@@ -43,6 +43,18 @@ class Stop(Exception):  # noqa: N818
         """The message associated with the stop."""
 
 
+# Warnings
+
+
+class PipelineWarning(Warning):
+    """
+    Base class for all pipeline warnings.
+
+    This is used to indicate that something unexpected happened during the pipeline execution,
+    but it is not critical enough to stop the execution.
+    """
+
+
 # System Exceptions
 
 

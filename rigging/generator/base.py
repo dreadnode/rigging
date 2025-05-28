@@ -12,7 +12,7 @@ from typing_extensions import Self
 
 from rigging.error import InvalidModelSpecifiedError
 from rigging.message import Message, MessageDict
-from rigging.tool.api import ApiToolChoice, ApiToolDefinition
+from rigging.tool.base import ToolChoice, ToolDefinition
 
 if t.TYPE_CHECKING:
     from rigging.chat import ChatPipeline, WatchChatCallback
@@ -176,10 +176,10 @@ class GenerateParams(BaseModel):
     seed: int | None = None
     """The random seed."""
 
-    tools: list[ApiToolDefinition] | None = None
+    tools: list[ToolDefinition] | None = None
     """The tools to be used in the generation."""
 
-    tool_choice: ApiToolChoice | None = None
+    tool_choice: ToolChoice | None = None
     """The tool choice to be used in the generation."""
 
     parallel_tool_calls: bool | None = None
@@ -198,9 +198,9 @@ class GenerateParams(BaseModel):
     @classmethod
     def validate_tools(cls, value: t.Any) -> t.Any:
         if isinstance(value, list) and all(isinstance(v, dict) for v in value):
-            return [ApiToolDefinition.model_validate(v) for v in value]
+            return [ToolDefinition.model_validate(v) for v in value]
         if isinstance(value, list) and all(isinstance(v, str) for v in value):
-            return [ApiToolDefinition.model_validate_json(v) for v in value]
+            return [ToolDefinition.model_validate_json(v) for v in value]
         return value
 
     @field_validator("stop", mode="before")

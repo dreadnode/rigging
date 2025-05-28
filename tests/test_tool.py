@@ -2,7 +2,6 @@ import inspect
 import json
 import typing as t
 from dataclasses import dataclass
-from textwrap import dedent
 
 import pytest
 from pydantic import BaseModel
@@ -10,9 +9,8 @@ from pydantic import BaseModel
 import rigging as rg
 from rigging.error import ToolDefinitionError
 from rigging.model import Model, make_from_schema, make_from_signature
-from rigging.tool.api import ApiFunctionCall, ApiFunctionDefinition, ApiToolCall, ApiToolDefinition
-from rigging.tool.base import Tool
-from rigging.tool.native import JsonInXmlToolCall, XmlToolCall, XmlToolDefinition
+from rigging.tool.base import FunctionCall, FunctionDefinition, Tool, ToolCall, ToolDefinition
+from rigging.tool.native import XmlToolDefinition
 
 # ruff: noqa: S101, PLR2004, ARG001, PT011, SLF001, FBT001, FBT002
 
@@ -75,9 +73,9 @@ def test_api_definition_generation() -> None:
     tool = Tool.from_callable(complex_function)
     api_def = tool.api_definition
 
-    assert isinstance(api_def, ApiToolDefinition)
+    assert isinstance(api_def, ToolDefinition)
     assert api_def.type == "function"
-    assert isinstance(api_def.function, ApiFunctionDefinition)
+    assert isinstance(api_def.function, FunctionDefinition)
     assert api_def.function.name == "complex_function"
     assert api_def.function.description is not None
     assert "Process user data with complex parameters." in api_def.function.description
@@ -213,11 +211,11 @@ class TestToolHandleCall:
     @pytest.mark.asyncio
     async def test_handle_api_tool_call(self, sample_tool: Tool[..., t.Any]) -> None:
         """Test handling API format tool calls."""
-        from rigging.tool.api import ApiFunctionCall, ApiToolCall
+        from rigging.tool.base import FunctionCall, ToolCall
 
-        tool_call = ApiToolCall(
+        tool_call = ToolCall(
             id="call123",
-            function=ApiFunctionCall(
+            function=FunctionCall(
                 name="calculator",
                 arguments=json.dumps({"a": 5, "b": 3, "operation": "multiply"}),
             ),
@@ -230,42 +228,6 @@ class TestToolHandleCall:
         assert message.role == "tool"
         assert message.tool_call_id == "call123"
         assert message.content == "15"
-
-    @pytest.mark.asyncio
-    async def test_handle_xml_tool_call(self, sample_tool: Tool[..., t.Any]) -> None:
-        """Test handling XML format tool calls."""
-        tool_call = XmlToolCall(
-            name="calculator",
-            parameters=dedent(
-                """
-                <a>10</a>
-                <b>2</b>
-                <operation>subtract</operation>
-            """,
-            ).strip(),
-        )
-
-        message, stop = await sample_tool.handle_tool_call(tool_call)
-
-        assert stop is False
-        assert message is not None
-        assert message.role == "user"
-        assert message.content == '<rg:tool-result name="calculator">8</rg:tool-result>'
-
-    @pytest.mark.asyncio
-    async def test_handle_json_xml_tool_call(self, sample_tool: Tool[..., t.Any]) -> None:
-        """Test handling JSON-in-XML format tool calls."""
-        tool_call = JsonInXmlToolCall(
-            name="calculator",
-            parameters=json.dumps({"a": 4, "b": 4, "operation": "add"}),
-        )
-
-        message, stop = await sample_tool.handle_tool_call(tool_call)
-
-        assert stop is False
-        assert message is not None
-        assert message.role == "user"
-        assert message.content == '<rg:tool-result name="calculator">8</rg:tool-result>'
 
 
 def test_make_from_signature() -> None:
@@ -363,9 +325,9 @@ async def test_tool_error_catching() -> None:
         raise ValueError("This is a test error")
 
     tool = Tool.from_callable(faulty_function)
-    tool_call = ApiToolCall(
+    tool_call = ToolCall(
         id="call123",
-        function=ApiFunctionCall(name="faulty_function", arguments='{"x": 5}'),
+        function=FunctionCall(name="faulty_function", arguments='{"x": 5}'),
     )
 
     with pytest.raises(ValueError, match="This is a test error"):

@@ -5,13 +5,13 @@ Models and utilities for defining and working with native-parsed tools.
 import inspect
 import typing as t
 
-from pydantic import field_validator
 from pydantic.fields import FieldInfo
 from pydantic_xml import attr, element
 
 from rigging.model import Model
 
-TOOL_CALLS_TAG = "rg:tool-calls"
+TOOL_CALL_TAG = "tool_call"
+TOOL_RESPONSE_TAG = "tool_response"
 
 # xml
 
@@ -99,14 +99,6 @@ class XmlToolDefinition(Model, tag="tool-def"):
         return cls(name=name, description=description, parameters=params_xml)
 
 
-class XmlToolCall(Model, tag="invoke"):
-    name: str = attr()
-    parameters: str
-
-    def __str__(self) -> str:
-        return f"<XmlToolCall {self.name}({self.parameters})>"
-
-
 # json-in-xml
 
 
@@ -116,40 +108,31 @@ class JsonInXmlToolDefinition(Model, tag="tool-def"):
     parameters: str = element()
 
 
-class JsonInXmlToolCall(Model, tag="invoke"):
+# common
+
+
+class NativeToolCall(Model, tag=TOOL_CALL_TAG):
     name: str = attr()
     parameters: str
 
-    @field_validator("parameters")
-    @classmethod
-    def handle_empty_parameters(cls, v: t.Any) -> t.Any:
-        if isinstance(v, str) and v.strip() == "":
-            return "{}"
-        return v
-
     def __str__(self) -> str:
-        return f"<JsonInXmlToolCall {self.name}({self.parameters})>"
+        return f"<NativeToolCall {self.name}({self.parameters})>"
 
 
-# results
-
-
-class NativeToolResult(Model, tag="rg:tool-result"):
-    name: str = attr()
+class NativeToolResponse(Model, tag=TOOL_RESPONSE_TAG):
+    id: str = attr(default="")
     result: str
 
 
 # prompts
 
-XML_CALL_FORMAT = """\
+XML_CALL_FORMAT = f"""\
 To use a tool, respond with the following format:
 
-<rg:tool-calls>
-    <invoke name="$tool_name">
-        <$param_name>argument one</$param_name>
-        <$param_name>123</$param_name>
-    </invoke>
-</rg:tool-calls>
+<{TOOL_CALL_TAG} name="$tool_name">
+<$param_name>argument one</$param_name>
+<$param_name>123</$param_name>
+</{TOOL_CALL_TAG}>
 
 If a parameter is a primitive list, provide child elements as items:
 <numbers>
@@ -167,46 +150,35 @@ If a parameter is a list of objects, provide them as named child elements:
     </thing>
 </things>
 
-
 If a parameter is a dictionary, provide key-value pairs as attributes:
 <dict key1="value1" key2="123" />\
 """
 
-XML_IN_JSON_CALL_FORMAT = """\
+XML_IN_JSON_CALL_FORMAT = f"""\
 To use a tool, respond with the following format:
 
-<rg:tool-calls>
-    <invoke name="$tool_name">
-        {"$param_name": "argument one", "$param_name": 123}
-    </invoke>
-</rg:tool-calls>
+<{TOOL_CALL_TAG} name="$tool_name">
+{{"$param_name": "argument one", "$param_name": 123}}
+</{TOOL_CALL_TAG}>
 
 Arguments should be provided as a valid JSON object between the tags.\
 """
 
 
-def tool_description_prompt_part(
+def get_native_tool_prompt_part(
     tool_descriptions: list[XmlToolDefinition] | list[JsonInXmlToolDefinition],
     mode: t.Literal["xml", "json-in-xml"],
 ) -> str:
     call_format = XML_CALL_FORMAT if mode == "xml" else XML_IN_JSON_CALL_FORMAT
     tool_definitions = "\n".join([tool.to_pretty_xml() for tool in tool_descriptions])
     return f"""\
-# Tool Use
-In this environment you have access to a set of tools you can use.
+# Tools
 
-## Available Tools
+You may call one or more functions to assist with the user query. Don't make assumptions about what values to plug into functions.
+
 <tools>
 {tool_definitions}
 </tools>
 
-## Tool Call Format
 {call_format}
-
-## Tool Use Instructions
-- Answer the user's request using the relevant tool(s), if they are available.
-- You may issue multiple tools in a single response if needed.
-- Check that all the required parameters for each tool call are provided or can reasonably be inferred from context.
-- If there are no relevant tools or there are missing values for required parameters, ask the user to supply these values; otherwise proceed with the tool calls.
-- Carefully analyze descriptive terms in the request as they may indicate required parameter values that should be included even if not explicitly quoted.
 """
