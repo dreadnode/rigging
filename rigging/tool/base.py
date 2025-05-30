@@ -26,6 +26,7 @@ from rigging.util import deref_json
 if t.TYPE_CHECKING:
     from rigging.message import Message
 
+TOOL_STOP_TAG = "rg:stop"
 
 P = t.ParamSpec("P")
 R = t.TypeVar("R")
@@ -102,7 +103,7 @@ class ToolCall(BaseModel):
     function: FunctionCall
 
     def __str__(self) -> str:
-        return f"<ToolCall {self.function.name}({self.function.arguments})>"
+        return f"<ToolCall id={self.id} {self.function.name}({self.function.arguments})>"
 
     @property
     def name(self) -> str:
@@ -367,7 +368,7 @@ class Tool(t.Generic[P, R]):
                 if inspect.isawaitable(result):
                     result = await result
             except Stop as e:
-                result = f"<rg:stop>{e.message}</rg:stop>"
+                result = f"<{TOOL_STOP_TAG}>{e.message}</{TOOL_STOP_TAG}>"
                 span.set_attribute("stop", True)
                 stop = True
             except Exception as e:

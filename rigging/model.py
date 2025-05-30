@@ -544,7 +544,7 @@ def make_from_schema(
 
     Args:
         schema: The JSON schema to build the model from.
-        model_name: The name of the model (otherwise inferred from the schema).
+        name: The name of the model (otherwise inferred from the schema).
 
     Returns:
         The Pydantic model class.

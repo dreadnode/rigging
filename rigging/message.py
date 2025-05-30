@@ -257,7 +257,8 @@ class ContentAudioInput(BaseModel):
 
         Args:
             file: The file to create the content from.
-            mimetype: The mimetype of the file. If not provided, it will be guessed.
+            format: The format of the audio. If not provided, it will be guessed from the file.
+            transcript: The transcript of the audio data (if available).
 
         Returns:
             The created ContentAudioInput object.
@@ -403,7 +404,9 @@ class Message(BaseModel):
         )
 
     def __str__(self) -> str:
-        formatted = f"[{self.role}]:"
+        formatted = (
+            f"[{self.role}:{self.tool_call_id}]:" if self.tool_call_id else f"[{self.role}]:"
+        )
 
         if len(self.content_parts) == 1 and isinstance(self.content_parts[0], ContentText):
             formatted += f" {self.content_parts[0].text}"

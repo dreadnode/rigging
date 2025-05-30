@@ -10,8 +10,8 @@ from pydantic_xml import attr, element
 
 from rigging.model import Model
 
-TOOL_CALL_TAG = "tool_call"
-TOOL_RESPONSE_TAG = "tool_response"
+TOOL_CALL_TAG = "rg:tool-call"
+TOOL_RESPONSE_TAG = "rg:tool-response"
 
 # xml
 
@@ -79,7 +79,7 @@ def _make_parameter_xml(field_name: str, field: FieldInfo) -> str:
     return f'<param name="{field_name}" type="{type_name}"{description_part}{required_part}/>'
 
 
-class XmlToolDefinition(Model, tag="tool-def"):
+class XmlToolDefinition(Model, tag="rg:tool"):
     name: str = attr()
     description: str = attr()
     parameters: str  # don't use element() here, we want to keep the raw xml
@@ -102,7 +102,7 @@ class XmlToolDefinition(Model, tag="tool-def"):
 # json-in-xml
 
 
-class JsonInXmlToolDefinition(Model, tag="tool-def"):
+class JsonInXmlToolDefinition(Model, tag="rg:tool"):
     name: str = attr()
     description: str = attr()
     parameters: str = element()

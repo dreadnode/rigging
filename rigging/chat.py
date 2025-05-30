@@ -574,21 +574,6 @@ class WatchChatCallback(t.Protocol):
         ...
 
 
-PostTransformChatCallback = _ThenChatCallback
-
-
-@runtime_checkable
-class TransformChatCallback(t.Protocol):
-    def __call__(
-        self,
-        messages: list[Message],
-        params: GenerateParams,
-        /,
-    ) -> t.Awaitable[tuple[list[Message], GenerateParams, PostTransformChatCallback | None]]:
-        """ """
-        ...
-
-
 # Pipeline Step
 
 g_pipeline_step_ctx: "ContextVar[ChatList | None]" = ContextVar(
@@ -736,7 +721,7 @@ class ChatPipeline:
         self.then_callbacks: list[tuple[ThenChatCallback, int]] = []
         self.map_callbacks: list[tuple[MapChatCallback, int]] = []
         self.watch_callbacks: list[WatchChatCallback] = watch_callbacks or []
-        self.transform_callbacks: list[TransformChatCallback] = []
+        self.transform_callbacks: list[TransformCallback] = []
 
     def __len__(self) -> int:
         return len(self.chat)
@@ -893,8 +878,7 @@ class ChatPipeline:
         *,
         only_messages: bool = False,
         chat: Chat | None = None,
-        callbacks: bool
-        | t.Sequence[MapChatCallback | ThenChatCallback | TransformChatCallback] = True,
+        callbacks: bool | t.Sequence[MapChatCallback | ThenChatCallback | TransformCallback] = True,
     ) -> "ChatPipeline":
         """
         Creates a clone of the current `ChatPipeline` instance.
@@ -1006,6 +990,7 @@ class ChatPipeline:
         Args:
             callbacks: The callback functions to be added.
             max_depth: The maximum depth to allow recursive pipeline calls during this callback.
+            allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
 
         Returns:
             The updated pipeline.
@@ -1050,8 +1035,9 @@ class ChatPipeline:
             the final return value from the pipeline.
 
         Args:
-            callback: The callback function to be executed.
+            callbacks: The callback function to be executed.
             max_depth: The maximum depth to allow recursive pipeline calls during this callback.
+            allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
 
         Returns:
             The updated pipeline.
@@ -1083,10 +1069,39 @@ class ChatPipeline:
 
     def transform(
         self,
-        *callbacks: TransformChatCallback,
+        *callbacks: TransformCallback,
         allow_duplicates: bool = False,
     ) -> "ChatPipeline":
-        """ """
+        """
+        Registers a callback to be executed just before generation, and optionally return
+        a callback to executed just after generation.
+
+        Transform callbacks are low-level callbacks used to modify messages and parameters based
+        on pipeline state and conditions. They are not emitted as pipeline steps and all other
+        callbacks (watch, then, map) occur after all transform callbacks have been executed.
+
+        Args:
+            callbacks: The callback function to be executed.
+            allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
+
+        Returns:
+            The updated pipeline.
+
+        Example:
+            ```
+            async def transform(
+                messages: list[Message],
+                params: GenerateParams
+            ) -> tuple[list[Message], GenerateParams, PostTransformChatCallback | None]:
+
+                async def post_transform(chat: Chat) -> Chat | None:
+                    ...
+
+                return messages, params, post_transform
+
+            await pipeline.transform(transform).run()
+            ```
+        """
         for callback in callbacks:
             if not allow_duplicates and callback in self.transform_callbacks:
                 raise ValueError(
@@ -1265,8 +1280,7 @@ class ChatPipeline:
 
         Args:
             *types: The type or types of models to wait for.
-            max_rounds: The maximum number of rounds to try to parse successfully.
-            append: Whether to append the types to the existing list or replace it.
+            max_depth: The maximum depth to re-attempt parsing using recursive pipelines.
             max_depth: The maximum depth to re-attempt parsing using recursive pipelines  (this is shared between all types).
             attempt_recovery: deprecated, recovery is always attempted.
             drop_dialog: deprecated, the full dialog is always returned.
@@ -1314,16 +1328,22 @@ class ChatPipeline:
 
         next_pipeline = self.clone(chat=chat, callbacks=[self._then_tools])
 
-        stop = False
-
-        for tool_call in chat.last.tool_calls:
+        async def _process_tool_call(tool_call: ToolCall) -> bool:
             tool = next((t for t in self.tools if t.name == tool_call.name), None)
             if tool is None:
                 raise UnknownToolError(tool_call.name)
 
-            message, _stop = await tool.handle_tool_call(tool_call)
-            stop = _stop if not _stop else stop
+            message, stop = await tool.handle_tool_call(tool_call)
             next_pipeline.add(message)
+            return stop
+
+        # Process all tool calls in parallel
+
+        stop = max(
+            await asyncio.gather(
+                *[_process_tool_call(tool_call) for tool_call in chat.last.tool_calls],
+            ),
+        )
 
         # Need to prevent infinite loops and treat tool_choice like
         # an ephemeral setting which resets after the first tool call.
@@ -1331,10 +1351,8 @@ class ChatPipeline:
         if self.tool_mode == "api" and next_pipeline.params:
             next_pipeline.params.tool_choice = None
 
-        # TODO(nick): Type hints here stop us from mixing step generators
-        # and basic chat returns.
-
         if stop:
+            # TODO(nick): Type hints here stop us from mixing step generators and basic chat returns.
             return next_pipeline.chat  # type: ignore [return-value]
 
         return next_pipeline.step()
@@ -1363,7 +1381,7 @@ class ChatPipeline:
 
         return next_pipeline.step()
 
-    async def _transform_tools(
+    async def _transform_tools(  # noqa: PLR0915
         self,
         messages: list[Message],
         params: GenerateParams,
@@ -1423,7 +1441,7 @@ class ChatPipeline:
 
         # Build post transform
 
-        async def _post_transform(chat: Chat) -> Chat:
+        async def _post_transform(chat: Chat) -> Chat:  # noqa: PLR0912
             # Re-inject the closing tag if:
             #
             # 1. Are using native tools
@@ -1461,6 +1479,7 @@ class ChatPipeline:
             ]
 
             chat.last.strip(NativeToolCall)
+            chat.last.content = chat.last.content.strip()
 
             # Convert any xml calls to json params
 
