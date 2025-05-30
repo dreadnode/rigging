@@ -1,0 +1,325 @@
+---
+title: rigging.error
+---
+
+{/*
+::: rigging.error
+*/}
+
+We try to avoid creating custom exceptions unless they are necessary.
+
+We use the built-in and pydantic exceptions as much as possible.
+
+CompletionExhaustedMaxRoundsError
+---------------------------------
+
+```python
+CompletionExhaustedMaxRoundsError(
+    max_rounds: int, completion: str
+)
+```
+
+Raised when the maximum number of rounds is exceeded while generating completions.
+
+<Accordion title="Source code in rigging/error.py" icon="code">
+```python
+def __init__(self, max_rounds: int, completion: str):
+    super().__init__(max_rounds)
+    self.completion = completion
+    """The completion which was being generated when the exception occurred."""
+```
+
+
+</Accordion>
+
+### completion
+
+```python
+completion = completion
+```
+
+The completion which was being generated when the exception occurred.
+
+ExhaustedMaxRoundsError
+-----------------------
+
+```python
+ExhaustedMaxRoundsError(max_rounds: int)
+```
+
+Raised when the maximum number of rounds is exceeded while generating.
+
+<Accordion title="Source code in rigging/error.py" icon="code">
+```python
+def __init__(self, max_rounds: int):
+    super().__init__(f"Exhausted max rounds ({max_rounds}) while generating")
+    self.max_rounds = max_rounds
+    """The number of rounds which was exceeded."""
+```
+
+
+</Accordion>
+
+### max\_rounds
+
+```python
+max_rounds = max_rounds
+```
+
+The number of rounds which was exceeded.
+
+InvalidModelSpecifiedError
+--------------------------
+
+```python
+InvalidModelSpecifiedError(model: str)
+```
+
+Raised when an invalid identifier is specified when getting a generator.
+
+<Accordion title="Source code in rigging/error.py" icon="code">
+```python
+def __init__(self, model: str):
+    super().__init__(f"Invalid model specified: {model}")
+```
+
+
+</Accordion>
+
+MaxDepthError
+-------------
+
+```python
+MaxDepthError(
+    max_depth: int, step: PipelineStep, reference: str
+)
+```
+
+Raised when the maximum depth is exceeded while generating.
+
+<Accordion title="Source code in rigging/error.py" icon="code">
+```python
+def __init__(self, max_depth: int, step: "PipelineStep", reference: str):
+    super().__init__(f"Exceeded max depth ({max_depth}) while generating ('{reference}')")
+    self.max_depth = max_depth
+    """The maximum depth of nested pipeline generations which was exceeded."""
+    self.step = step
+    """The pipeline step which cause the depth error."""
+```
+
+
+</Accordion>
+
+### max\_depth
+
+```python
+max_depth = max_depth
+```
+
+The maximum depth of nested pipeline generations which was exceeded.
+
+### step
+
+```python
+step = step
+```
+
+The pipeline step which cause the depth error.
+
+MessagesExhaustedMaxRoundsError
+-------------------------------
+
+```python
+MessagesExhaustedMaxRoundsError(
+    max_rounds: int, messages: list[Message]
+)
+```
+
+Raised when the maximum number of rounds is exceeded while generating messages.
+
+<Accordion title="Source code in rigging/error.py" icon="code">
+```python
+def __init__(self, max_rounds: int, messages: list["Message"]):
+    super().__init__(max_rounds)
+    self.messages = messages
+    """The messages which were being generated when the exception occurred."""
+```
+
+
+</Accordion>
+
+### messages
+
+```python
+messages = messages
+```
+
+The messages which were being generated when the exception occurred.
+
+MissingModelError
+-----------------
+
+```python
+MissingModelError(content: str)
+```
+
+Raised when a model is missing when parsing a message.
+
+<Accordion title="Source code in rigging/error.py" icon="code">
+```python
+def __init__(self, content: str):
+    super().__init__(content)
+```
+
+
+</Accordion>
+
+ProcessingError
+---------------
+
+```python
+ProcessingError(content: str)
+```
+
+Raised when an error occurs during internal generator processing.
+
+<Accordion title="Source code in rigging/error.py" icon="code">
+```python
+def __init__(self, content: str):
+    super().__init__(content)
+```
+
+
+</Accordion>
+
+Stop
+----
+
+```python
+Stop(message: str)
+```
+
+Raise inside a pipeline to indicate a stopping condition.
+
+Example
+
+```python
+import rigging as rg
+
+async def read_file(path: str) -> str:
+    "Read the contents of a file."
+
+    if no_more_files(path):
+        raise rg.Stop("There are no more files to read.")
+
+    ...
+
+chat = await pipeline.using(read_file).run()
+```
+
+
+<Accordion title="Source code in rigging/error.py" icon="code">
+```python
+def __init__(self, message: str):
+    super().__init__(message)
+    self.message = message
+    """The message associated with the stop."""
+```
+
+
+</Accordion>
+
+### message
+
+```python
+message = message
+```
+
+The message associated with the stop.
+
+ToolDefinitionError
+-------------------
+
+```python
+ToolDefinitionError(message: str)
+```
+
+Raised when a tool cannot be properly defined.
+
+<Accordion title="Source code in rigging/error.py" icon="code">
+```python
+def __init__(self, message: str):
+    super().__init__(message)
+```
+
+
+</Accordion>
+
+UnknownToolError
+----------------
+
+```python
+UnknownToolError(tool_name: str)
+```
+
+Raised when the an api tool call is made for an unknown tool.
+
+<Accordion title="Source code in rigging/error.py" icon="code">
+```python
+def __init__(self, tool_name: str):
+    super().__init__(f"Unknown tool call was requested for '{tool_name}'")
+    self.tool_name = tool_name
+    """The name of the tool which was unknown."""
+```
+
+
+</Accordion>
+
+### tool\_name
+
+```python
+tool_name = tool_name
+```
+
+The name of the tool which was unknown.
+
+raise\_as
+---------
+
+```python
+raise_as(
+    error_type: type[Exception], message: str
+) -> t.Callable[[t.Callable[P, R]], t.Callable[P, R]]
+```
+
+When the wrapped function raises an exception, `raise ... from` with the new error type.
+
+<Accordion title="Source code in rigging/error.py" icon="code">
+```python
+def raise_as(
+    error_type: type[Exception],
+    message: str,
+) -> t.Callable[[t.Callable[P, R]], t.Callable[P, R]]:
+    "When the wrapped function raises an exception, `raise ... from` with the new error type."
+
+    def _raise_as(func: t.Callable[P, R]) -> t.Callable[P, R]:
+        @functools.wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                error = error_type(message)
+                raise error from e
+
+        if wrapper.__doc__ is None:
+            wrapper.__doc__ = ""
+
+        wrapper.__doc__ += f"\n\nRaises:\n    {error_type.__name__}{': ' + message}"
+
+        return wrapper
+
+    return _raise_as
+```
+
+
+</Accordion>

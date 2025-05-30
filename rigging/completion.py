@@ -264,7 +264,7 @@ class CompletionPipeline:
         ExhuastedMaxRounds is implicitly included.
         """
         self.on_failed: FailMode = "raise"
-        """How to handle failures in the pipeline unless overriden in calls."""
+        """How to handle failures in the pipeline unless overridden in calls."""
 
         # (callback, all_text, max_rounds)
         self.until_callbacks: list[tuple[UntilCompletionCallback, bool, int]] = []
@@ -315,7 +315,7 @@ class CompletionPipeline:
 
         Args:
             *errors: The exception types to catch.
-            on_failed: How to handle failures in the pipeline unless overriden in calls.
+            on_failed: How to handle failures in the pipeline unless overridden in calls.
 
         Returns:
             The updated CompletionPipeline object.
@@ -865,7 +865,7 @@ class CompletionPipeline:
         Args:
             count: The number of times to execute the generation process.
             params: A sequence of parameters to be used for each execution.
-            on_failed: How to handle failures in the pipeline unless overriden in calls.
+            on_failed: How to handle failures in the pipeline unless overridden in calls.
 
         Returns:
             A list of generatated Completions.
@@ -891,7 +891,7 @@ class CompletionPipeline:
         on_failed: "FailMode" = "raise",
     ) -> list[Completion]:
         """
-        Executes the generation process accross multiple input messages.
+        Executes the generation process across multiple input messages.
 
         Note:
             Anything already in this pending completion will be prepended to the text.
@@ -899,7 +899,7 @@ class CompletionPipeline:
         Args:
             many: A sequence of texts to generate with.
             params: A sequence of parameters to be used for each text.
-            on_failed: How to handle failures in the pipeline unless overriden in calls.
+            on_failed: How to handle failures in the pipeline unless overridden in calls.
 
         Returns:
             A list of generatated Completions.

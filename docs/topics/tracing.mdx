@@ -1,12 +1,12 @@
 ---
 title: "Tracing"
-description: "Trace all the internal behaviors of rigging with OpenTelemetry."
+description: "Trace all rigging internal behaviors with OpenTelemetry"
 public: true
 ---
 
-Rigging integrates with the [Logfire](https://logfire.pydantic.dev/docs/) library for exposing tracing information about execution. Specifically we use the logfire-api no-op package, making it optional for users with no overhead if you don't need it.
+Rigging integrates with the [Logfire](https://logfire.pydantic.dev/docs/) library for exposing tracing information about execution. Specifically we use the logfire-API no-op package, making it optional for users with no overhead if you don't need it.
 
-Logfire is capable of reporting trace information to any Open Telemetry compatible system, and provides some convient abstractions on top of the standard open-telemetry-sdk which we like. If the `logfire` package is installed and configured, details about pipelines, prompts, and tools will be traced during rigging use.
+Logfire is capable of reporting trace information to any Open Telemetry compatible system, and provides convenient abstractions on top of the standard open-telemetry-SDK. If the `logfire` package is installed and configured, details about pipelines, prompts, and tools will be traced when you use rigging.
 
 You can configure Logfire to use [alternative backends](https://logfire.pydantic.dev/docs/how-to-guides/alternative-backends/) as needed to integrate with your preferred tracing stack.
 
@@ -39,16 +39,16 @@ await summarize.run_many(3, text)
 ```
 
 <Note>
-Rigging will attach call parameters and results for both tools and prompt functions, as well as finalized chat objects at the end of a pipeline. Logfire will serialize these items as JSON values inside attributes, and include a dynamic json schema for reference. When using their platform, these items deserialize into the web view directly.
+Rigging will attach call parameters and results for both tools and prompt functions, as well as finalized chat objects at the end of a pipeline. Logfire will serialize these items as JSON values inside attributes, and include a dynamic JSON schema for reference. When using their platform, these items deserialize directly into the web view.
 </Note>
 
 ![Logfire trace](../assets/tracing_logfire.png)
 
 ## Inference Tracing
 
-We've opted to exclude tracing at the generator level in Rigging (for now) and focus on instrumenting higher-order abstractions like pipelines, tools, etc. which are specific to the framework.
+We've opted to exclude tracing at the generator level in Rigging (for now) and focus on instrumenting higher-order abstractions like pipelines and tools, which are specific to the framework.
 
-There are a suite of powerful instrumentation libraries (including Logfire!) which will add tracing to underlying libraries like LiteLLM (recommended), OpenAI, Anthropic, VertexAI, etc. These snap right into the tracing spans from rigging, and provide insight into the raw inference traffic before it's sent to API endpoints and inference libraries.
+There are a suite of powerful instrumentation libraries (including Logfire) which will add tracing to underlying libraries like LiteLLM (recommended), OpenAI, Anthropic, VertexAI, and others. These snap right into the tracing spans from rigging, and provide insight into the raw inference traffic before it's sent to API endpoints and inference libraries.
 
 - [LiteLLM - Logfire](https://docs.litellm.ai/docs/observability/logfire_integration)
 - [LiteLLM - OpenTelemetry](https://docs.litellm.ai/docs/observability/opentelemetry_integration)
@@ -70,4 +70,4 @@ litellm.callbacks = ["logfire"]
 # ...
 ```
 
-*1. As of writing, LiteLLM requires this environment var, even if empty and logfire is managing tokens for you*
+*1. As of publication, LiteLLM requires this environment variable, even if it's empty and Logfire is managing tokens for you.*

@@ -4,7 +4,7 @@ description: "Create dynamic functions out of thin air."
 public: true
 ---
 
-Defining chat interactions as python functions is a great abstraction on top of chat pipelines, allowing you to leverage parsing logic and type hints to define a code-less function that will use a generator/pipline underneath to produce an output.
+Defining chat interactions as python functions is a great abstraction on top of chat pipelines, allowing you to leverage parsing logic and type hints to define a code-less function that will use a generator/pipeline underneath to produce an output.
 
 A `Prompt` is typically created using one of the following decorators:
 
@@ -137,9 +137,9 @@ import rigging as rg
 def summarize(text: str) -> str:
     """
     Summarize the following:
-    
+
     {{ text }}
-    
+
     Be concise.
     """
 
@@ -157,7 +157,7 @@ print(summarize.template)
 ```
 </CodeGroup>
 
-In other words, you can define how inputs will be included in the prompt by passing them inside the docstring in jinja2 formats, or let Rigging handle this for you by ommiting them.
+In other words, you can define how inputs will be included in the prompt by passing them inside the docstring in jinja2 formats, or let Rigging handle this for you by omitting them.
 
 ### Outputs and Context
 
@@ -171,7 +171,7 @@ In the example above, you'll notice that defining our function to output a `str`
 
 This is pretty light on context, and we can improve this by updating our signature with a `Ctx` annotation:
 
-```python 
+```python
 from typing import Annotated
 import rigging as rg
 
@@ -319,7 +319,7 @@ print(generate_user.template)
 ```
 </CodeGroup>
 
-You can also embed a `Chat` object inside other objects, which will be excluded from any prompt guidance, but supplied the value when the prompt is executed. This is great for gathering both structured data and the original chat. 
+You can also embed a `Chat` object inside other objects, which will be excluded from any prompt guidance, but supplied the value when the prompt is executed. This is great for gathering both structured data and the original chat.
 
 <CodeGroup>
 ```python Chat in Tuple
@@ -407,7 +407,7 @@ You can also bind a prompt at runtime with any of the following:
 - `Prompt.bind_many()`
 - `Prompt.bind_over()`
 
-<Note> 
+<Note>
 Everything configured on a pipeline or generator will be used when running the prompt. Watch/Then/Map callbacks, tools, and generate params can all be used to alter the behavior of the prompt.
 
 In general, you should consider prompts as producers of user messages, which will be passed to `.fork()`, then handle the parsing of outputs.

@@ -7,7 +7,7 @@ import dataclasses
 import inspect
 import re
 import typing as t
-from xml.etree import ElementTree as ET
+from xml.etree import ElementTree as ET  # nosec
 
 import typing_extensions as te
 import xmltodict  # type: ignore [import-untyped]
@@ -127,7 +127,7 @@ class Model(BaseXmlModel):
         pretty_encoded_xml = unescape_xml(pretty_encoded_xml)
 
         with contextlib.suppress(ET.ParseError):
-            tree = ET.fromstring(pretty_encoded_xml)  # noqa: S314
+            tree = ET.fromstring(pretty_encoded_xml)  # noqa: S314 # nosec
             ET.indent(tree, "  ")
             pretty_encoded_xml = str(
                 ET.tostring(
@@ -544,7 +544,8 @@ def make_from_schema(
 
     Args:
         schema: The JSON schema to build the model from.
-        model_name: The name of the model (otherwise inferred from the schema).
+        name: The name of the model (otherwise inferred from the schema).
+        allow_primitive: If True, allows the model to be a simple primitive
 
     Returns:
         The Pydantic model class.

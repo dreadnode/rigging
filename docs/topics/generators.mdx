@@ -19,7 +19,7 @@ Much like database connection strings, Rigging generators can be represented as 
 - `kwargs` are used to carry:
     1. API key (`,api_key=...`) or the base URL (`,api_base=...`) for the model provider.
     1. Serialized `GenerateParams`fields like like temp, stop tokens, etc.
-    1. Additional provider-specific attributes to set on the constructed generator class. For instance, you 
+    1. Additional provider-specific attributes to set on the constructed generator class. For instance, you
     can set the `LiteLLMGenerator.max_connections`property by passing `,max_connections=` in the identifier string.
 
 The provider is optional and Rigging will fallback to  [`litellm`](https://github.com/BerriAI/litellm)/`LiteLLMGenerator` by default.
@@ -105,7 +105,7 @@ You'll find that the exception consistency inside LiteLLM can be quite poor. Dif
 
 We have experimental support for both [`vLLM`](https://docs.vllm.ai/en/latest/) and [`transformers`](https://huggingface.co/docs/transformers/index) generators for loading and running local models. In general vLLM is more consistent with Rigging's preferred API, but the dependency requirements are heavier.
 
-Where needed, you can wrap an existing model into a rigging generator by using the `VLLMGenerator.from_obj()` or `TransformersGenerator.from_obj()` methods. These are helpful for any picky model construction that might not play well with our rigging constructors. 
+Where needed, you can wrap an existing model into a rigging generator by using the `VLLMGenerator.from_obj()` or `TransformersGenerator.from_obj()` methods. These are helpful for any picky model construction that might not play well with our rigging constructors.
 
 <Note>
 The use of these local generators requires the `vllm` and `transformers` packages to be installed. You can use `rigging[all]` to install them all at once, or pick your preferred package individually.
@@ -138,7 +138,7 @@ You can use the `Generator.load` and `Generator.unload` methods to better contro
 
 ## Overload Generation Params
 
-When working with both `CompletionPipeline` and `ChatPipeline`, you can overload and update any generation params by using the associated `.with_()` function. 
+When working with both `CompletionPipeline` and `ChatPipeline`, you can overload and update any generation params by using the associated `.with_()` function.
 
 <CodeGroup>
 ```python with_() as keyword arguments
@@ -179,7 +179,7 @@ import rigging as rg
 
 spec = r"""
 request:
-  url: "https://{{ model }}.platform.dreadnode.io/submit" 
+  url: "https://{{ model }}.platform.dreadnode.io/submit"
   headers:
     "X-Api-Key": "{{ api_key }}"
     "Content-Type": "application/json"
@@ -201,7 +201,7 @@ chat = await crucible.chat("A flag please").run()
 
 print(chat.conversation)
 # [user]: A flag please
-# 
+#
 # [assistant]: Una bandera, por favor.
 ```
 
@@ -210,7 +210,7 @@ print(chat.conversation)
 <Tip>
 **Saving schemas**
 
-Encoded YAML is the default storage when an HTTP generator is serialized to an indentifier using
+Encoded YAML is the default storage when an HTTP generator is serialized to an identifier using
 `to_identifier`. This also means that when we save
 our chats to storage, they maintain their http specification.
 
@@ -346,7 +346,7 @@ class Custom(Generator):
     # model: str
     # api_key: str
     # params: GeneratorParams
-    
+
     custom_field: bool
 
     async def generate_messages(
@@ -356,14 +356,14 @@ class Custom(Generator):
     ) -> t.Sequence[GeneratedMessage]:
         # merge_with is an easy way to combine overloads
         params = [
-            self.params.merge_with(p).to_dict() for p in params 
+            self.params.merge_with(p).to_dict() for p in params
         ]
 
         # Access self vars where needed
         api_key = self.api_key
         model_id = self.model
         custom = self.custom_field
-        
+
         # Build output messages with stop reason, usage, etc.
         # output_messages = ...
 

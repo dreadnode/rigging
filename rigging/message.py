@@ -257,7 +257,8 @@ class ContentAudioInput(BaseModel):
 
         Args:
             file: The file to create the content from.
-            mimetype: The mimetype of the file. If not provided, it will be guessed.
+            format: The format of the audio. If not provided, it will be guessed based on the file extension.
+            transcript: The transcript of the audio data (if available).
 
         Returns:
             The created ContentAudioInput object.
@@ -775,7 +776,7 @@ class Message(BaseModel):
 
     # TODO: Many of these functions are duplicates from the parsing
     # module, but here we don't hand back slices and want there
-    # to be a convient access model. We should probably consolidate.
+    # to be a convenient access model. We should probably consolidate.
 
     def parse(self, model_type: type[ModelT]) -> ModelT:
         """

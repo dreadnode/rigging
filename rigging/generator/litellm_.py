@@ -39,7 +39,7 @@ class OpenAIToolsWithImageURLsFixup(Fixup):
     # following messages. To get around this, we'll resolve the tool
     # call with empty content, and duplicate the multi-part data
     # into a user message immediately following it. We also need
-    # to take care of multiple tool calls next to eachother and ensure
+    # to take care of multiple tool calls next to each other and ensure
     # we don't add the user message in between them.
 
     def can_fix(self, exception: Exception) -> bool:

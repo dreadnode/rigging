@@ -1,6 +1,6 @@
 ---
 title: "Chats and Messages"
-description: "Chats and Messages are how Rigging represents the conversation with a model." 
+description: "Chats and Messages are how Rigging represents the conversation with a model."
 public: true
 ---
 
@@ -46,7 +46,96 @@ print(chat.conversation)
 # [assistant]: Hello!
 ```
 
-## Templating (apply)
+## Image Content
+
+You can include images in messages using the `ContentImageUrl` class:
+
+<CodeGroup>
+```python Image from file
+import rigging as rg
+
+image_message = rg.Message(
+    role="user",
+    content=[
+        "What's in this image?",
+        rg.ContentImageUrl.from_file("path/to/image.jpg")
+    ]
+)
+```
+
+```python Image from bytes
+import rigging as rg
+
+with open("path/to/image.png", "rb") as f:
+    image_data = f.read()
+    image_message = rg.Message(
+        role="user",
+        content=[
+            "Describe this diagram:",
+            rg.ContentImageUrl.from_bytes(image_data, mimetype="image/png")
+        ]
+    )
+```
+
+```python Image from url
+import rigging as rg
+
+url_message = rg.Message(
+    role="user",
+    content=[
+        "What do you see in this picture?",
+        rg.ContentImageUrl.from_url("https://example.com/image.jpg")
+    ]
+)
+```
+</CodeGroup>
+
+## Audio Content
+
+For voice or audio processing, use the `ContentAudioInput` class:
+
+```python
+import rigging as rg
+
+audio_message = rg.Message(
+    role="user",
+    content=[
+        "Transcribe this audio file",
+        rg.ContentAudioInput.from_file("recording.mp3")
+    ]
+)
+```
+
+## Content Parts
+
+You can access and manipulate the structured content parts directly:
+
+```python
+import rigging as rg
+
+# Create a message with multiple content parts
+message = rg.Message(
+    role="user",
+    content=[
+        "Here's an image with a question:",
+        rg.ContentImageUrl.from_file("chart.png"),
+        "What trend do you see in this chart?"
+    ]
+)
+
+# Access all content parts
+for part in message.content_parts:
+    print(f"Part type: {part.type}")
+
+# Get just the text content (concatenated)
+print(message.content)
+# "Here's an image with a question: What trend do you see in this chart?"
+
+# Add new content part
+message.content_parts.append(rg.ContentText(text="And is it significant?"))
+```
+
+## Templating
 
 You can use both `ChatPipeline.apply()`and `ChatPipeline.apply_to_all()` to swap values prefixed with `$` characters inside message contents for fast templating support. This functionality uses [string.Template.safe_substitute](https://docs.python.org/3/library/string.html#string.Template.safe_substitute) underneath.
 
@@ -64,6 +153,46 @@ for country in ["France", "Germany"]:
 
 # The capital of France is Paris.
 # The capital of Germany is Berlin.
+```
+
+## Tool Calls
+
+Messages can contain tool calls, which represent function calls made by the model. Rigging has support for handling tool calls for you, which you can find [over here](tools).
+
+When using API-provided function calling, you can access the `tool_calls` property of the message:
+
+```python
+import rigging as rg
+
+tool_definition = {
+    "type": "function",
+    "function": {
+        "name": "http_get",
+        "description": "Retrieve the contents of a URL",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "The URL to retrieve",
+                }
+            },
+            "required": ["url"],
+        },
+    }
+}
+
+chat = (
+    await rg.get_generator("gpt-4.1")
+    .chat("Please summarize dreadnode.io")
+    .with_(tools=[tool_definition])
+    .run()
+)
+
+for tool_call in chat.last.tool_calls:
+    print(f"ID: {tool_call.id}")
+    print(f"Tool: {tool_call.name}")
+    print(f"Arguments: {tool_call.function.arguments}")
 ```
 
 ## Parsed Parts
@@ -123,7 +252,7 @@ meaning = (
     .run()
 )
 
-# Gracefully handle missing models
+# gracefully handle missing models
 reasoning = meaning.last.try_parse(Reasoning)
 if reasoning:
     print("Reasoning:", reasoning.content)
@@ -160,7 +289,7 @@ chat = (
 
 print(chat.metadata)
 # {
-#   'prompt_version': 1, 
+#   'prompt_version': 1,
 #   'user': 'Will'
 # }
 ```

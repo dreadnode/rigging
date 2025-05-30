@@ -1,0 +1,205 @@
+---
+title: rigging.util
+---
+
+{/*
+::: rigging.util
+*/}
+
+Common utilities used throughout the library.
+
+await\_
+-------
+
+```python
+await_(coros: Coroutine[Any, Any, R]) -> R
+```
+
+```python
+await_(*coros: Coroutine[Any, Any, R]) -> list[R]
+```
+
+```python
+await_(*coros: Coroutine[Any, Any, R]) -> R | list[R]
+```
+
+A utility function that allows awaiting coroutines in a managed thread.
+
+Parameters:
+
+* **`*coros`**
+  (`Coroutine[Any, Any, R]`, default:
+  `()`
+  )
+  –Variable number of coroutines to await.
+
+Returns:
+
+* `R | list[R]`
+  –A single result if one coroutine is passed or a list of results if multiple coroutines are passed.
+
+<Accordion title="Source code in rigging/util.py" icon="code">
+```python
+def await_(*coros: t.Coroutine[t.Any, t.Any, R]) -> R | list[R]:  # type: ignore [misc]
+    """
+    A utility function that allows awaiting coroutines in a managed thread.
+
+    Args:
+        *coros: Variable number of coroutines to await.
+
+    Returns:
+        A single result if one coroutine is passed or a list of results if multiple coroutines are passed.
+    """
+    loop = _get_event_loop()
+    tasks = [asyncio.run_coroutine_threadsafe(coro, loop) for coro in coros]
+    results = [task.result() for task in tasks]
+    if len(coros) == 1:
+        return results[0]
+    return results
+```
+
+
+</Accordion>
+
+escape\_xml
+-----------
+
+```python
+escape_xml(xml_string: str) -> str
+```
+
+Escape XML special characters in a string.
+
+<Accordion title="Source code in rigging/util.py" icon="code">
+```python
+def escape_xml(xml_string: str) -> str:
+    """Escape XML special characters in a string."""
+    return re.sub(r"&(?!(?:amp|lt|gt|apos|quot);)", "&amp;", xml_string)
+```
+
+
+</Accordion>
+
+identify\_audio\_format
+-----------------------
+
+```python
+identify_audio_format(data: bytes) -> AudioFormat | None
+```
+
+Identify audio format by checking the first few bytes of data
+
+<Accordion title="Source code in rigging/util.py" icon="code">
+```python
+def identify_audio_format(data: bytes) -> AudioFormat | None:
+    """
+    Identify audio format by checking the first few bytes of data
+    """
+    if len(data) < 12:  # noqa: PLR2004
+        return None  # Not enough data to identify format
+
+    header = data[:12]
+
+    signatures: dict[bytes, AudioFormat] = {
+        b"RIFF": "wav",  # WAV files start with 'RIFF'
+        b"ID3": "mp3",  # MP3 files often start with 'ID3' (ID3 tag)
+        b"\xFF\xFB": "mp3",  # MP3 files without ID3 tag
+        b"\xFF\xF3": "mp3",  # MP3 files (MPEG-1 Layer 3)
+        b"\xFF\xF2": "mp3",  # MP3 files (MPEG-2 Layer 3)
+        b"OggS": "ogg",  # Ogg files
+        b"fLaC": "flac",  # FLAC files
+    }
+
+    for signature, format_name in signatures.items():
+        if header.startswith(signature):
+            return format_name
+
+    # Check for MP3 without ID3 tag (check for MP3 frame sync)
+    if header[0] == 0xFF and (header[1] & 0xE0) == 0xE0:  # noqa: PLR2004
+        return "mp3"
+
+    return None
+```
+
+
+</Accordion>
+
+shorten\_string
+---------------
+
+```python
+shorten_string(
+    content: str, max_length: int, *, sep: str = "..."
+) -> str
+```
+
+Return a string at most max\_length characters long by removing the middle of the string.
+
+<Accordion title="Source code in rigging/util.py" icon="code">
+```python
+def shorten_string(content: str, max_length: int, *, sep: str = "...") -> str:
+    """Return a string at most max_length characters long by removing the middle of the string."""
+    if len(content) <= max_length:
+        return content
+
+    remaining = max_length - len(sep)
+    if remaining <= 0:
+        return sep
+
+    middle = remaining // 2
+    return content[:middle] + sep + content[-middle:]
+```
+
+
+</Accordion>
+
+truncate\_string
+----------------
+
+```python
+truncate_string(
+    content: str, max_length: int, *, suf: str = "..."
+) -> str
+```
+
+Return a string at most max\_length characters long by removing the end of the string.
+
+<Accordion title="Source code in rigging/util.py" icon="code">
+```python
+def truncate_string(content: str, max_length: int, *, suf: str = "...") -> str:
+    """Return a string at most max_length characters long by removing the end of the string."""
+    if len(content) <= max_length:
+        return content
+
+    remaining = max_length - len(suf)
+    if remaining <= 0:
+        return suf
+
+    return content[:remaining] + suf
+```
+
+
+</Accordion>
+
+unescape\_xml
+-------------
+
+```python
+unescape_xml(xml_string: str) -> str
+```
+
+Unescape XML special characters in a string.
+
+<Accordion title="Source code in rigging/util.py" icon="code">
+```python
+def unescape_xml(xml_string: str) -> str:
+    """Unescape XML special characters in a string."""
+    unescaped = re.sub(r"&amp;", "&", xml_string)
+    unescaped = re.sub(r"&lt;", "<", unescaped)
+    unescaped = re.sub(r"&gt;", ">", unescaped)
+    unescaped = re.sub(r"&apos;", "'", unescaped)
+    return re.sub(r"&quot;", '"', unescaped)
+```
+
+
+</Accordion>

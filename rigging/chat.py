@@ -617,7 +617,7 @@ class PipelineStep:
 
     def with_parent(self, parent: "PipelineStep") -> "PipelineStep":
         """
-        Clone the current step and append a parent to it's heirarchy.
+        Clone the current step and append a parent to it's hierarchy.
         """
         if self is parent:
             raise RuntimeError("Cannot set parent to self")
@@ -711,7 +711,7 @@ class ChatPipeline:
         self.errors_to_exclude: set[type[Exception]] = set()
         """The list of exceptions to exclude from the catch list."""
         self.on_failed: FailMode = "raise"
-        """How to handle failures in the pipeline unless overriden in calls."""
+        """How to handle failures in the pipeline unless overridden in calls."""
         self.caching: CacheMode | None = None
         """How to handle cache_control entries on messages."""
 
@@ -768,7 +768,7 @@ class ChatPipeline:
 
         Args:
             *errors: The exception types to catch.
-            on_failed: How to handle failures in the pipeline unless overriden in calls.
+            on_failed: How to handle failures in the pipeline unless overridden in calls.
 
         Returns:
             The updated pipeline.
@@ -916,7 +916,7 @@ class ChatPipeline:
 
             new.watch_callbacks = self.watch_callbacks.copy()
 
-            # Check if any of our callbacks are bound methods to a ChatPipline.
+            # Check if any of our callbacks are bound methods to a Chatpipeline.
             # If so, we should rebind them to `self` to ensure they work correctly
             # and aren't operating with old state.
 
@@ -1026,7 +1026,7 @@ class ChatPipeline:
             the final return value from the pipeline.
 
         Args:
-            callback: The callback function to be executed.
+            callbacks: The callback function to be executed.
             max_depth: The maximum depth to allow recursive pipeline calls during this callback.
 
         Returns:
@@ -1212,9 +1212,7 @@ class ChatPipeline:
 
         Args:
             *types: The type or types of models to wait for.
-            max_rounds: The maximum number of rounds to try to parse successfully.
-            append: Whether to append the types to the existing list or replace it.
-            max_depth: The maximum depth to re-attempt parsing using recursive pipelines  (this is shared between all types).
+            max_depth: The maximum depth to re-attempt parsing using recursive pipelines (this is shared between all types).
             attempt_recovery: deprecated, recovery is always attempted.
             drop_dialog: deprecated, the full dialog is always returned.
             max_rounds: deprecated, use `max_depth` instead.

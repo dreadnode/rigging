@@ -99,14 +99,14 @@ You'll notice that every Chat gets a unique `id` field to help track them in a d
 
 ## JSON Deserialization
 
-The JSON has everything required to reconstruct a Chat including a `generator_id` dynamically constructed to perserve the parameters used to create the generated message(s). We can now deserialize a chat from a datastore, and immediately step back into a `ChatPipeline` for exploration.
+The JSON has everything required to reconstruct a Chat including a `generator_id` dynamically constructed to preserve the parameters used to create the generated message(s). We can now deserialize a chat from a datastore, and immediately step back into a `ChatPipeline` for exploration.
 
 ```python
 chat = rg.Chat.model_validate_json(serialized)
 print(chat.conversation)
 # [user]: Provide 3 jokes each between <joke></joke> tags.
 
-# [assistant]: 
+# [assistant]:
 # <joke> Why was the math book sad? Because it had too many problems. </joke>
 # <joke> I told my wife she should embrace her mistakes. She gave me a hug. </joke>
 # <joke> Why did the scarecrow win an award? Because he was outstanding in his field. </joke>
@@ -141,17 +141,17 @@ print(df.info())
 
 # RangeIndex: 6 entries, 0 to 5
 # Data columns (total 9 columns):
-#  #   Column             Non-Null Count  Dtype         
-# ---  ------             --------------  -----         
-#  0   chat_id            6 non-null      string        
-#  1   chat_metadata      6 non-null      string        
-#  2   chat_generator_id  6 non-null      string        
+#  #   Column             Non-Null Count  Dtype
+# ---  ------             --------------  -----
+#  0   chat_id            6 non-null      string
+#  1   chat_metadata      6 non-null      string
+#  2   chat_generator_id  6 non-null      string
 #  3   chat_timestamp     6 non-null      datetime64[ms]
-#  4   generated          6 non-null      bool          
-#  5   role               6 non-null      category      
-#  6   parts              6 non-null      string        
-#  7   content            6 non-null      string        
-#  8   message_id         6 non-null      string        
+#  4   generated          6 non-null      bool
+#  5   role               6 non-null      category
+#  6   parts              6 non-null      string
+#  7   content            6 non-null      string
+#  8   message_id         6 non-null      string
 # dtypes: bool(1), category(1), datetime64[ms](1), string(6)
 
 df.content.apply(lambda x: len(x)).mean()
@@ -162,9 +162,9 @@ back = rg.data.df_to_chats(df)
 print(back[0].conversation)
 
 # [user]: Write me a haiku.
-# 
+#
 # [assistant]: Here's a haiku for you:
-# 
+#
 # Gentle breeze whispers,
 # Flowers bloom in vibrant hues,
 # Nature's simple bliss.

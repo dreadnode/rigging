@@ -39,6 +39,25 @@
           "topics/serialization",
           "topics/logging"
         ]
+      },
+      {
+        "group": "API",
+        "pages": [
+          "api/chat",
+          "api/completion",
+          "api/generator",
+          "api/model",
+          "api/message",
+          "api/prompt",
+          "api/tool",
+          "api/data",
+          "api/watchers",
+          "api/parsing",
+          "api/interact",
+          "api/logging",
+          "api/error",
+          "api/util"
+        ]
       }
     ]
   },
