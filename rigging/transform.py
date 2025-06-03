@@ -9,6 +9,7 @@ import xmltodict  # type: ignore[import-untyped]
 from rigging.error import ToolWarning
 from rigging.generator import GenerateParams
 from rigging.message import (
+    ContentText,
     Message,
     inject_system_content,
 )
@@ -55,7 +56,7 @@ class Transform(t.Protocol):
 
 def make_native_tool_transform(  # noqa: PLR0915
     tools: list[Tool[..., t.Any]],
-    tool_mode: ToolMode = "xml",
+    tool_mode: ToolMode = "json-in-xml",
     *,
     add_tool_stop_token: bool = True,
 ) -> Transform:
@@ -93,55 +94,58 @@ def make_native_tool_transform(  # noqa: PLR0915
                         parameters=tool_call.function.arguments,
                     )
 
-                    if tool_mode == "xml":
-                        xml_parameters: str | None = None
+                    if tool_mode != "xml":
+                        native_tool_calls.append(native_call)
+                        continue
 
-                        # If we still have a reference to the tool that handled this call,
-                        # use its model to convert the parameters to XML
+                    xml_parameters: str | None = None
 
-                        if tool := next(
-                            (t for t in tools if t.name == tool_call.function.name),
-                            None,
-                        ):
-                            try:
-                                xml_parameters = (
-                                    tool.model.model_validate_json(native_call.parameters)
-                                    .to_pretty_xml()
-                                    .replace(tool.model.xml_start_tag(), "")
-                                    .replace(tool.model.xml_end_tag(), "")
-                                    .strip()
-                                )
-                            except Exception as e:  # noqa: BLE001
-                                warnings.warn(
-                                    f"Failed to convert tool call '{tool_call.function.name}' to xml ({e}):\n{tool_call.function.arguments}",
-                                    ToolWarning,
-                                    stacklevel=3,
-                                )
+                    # If we still have a reference to the tool that handled this call,
+                    # use its model to convert the parameters to XML
 
-                        # Fallback to xmltodict as a best-effort if that didn't work
+                    if tool := next(
+                        (t for t in tools if t.name == tool_call.function.name),
+                        None,
+                    ):
+                        try:
+                            xml_parameters = (
+                                tool.model.model_validate_json(native_call.parameters)
+                                .to_pretty_xml()
+                                .replace(tool.model.xml_start_tag(), "")
+                                .replace(tool.model.xml_end_tag(), "")
+                                .strip()
+                            )
+                        except Exception as e:  # noqa: BLE001
+                            warnings.warn(
+                                f"Failed to convert tool call '{tool_call.function.name}' to xml ({e}):\n{tool_call.function.arguments}",
+                                ToolWarning,
+                                stacklevel=3,
+                            )
 
-                        if xml_parameters is None:
-                            try:
-                                xml_parameters = xmltodict.unparse(
-                                    json.loads(native_call.parameters),
-                                    pretty=True,
-                                )
-                            except Exception as e:  # noqa: BLE001
-                                warnings.warn(
-                                    f"Failed to convert tool call '{tool_call.function.name}' to xml using xmltodict ({e}):\n{native_call.parameters}",
-                                    ToolWarning,
-                                    stacklevel=3,
-                                )
+                    # Fallback to xmltodict as a best-effort if that didn't work
 
-                        native_call.parameters = xml_parameters or native_call.parameters
+                    if xml_parameters is None:
+                        try:
+                            xml_parameters = xmltodict.unparse(
+                                json.loads(native_call.parameters),
+                                pretty=True,
+                            )
+                        except Exception as e:  # noqa: BLE001
+                            warnings.warn(
+                                f"Failed to convert tool call '{tool_call.function.name}' to xml using xmltodict ({e}):\n{native_call.parameters}",
+                                ToolWarning,
+                                stacklevel=3,
+                            )
 
+                    native_call.parameters = xml_parameters or native_call.parameters
                     native_tool_calls.append(native_call)
 
-                if message.content:
-                    message.content += "\n"
-
-                message.content += "\n".join(
-                    [call.to_pretty_xml() for call in native_tool_calls],
+                message.content_parts.append(
+                    ContentText(
+                        text="\n".join(
+                            [call.to_pretty_xml() for call in native_tool_calls],
+                        ),
+                    ),
                 )
                 message.try_parse_set(NativeToolCall)
                 message.tool_calls = None  # Clear tool calls after rendering
@@ -252,10 +256,8 @@ def make_native_tool_transform(  # noqa: PLR0915
                                     stacklevel=3,
                                 )
 
-                        if arguments_dict is None:
-                            continue
-
-                        tool_call.function.arguments = json.dumps(arguments_dict)
+                        if arguments_dict is not None:
+                            tool_call.function.arguments = json.dumps(arguments_dict)
 
                     message.tool_calls.append(tool_call)
 
