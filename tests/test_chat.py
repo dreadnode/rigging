@@ -162,7 +162,7 @@ def test_message_double_content_part_separation() -> None:
     msg = Message("user", ["hello", "world"])
     assert msg.content == "hello\nworld"
 
-    spec = msg.to_openai_spec()
+    spec = msg.to_openai()
     assert len(spec["content"]) == 2
     assert spec["content"][0]["text"] == "hello\n"
     assert spec["content"][1]["text"] == "world"

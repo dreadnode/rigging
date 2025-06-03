@@ -654,7 +654,7 @@ class Prompt(t.Generic[P, R]):
 
         Args:
             callbacks: The callback functions to be added.
-            max_depth: The maximum depth to allow recursive pipeline calls during this callback.
+            allow_duplicates: Whether to allow duplicate callbacks.
 
         Returns:
             The updated prompt.
@@ -699,8 +699,8 @@ class Prompt(t.Generic[P, R]):
         See ChatPipeline.map for more details.
 
         Args:
-            callback: The callback function to be executed.
-            max_depth: The maximum depth to allow recursive pipeline calls during this callback.
+            callbacks: The callback function to be executed.
+            allow_duplicates: Whether to allow duplicate callbacks.
 
         Returns:
             The updated pipeline.

@@ -42,13 +42,11 @@ def _get_event_loop() -> asyncio.AbstractEventLoop:
 
 
 @t.overload
-def await_(coros: t.Coroutine[t.Any, t.Any, R]) -> R:
-    ...
+def await_(coros: t.Coroutine[t.Any, t.Any, R]) -> R: ...
 
 
 @t.overload
-def await_(*coros: t.Coroutine[t.Any, t.Any, R]) -> list[R]:
-    ...
+def await_(*coros: t.Coroutine[t.Any, t.Any, R]) -> list[R]: ...
 
 
 def await_(*coros: t.Coroutine[t.Any, t.Any, R]) -> R | list[R]:  # type: ignore [misc]
@@ -84,11 +82,6 @@ def deref_json(obj: dict[str, t.Any], *, is_json_schema: bool = False) -> dict[s
 # XML Formatting
 
 
-def escape_xml(xml_string: str) -> str:
-    """Escape XML special characters in a string."""
-    return re.sub(r"&(?!(?:amp|lt|gt|apos|quot);)", "&amp;", xml_string)
-
-
 def unescape_xml(xml_string: str) -> str:
     """Unescape XML special characters in a string."""
     unescaped = re.sub(r"&amp;", "&", xml_string)
@@ -96,6 +89,29 @@ def unescape_xml(xml_string: str) -> str:
     unescaped = re.sub(r"&gt;", ">", unescaped)
     unescaped = re.sub(r"&apos;", "'", unescaped)
     return re.sub(r"&quot;", '"', unescaped)
+
+
+def escape_xml(xml_string: str) -> str:
+    """Escape XML special characters in a string."""
+    escaped = xml_string.replace(r"&", "&amp;")
+    escaped = escaped.replace(r"<", "&lt;")
+    escaped = escaped.replace(r">", "&gt;")
+    escaped = escaped.replace(r"'", "&apos;")
+    return escaped.replace(r'"', "&quot;")
+
+
+def unescape_cdata_tags(xml_string: str) -> str:
+    """Unescape double-escaped CDATA tags in an XML string."""
+
+    def unescape_cdata(match: re.Match[str]) -> str:
+        return unescape_xml(match.group(1))
+
+    return re.sub(
+        r"&lt;!\[CDATA\[(.*?)\]\]&gt;",  # The CDATA itself is escaped at this point,
+        unescape_cdata,
+        xml_string,
+        flags=re.DOTALL,
+    )
 
 
 def to_snake(text: str) -> str:
@@ -205,9 +221,9 @@ def identify_audio_format(data: bytes) -> AudioFormat | None:
     signatures: dict[bytes, AudioFormat] = {
         b"RIFF": "wav",  # WAV files start with 'RIFF'
         b"ID3": "mp3",  # MP3 files often start with 'ID3' (ID3 tag)
-        b"\xFF\xFB": "mp3",  # MP3 files without ID3 tag
-        b"\xFF\xF3": "mp3",  # MP3 files (MPEG-1 Layer 3)
-        b"\xFF\xF2": "mp3",  # MP3 files (MPEG-2 Layer 3)
+        b"\xff\xfb": "mp3",  # MP3 files without ID3 tag
+        b"\xff\xf3": "mp3",  # MP3 files (MPEG-1 Layer 3)
+        b"\xff\xf2": "mp3",  # MP3 files (MPEG-2 Layer 3)
         b"OggS": "ogg",  # Ogg files
         b"fLaC": "flac",  # FLAC files
     }

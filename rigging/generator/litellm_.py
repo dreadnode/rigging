@@ -19,7 +19,7 @@ from rigging.generator.base import (
     with_fixups,
 )
 from rigging.message import ContentAudioInput, ContentImageUrl, ContentText, Message
-from rigging.tool.api import ApiFunctionDefinition, ApiToolDefinition
+from rigging.tool.base import FunctionDefinition, ToolDefinition
 from rigging.tracing import tracer
 
 # We should probably let people configure
@@ -179,8 +179,8 @@ class LiteLLMGenerator(Generator):
                     [
                         GenerateParams(
                             tools=[
-                                ApiToolDefinition(
-                                    function=ApiFunctionDefinition(
+                                ToolDefinition(
+                                    function=FunctionDefinition(
                                         name="test_function",
                                         description="Test function",
                                     ),
@@ -343,7 +343,7 @@ class LiteLLMGenerator(Generator):
 
             response = await acompletion(
                 model=self.model,
-                messages=[message.to_openai_spec() for message in messages],
+                messages=[message.to_openai() for message in messages],
                 api_key=self.api_key,
                 **self.params.merge_with(params).to_dict(),
             )

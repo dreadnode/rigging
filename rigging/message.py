@@ -29,7 +29,7 @@ from pydantic import (
 from rigging.error import MissingModelError
 from rigging.model import Model, ModelT
 from rigging.parsing import try_parse_many
-from rigging.tool.api import ApiToolCall
+from rigging.tool.base import ToolCall
 from rigging.util import AudioFormat, identify_audio_format, shorten_string, truncate_string
 
 Role = t.Literal["system", "user", "assistant", "tool"]
@@ -257,7 +257,8 @@ class ContentAudioInput(BaseModel):
 
         Args:
             file: The file to create the content from.
-            mimetype: The mimetype of the file. If not provided, it will be guessed.
+            format: The format of the audio. If not provided, it will be guessed from the file.
+            transcript: The transcript of the audio data (if available).
 
         Returns:
             The created ContentAudioInput object.
@@ -361,7 +362,7 @@ class Message(BaseModel):
     """The parsed message parts."""
     content_parts: list[Content] = Field([], repr=False)
     """Interior str content or structured content parts."""
-    tool_calls: list[ApiToolCall] | None = Field(None)
+    tool_calls: list[ToolCall] | None = Field(None)
     """The tool calls associated with the message."""
     tool_call_id: str | None = Field(None)
     """Associated call id if this message is a response to a tool call."""
@@ -373,7 +374,7 @@ class Message(BaseModel):
         role: Role,
         content: str | t.Sequence[str | Content] | None = None,
         parts: t.Sequence[ParsedMessagePart] | None = None,
-        tool_calls: t.Sequence[ApiToolCall] | t.Sequence[dict[str, t.Any]] | None = None,
+        tool_calls: t.Sequence[ToolCall] | t.Sequence[dict[str, t.Any]] | None = None,
         tool_call_id: str | None = None,
         cache_control: t.Literal["ephemeral"] | dict[str, str] | None = None,
         **kwargs: t.Any,
@@ -387,12 +388,6 @@ class Message(BaseModel):
         content_parts = [
             ContentText(text=dedent(part)) if isinstance(part, str) else part for part in content
         ]
-
-        if tool_calls is not None and not all(isinstance(call, ApiToolCall) for call in tool_calls):
-            tool_calls = [
-                ApiToolCall.model_validate(call) if isinstance(call, dict) else call
-                for call in tool_calls
-            ]
 
         if cache_control is not None and content_parts:
             content_parts[-1].cache_control = (
@@ -409,7 +404,9 @@ class Message(BaseModel):
         )
 
     def __str__(self) -> str:
-        formatted = f"[{self.role}]:"
+        formatted = (
+            f"[{self.role}:{self.tool_call_id}]:" if self.tool_call_id else f"[{self.role}]:"
+        )
 
         if len(self.content_parts) == 1 and isinstance(self.content_parts[0], ContentText):
             formatted += f" {self.content_parts[0].text}"
@@ -520,7 +517,22 @@ class Message(BaseModel):
                 self.parts.remove(part)
         return self
 
+    @te.deprecated(".to_openai_spec() is deprecated, use .to_openai() instead.", category=None)
     def to_openai_spec(self) -> dict[str, t.Any]:
+        """
+        Converts the message to the OpenAI-compatible JSON format. This should
+        be the primary way to serialize a message for use with APIs.
+
+        Deprecated - Use `.to_openai` instead
+        """
+        warnings.warn(
+            ".to_openai_spec() is deprecated, use .to_openai() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.to_openai()
+
+    def to_openai(self) -> dict[str, t.Any]:
         """
         Converts the message to the OpenAI-compatible JSON format. This should
         be the primary way to serialize a message for use with APIs.
@@ -528,7 +540,6 @@ class Message(BaseModel):
         Returns:
             The serialized message.
         """
-        # `content_parts` will be moved to `content`
         obj = self.model_dump(
             include={"role", "content_parts", "tool_calls", "tool_call_id"},
             exclude_none=True,
@@ -587,7 +598,7 @@ class Message(BaseModel):
             )
 
         if len(text_parts) == 0:
-            raise ValueError("No text content to remove part from")
+            return
 
         text_part = text_parts[0]
 
@@ -610,11 +621,13 @@ class Message(BaseModel):
                 and part.model.xml_tags() == existing.model.xml_tags()
             ):
                 return  # We clearly already have this part defined
+
             if max(part.slice_.start, existing.slice_.start) < min(
                 part.slice_.stop,
                 existing.slice_.stop,
             ):
                 raise ValueError("Incoming part overlaps with an existing part")
+
         self.parts.append(part)
 
     # Looks more complicated than it is. We just want to clean all the models
@@ -931,7 +944,11 @@ class Message(BaseModel):
         """Helper function to convert various common types to a Message object."""
         if isinstance(message, (str, *ContentTypes)):
             return cls(role="user", content=[message])
-        return cls(**message) if isinstance(message, dict) else message.model_copy(deep=True)
+        return (
+            cls.model_validate(message)
+            if isinstance(message, dict)
+            else message.model_copy(deep=True)
+        )
 
     @classmethod
     def apply_to_list(cls, messages: t.Sequence["Message"], **kwargs: str) -> list["Message"]:
@@ -940,3 +957,26 @@ class Message(BaseModel):
 
 
 Messages = t.Sequence[MessageDict] | t.Sequence[Message]
+
+
+def inject_system_content(messages: list[Message], content: str) -> list[Message]:
+    """
+    Injects content into a list of messages as a system message.
+
+    Note:
+        If the message list is empty or the first message is not a system message,
+        a new system message with the given content is inserted at the beginning of the list.
+        If the first message is a system message, the content is appended to it.
+
+    Args:
+        messages: The list of messages to modify.
+        content: The content to be injected.
+
+    Returns:
+        The modified list of messages
+    """
+    if len(messages) == 0 or messages[0].role != "system":
+        messages.insert(0, Message(role="system", content=content))
+    elif messages[0].role == "system" and content not in messages[0].content:
+        messages[0].content += "\n\n" + content
+    return messages
