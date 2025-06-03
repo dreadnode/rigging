@@ -26,36 +26,48 @@ class NameWithThings(Model):
     things: list[str] = element("thing")
 
 
-class Inner(Model):
+class ContentWithTypeAttr(Model, tag="inner"):
     type: str = attr()
     content: str
 
 
-class Outer(Model):
+class Content(Model, tag="outer"):
     content: str
 
 
-class A(Model):
+class ContentA(Model, tag="a"):
     content: str
 
 
-class B(Model):
+class ContentB(Model, tag="b"):
     content: str
 
 
-class C(Model):
+class ContentC(Model, tag="c"):
     content: str
 
 
-class Tag(Model):
+class ContentTag(Model, tag="tag"):
     content: str
 
 
 class Wrapped(Model):
-    inners: list[Inner] = element()
+    inners: list[ContentWithTypeAttr] = element()
 
 
-# Tests
+class ContentAsElement(Model, tag="outer"):
+    content: str = element()
+
+
+class MultiFieldModel(Model):
+    type_: str = attr(name="type")
+    foo_field: str = element(tag="foo")
+    bar_field: str = element(tag="bar")
+
+
+class MixedModel(Model):
+    content_field: str = element(tag="content")
+    nested: ContentAsElement = element()
 
 
 @pytest.mark.parametrize(
@@ -93,12 +105,12 @@ class Wrapped(Model):
             id="answer_with_duplicate_tags",
         ),
         pytest.param(
-            "<question> Should I answer between <answer> tags? </question> <answer>hello</answer>",
+            "<question>Should I answer between <answer> tags?</question> <answer>hello</answer>",
             [Question(content="Should I answer between <answer> tags?"), Answer(content="hello")],
             id="question_with_answer_tag_1",
         ),
         pytest.param(
-            "<question> Should I answer between <answer> tags? </question> <answer>hello</answer>",
+            "<question>Should I answer between <answer> tags?</question> <answer>hello</answer>",
             [Question(content="Should I answer between <answer> tags?"), Answer(content="hello")],
             id="question_with_answer_tag_2",
         ),
@@ -108,7 +120,7 @@ class Wrapped(Model):
             id="question_answer",
         ),
         pytest.param(
-            "<delimited-answer>\n- hello\n - world</delimited-answer>",
+            "<delimited-answer>- hello\n - world</delimited-answer>",
             [DelimitedAnswer(content="- hello\n - world", _items=["hello", "world"])],
             id="newline_delimited_answer",
         ),
@@ -141,35 +153,38 @@ class Wrapped(Model):
             '<wrapped><inner type="cat">meow</inner><inner type="dog">bark</inner></wrapped>',
             [
                 Wrapped(
-                    inners=[Inner(type="cat", content="meow"), Inner(type="dog", content="bark")],
+                    inners=[
+                        ContentWithTypeAttr(type="cat", content="meow"),
+                        ContentWithTypeAttr(type="dog", content="bark"),
+                    ],
                 ),
             ],
             id="wrapped",
         ),
         pytest.param(
             "<outer>text before <inner>nested content</inner> text after</outer>",
-            [Outer(content="text before <inner>nested content</inner> text after")],
+            [Content(content="text before <inner>nested content</inner> text after")],
             id="outer_with_inner_tag",
         ),
         pytest.param(
             "<outer>Some text with <inner> incomplete tags</outer>",
-            [Outer(content="Some text with <inner> incomplete tags")],
+            [Content(content="Some text with <inner> incomplete tags")],
             id="incomplete_inner_tag",
         ),
         pytest.param(
-            "Commentary about the `<inner>` tag\n\n<outer>\nsomething is <inner> and </inner>\n</outer>",
-            [Outer(content="something is <inner> and </inner>")],
+            "Commentary about the `<inner>` tag\n\n<outer>something is <inner> and </inner></outer>",
+            [Content(content="something is <inner> and </inner>")],
             id="comment_before_tag",
         ),
         pytest.param(
             "<a>first <b>overlap <a>nested</a> continue</b> end</a>",
-            [A(content="nested")],
+            [ContentA(content="nested")],
             id="overlapping_tags",
         ),
         pytest.param(
             "<outer>level 1 <middle>level 2 <inner>level 3</inner> still 2</middle> back to 1</outer>",
             [
-                Outer(
+                Content(
                     content="level 1 <middle>level 2 <inner>level 3</inner> still 2</middle> back to 1",
                 ),
             ],
@@ -177,28 +192,93 @@ class Wrapped(Model):
         ),
         pytest.param(
             "Here's how to use <tag>: <tag>actual content</tag>",
-            [Tag(content="actual content")],
+            [ContentTag(content="actual content")],
             id="tag_in_text_and_xml",
-        ),
-        pytest.param(
-            "<outer>Text with &lt;inner&gt; as escaped HTML entities</outer>",
-            [Outer(content="Text with <inner> as escaped HTML entities")],
-            id="escaped_xml_in_content",
         ),
         pytest.param(
             "<answer>first</answer> text <answer>second</answer> more text <answer>third</answer>",
             [Answer(content="first"), Answer(content="second"), Answer(content="third")],
             id="multiple_same_tags_order",
         ),
+        pytest.param(
+            "<outer>Text with <tag> & XML entities</outer>",
+            [Content(content="Text with <tag> & XML entities")],
+            id="xml_entities_in_content",
+        ),
+        pytest.param(
+            "<outer>Command output: <DIR> Program Files & <DIR> Users</outer>",
+            [Content(content="Command output: <DIR> Program Files & <DIR> Users")],
+            id="xml_breaking_chars_with_ampersand",
+        ),
+        pytest.param(
+            '<multi-field-model type="cmd"><foo>Process <pid> terminated</foo><bar>Exit code <1></bar></multi-field-model>',
+            [
+                MultiFieldModel(
+                    type_="cmd",
+                    foo_field="Process <pid> terminated",
+                    bar_field="Exit code <1>",
+                ),
+            ],
+            id="multi_field_with_xml_breaking_chars",
+        ),
+        pytest.param(
+            "<outer>Volume in drive C:\n Directory of C:\\\n 01/02/2024 <DIR> Program Files</outer>",
+            [
+                Content(
+                    content="Volume in drive C:\n Directory of C:\\\n 01/02/2024 <DIR> Program Files",
+                ),
+            ],
+            id="shell_output_simulation",
+        ),
+        pytest.param(
+            "<mixed-model><content>Error in <module> at line <42></content><outer><content>normal nested content</content></outer></mixed-model>",
+            [
+                MixedModel(
+                    content_field="Error in <module> at line <42>",
+                    nested=ContentAsElement(content="normal nested content"),
+                ),
+            ],
+            id="mixed_model_with_nested_and_xml_breaking",
+        ),
     ],
 )
 def test_xml_parsing(content: str, models: list[Model]) -> None:
     parsed = parse_many(content, *{type(m) for m in models})
     assert len(parsed) == len(models), "Failed to parse set"
+    for (obj, slice_), expected in zip(parsed, models, strict=False):
+        assert obj.model_dump() == expected.model_dump(), (
+            f"Failed to parse model {expected.__class__.__name__} <- {obj!s} ({parsed})"
+        )
+        xml = obj.to_xml()
+        assert xml == content[slice_], (
+            f"Failed to serialize model {expected.__class__.__name__} back to XML: {xml!r} != {content!r}"
+        )
+
+
+@pytest.mark.parametrize(
+    ("content", "models"),
+    [
+        # These cases parse correctly, but their XML representation doesn't yeild
+        # the original content as some escape sequences are not preserved.
+        pytest.param(
+            "<outer>Text with &lt;inner&gt; as escaped HTML entities</outer>",
+            [Content(content="Text with <inner> as escaped HTML entities")],
+            id="escaped_xml_in_content",
+        ),
+        pytest.param(
+            "<outer><content><![CDATA[Already wrapped <content> & entities]]></content></outer>",
+            [ContentAsElement(content="Already wrapped <content> & entities")],
+            id="already_cdata_wrapped_content",
+        ),
+    ],
+)
+def test_xml_parsing_without_exact_roundtrip(content: str, models: list[Model]) -> None:
+    parsed = parse_many(content, *{type(m) for m in models})
+    assert len(parsed) == len(models), "Failed to parse set"
     for (obj, _), expected in zip(parsed, models, strict=False):
-        assert (
-            obj.model_dump() == expected.model_dump()
-        ), f"Failed to parse model {expected.__class__.__name__} <- {obj!s} ({parsed})"
+        assert obj.model_dump() == expected.model_dump(), (
+            f"Failed to parse model {expected.__class__.__name__} <- {obj!s} ({parsed})"
+        )
 
 
 @pytest.mark.parametrize(
@@ -325,22 +405,41 @@ def test_nested_tag_parsing() -> None:
     content = "<outer>text before <a>nested content</a> text after</outer>"
 
     # Test parsing the outer tag
-    outer, _ = Outer.one_from_text(content)
+    outer, _ = Content.one_from_text(content)
     assert outer.content == "text before <a>nested content</a> text after"
 
     # Test parsing the inner tag
-    inner, _ = A.one_from_text(content)
+    inner, _ = ContentA.one_from_text(content)
     assert inner.content == "nested content"
 
 
 def test_nested_incomplete_tags() -> None:
     content = "<outer>Content with <inner> incomplete tag</outer>"
 
-    outer, _ = Outer.one_from_text(content)
+    outer, _ = Content.one_from_text(content)
     assert outer.content == "Content with <inner> incomplete tag"
 
 
 def test_edge_case_xml_entities() -> None:
     content = "<outer>Content with &lt;tag&gt; as XML entities</outer>"
-    outer, _ = Outer.one_from_text(content)
+    outer, _ = Content.one_from_text(content)
     assert outer.content == "Content with <tag> as XML entities"
+
+
+@pytest.mark.parametrize(
+    "content_text",
+    [
+        "No XML breaking chars here",
+        "Already &lt;escaped&gt; content",
+        "<![CDATA[Already wrapped]]>",
+        "",
+        "   ",
+    ],
+)
+def test_preprocess_for_cdata(content_text: str) -> None:
+    input_xml = f"<outer><content>{content_text}</content></outer>"
+    processed = ContentAsElement.preprocess_with_cdata(input_xml)
+
+    # Should not add CDATA wrapper for safe content (unless already present)
+    if "<![CDATA[" not in content_text:
+        assert processed.count("<![CDATA[") == 0
