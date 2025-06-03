@@ -10,7 +10,7 @@ import requests
 from loguru import logger
 from pydantic import TypeAdapter
 
-from rigging.tool.base import Tool, ToolDefinition
+from rigging.tools.base import Tool, ToolDefinition
 
 DEFAULT_HTTP_TIMEOUT = 10
 

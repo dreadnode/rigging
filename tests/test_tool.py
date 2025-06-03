@@ -9,8 +9,8 @@ from pydantic import BaseModel
 import rigging as rg
 from rigging.error import ToolDefinitionError
 from rigging.model import Model, make_from_schema, make_from_signature
-from rigging.tool.base import FunctionCall, FunctionDefinition, Tool, ToolCall, ToolDefinition
-from rigging.tool.native import XmlToolDefinition
+from rigging.tools.base import FunctionCall, FunctionDefinition, Tool, ToolCall, ToolDefinition
+from rigging.tools.native import XmlToolDefinition
 
 # ruff: noqa: S101, PLR2004, ARG001, PT011, SLF001, FBT001, FBT002
 
@@ -211,7 +211,7 @@ class TestToolHandleCall:
     @pytest.mark.asyncio
     async def test_handle_api_tool_call(self, sample_tool: Tool[..., t.Any]) -> None:
         """Test handling API format tool calls."""
-        from rigging.tool.base import FunctionCall, ToolCall
+        from rigging.tools.base import FunctionCall, ToolCall
 
         tool_call = ToolCall(
             id="call123",

@@ -19,7 +19,7 @@ from rigging.generator.base import (
     with_fixups,
 )
 from rigging.message import ContentAudioInput, ContentImageUrl, ContentText, Message
-from rigging.tool.base import FunctionDefinition, ToolDefinition
+from rigging.tools.base import FunctionDefinition, ToolDefinition
 from rigging.tracing import tracer
 
 # We should probably let people configure

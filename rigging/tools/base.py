@@ -15,7 +15,7 @@ from pydantic import BaseModel, TypeAdapter, field_validator
 
 from rigging.error import Stop, ToolDefinitionError
 from rigging.model import Model, make_from_schema, make_from_signature
-from rigging.tool.native import (
+from rigging.tools.native import (
     JsonInXmlToolDefinition,
     XmlToolDefinition,
 )

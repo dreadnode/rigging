@@ -342,16 +342,28 @@ class Model(BaseXmlModel):
             The processed XML content with CDATA tags added where necessary.
         """
 
-        field_map = {
-            (
-                field_info.path
-                if isinstance(field_info, XmlEntityInfo) and field_info.path
-                else field_name
-            ): field_info
-            for field_name, field_info in cls.model_fields.items()
-            if isinstance(field_info, XmlEntityInfo)
-            and field_info.location == EntityLocation.ELEMENT
-        }
+        # This means our CDATA tags should wrap the entire content
+        # as the model is simple enough to not have nested elements.
+
+        if cls.is_simple() or cls.is_simple_with_attrs():
+            field_map = {
+                (cls.__xml_tag__ or "unknown"): next(
+                    info
+                    for info in cls.model_fields.values()
+                    if not isinstance(info, XmlEntityInfo)
+                ),
+            }
+        else:
+            field_map = {
+                (
+                    field_info.path
+                    if isinstance(field_info, XmlEntityInfo) and field_info.path
+                    else field_name
+                ): field_info
+                for field_name, field_info in cls.model_fields.items()
+                if isinstance(field_info, XmlEntityInfo)
+                and field_info.location == EntityLocation.ELEMENT
+            }
 
         def wrap_with_cdata(match: re.Match[str]) -> str:
             field_name = match.group(1)
@@ -359,7 +371,7 @@ class Model(BaseXmlModel):
             content = match.group(3)
 
             if field_name not in field_map:
-                return f"<{field_name}{tag_attrs}>{content}</{field_name}>"
+                return match.group(0)
 
             field_info = field_map[field_name]
             field_type = field_info.annotation
@@ -464,7 +476,9 @@ class Model(BaseXmlModel):
                 model = (
                     cls(**{next(iter(cls.model_fields)): unescape_xml(inner)})
                     if cls.is_simple()
-                    else cls.from_xml(cls.preprocess_with_cdata(full_text))
+                    else cls.from_xml(
+                        cls.preprocess_with_cdata(full_text),
+                    )
                 )
 
                 # If our model is relatively simple (only attributes and a single non-element field)

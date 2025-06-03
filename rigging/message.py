@@ -29,7 +29,7 @@ from pydantic import (
 from rigging.error import MissingModelError
 from rigging.model import Model, ModelT
 from rigging.parsing import try_parse_many
-from rigging.tool.base import ToolCall
+from rigging.tools.base import ToolCall
 from rigging.util import AudioFormat, identify_audio_format, shorten_string, truncate_string
 
 Role = t.Literal["system", "user", "assistant", "tool"]

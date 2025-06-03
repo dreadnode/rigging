@@ -43,8 +43,8 @@ from rigging.message import (
     inject_system_content as inject_system_content_into_messages,
 )
 from rigging.model import Model, ModelT, SystemErrorModel, ValidationErrorModel
-from rigging.tool.base import Tool, ToolCall, ToolChoice, ToolMode
-from rigging.tool.native import DEFAULT_NATIVE_TOOL_MODE
+from rigging.tools.base import Tool, ToolCall, ToolChoice, ToolMode
+from rigging.tools.native import DEFAULT_NATIVE_TOOL_MODE
 from rigging.tracing import Span, tracer
 from rigging.transform import PostTransform, Transform, make_native_tool_transform
 from rigging.util import flatten_list, get_qualified_name
@@ -434,6 +434,22 @@ class Chat(BaseModel):
             The serialized chat.
         """
         return [m.to_openai() for m in self.all]
+
+    async def transform(self, transform: Transform) -> "Chat":
+        """
+        Applies a transform to the chat.
+
+        Args:
+            transform: The transform to apply.
+
+        Returns:
+            A new chat with the transform applied to its messages and parameters.
+        """
+        messages, params, _ = await transform(self.messages, self.params or GenerateParams())
+        new = self.clone()
+        new.messages = messages
+        new.params = params
+        return new
 
 
 # List Helper Type

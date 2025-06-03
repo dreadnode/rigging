@@ -12,7 +12,7 @@ from typing_extensions import Self
 
 from rigging.error import InvalidModelSpecifiedError
 from rigging.message import Message, MessageDict
-from rigging.tool.base import ToolChoice, ToolDefinition
+from rigging.tools.base import ToolChoice, ToolDefinition
 
 if t.TYPE_CHECKING:
     from rigging.chat import ChatPipeline, WatchChatCallback

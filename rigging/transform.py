@@ -12,8 +12,8 @@ from rigging.message import (
     Message,
     inject_system_content,
 )
-from rigging.tool.base import FunctionCall, Tool, ToolCall, ToolMode
-from rigging.tool.native import (
+from rigging.tools.base import FunctionCall, Tool, ToolCall, ToolMode
+from rigging.tools.native import (
     TOOL_CALL_TAG,
     NativeToolCall,
     NativeToolResponse,
@@ -81,6 +81,8 @@ def make_native_tool_transform(  # noqa: PLR0915
                 ).to_pretty_xml()
                 message.role = "user"
                 message.tool_call_id = None
+                # TODO: Would be cleaner to have an injection system for models -> content
+                message.try_parse(NativeToolResponse)
 
             elif message.tool_calls:
                 native_tool_calls: list[NativeToolCall] = []
@@ -135,10 +137,13 @@ def make_native_tool_transform(  # noqa: PLR0915
 
                     native_tool_calls.append(native_call)
 
-                message.content = f"{message.content}\n" + "\n".join(
+                if message.content:
+                    message.content += "\n"
+
+                message.content += "\n".join(
                     [call.to_pretty_xml() for call in native_tool_calls],
                 )
-
+                message.try_parse_set(NativeToolCall)
                 message.tool_calls = None  # Clear tool calls after rendering
 
         # Inject tool definitions into the system prompt
@@ -197,7 +202,7 @@ def make_native_tool_transform(  # noqa: PLR0915
 
                 for native_call in tool_calls:
                     tool_call = ToolCall(
-                        id=f"rg-{uuid.uuid4().hex[:8]}",
+                        id=native_call.id or f"rg-{uuid.uuid4().hex[:8]}",
                         function=FunctionCall(
                             name=native_call.name,
                             arguments=native_call.parameters,
