@@ -288,7 +288,7 @@ class Model(BaseXmlModel):
         """
         cls.ensure_valid()
 
-        tag_name = cls.__xml_tag__
+        tag_name = re.escape(cls.__xml_tag__ or "unknown")
         pattern = f"(<({tag_name}).*?>((.*?)</{tag_name}>))"
         matches = [
             m

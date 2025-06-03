@@ -55,6 +55,15 @@ class PipelineWarning(Warning):
     """
 
 
+class ToolWarning(PipelineWarning):
+    """
+    Base class for all tool warnings.
+
+    This is used to indicate that something unexpected happened during the tool execution,
+    but it is not critical enough to stop the execution.
+    """
+
+
 # System Exceptions
 
 

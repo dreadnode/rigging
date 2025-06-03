@@ -10,8 +10,10 @@ from pydantic_xml import attr, element
 
 from rigging.model import Model
 
-TOOL_CALL_TAG = "rg:tool-call"
-TOOL_RESPONSE_TAG = "rg:tool-response"
+TOOL_CALL_TAG = "rg-tool-call"
+TOOL_RESPONSE_TAG = "rg-tool-response"
+
+DEFAULT_NATIVE_TOOL_MODE: t.Literal["json-in-xml"] = "json-in-xml"
 
 # xml
 
@@ -79,7 +81,7 @@ def _make_parameter_xml(field_name: str, field: FieldInfo) -> str:
     return f'<param name="{field_name}" type="{type_name}"{description_part}{required_part}/>'
 
 
-class XmlToolDefinition(Model, tag="rg:tool"):
+class XmlToolDefinition(Model, tag="rg-tool"):
     name: str = attr()
     description: str = attr()
     parameters: str  # don't use element() here, we want to keep the raw xml
@@ -112,6 +114,7 @@ class JsonInXmlToolDefinition(Model, tag="rg:tool"):
 
 
 class NativeToolCall(Model, tag=TOOL_CALL_TAG):
+    id: str = attr(default="")
     name: str = attr()
     parameters: str
 
@@ -166,7 +169,7 @@ Arguments should be provided as a valid JSON object between the tags.\
 
 
 def get_native_tool_prompt_part(
-    tool_descriptions: list[XmlToolDefinition] | list[JsonInXmlToolDefinition],
+    tool_descriptions: list[XmlToolDefinition | JsonInXmlToolDefinition],
     mode: t.Literal["xml", "json-in-xml"],
 ) -> str:
     call_format = XML_CALL_FORMAT if mode == "xml" else XML_IN_JSON_CALL_FORMAT

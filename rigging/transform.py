@@ -1,7 +1,12 @@
+import json
 import typing as t
 import uuid
+import warnings
 from typing import runtime_checkable
 
+import xmltodict  # type: ignore[import-untyped]
+
+from rigging.error import ToolWarning
 from rigging.generator import GenerateParams
 from rigging.message import (
     Message,
@@ -10,22 +15,22 @@ from rigging.message import (
 from rigging.tool.base import FunctionCall, Tool, ToolCall, ToolMode
 from rigging.tool.native import (
     TOOL_CALL_TAG,
-    JsonInXmlToolDefinition,
     NativeToolCall,
     NativeToolResponse,
-    XmlToolDefinition,
     get_native_tool_prompt_part,
 )
+
+if t.TYPE_CHECKING:
+    from rigging.chat import Chat
 
 
 @runtime_checkable
 class PostTransform(t.Protocol):
     def __call__(
         self,
-        messages: list[Message],
-        params: GenerateParams,
+        chat: "Chat",
         /,
-    ) -> t.Awaitable[tuple[list[Message], GenerateParams]]:
+    ) -> "t.Awaitable[Chat]":
         """
         Passed messages and params to transform.
         """
@@ -49,15 +54,14 @@ class Transform(t.Protocol):
 
 
 def make_native_tool_transform(  # noqa: PLR0915
-    tools: list[Tool],
+    tools: list[Tool[..., t.Any]],
     tool_mode: ToolMode = "xml",
     *,
     add_tool_stop_token: bool = True,
 ) -> Transform:
     """
     Create a transform that converts tool calls and responses
-    to XML or JSON in XML format as needed by any tools which
-    use native parsing.
+    to XML or JSON in XML format injected and parsed from messages.
     """
 
     async def transform_native_tools(  # noqa: PLR0915
@@ -76,26 +80,72 @@ def make_native_tool_transform(  # noqa: PLR0915
                     result=message.content,
                 ).to_pretty_xml()
                 message.role = "user"
+                message.tool_call_id = None
 
             elif message.tool_calls:
-                message.content = "\n".join(
-                    [
-                        NativeToolCall(
-                            name=tool_call.function.name,
-                            parameters=tool_call.function.arguments,
-                        ).to_pretty_xml()
-                        for tool_call in message.tool_calls
-                    ],
+                native_tool_calls: list[NativeToolCall] = []
+                for tool_call in message.tool_calls:
+                    native_call = NativeToolCall(
+                        id=tool_call.id,
+                        name=tool_call.function.name,
+                        parameters=tool_call.function.arguments,
+                    )
+
+                    if tool_mode == "xml":
+                        xml_parameters: str | None = None
+
+                        # If we still have a reference to the tool that handled this call,
+                        # use its model to convert the parameters to XML
+
+                        if tool := next(
+                            (t for t in tools if t.name == tool_call.function.name),
+                            None,
+                        ):
+                            try:
+                                xml_parameters = (
+                                    tool.model.model_validate_json(native_call.parameters)
+                                    .to_pretty_xml()
+                                    .replace(tool.model.xml_start_tag(), "")
+                                    .replace(tool.model.xml_end_tag(), "")
+                                    .strip()
+                                )
+                            except Exception as e:  # noqa: BLE001
+                                warnings.warn(
+                                    f"Failed to convert tool call '{tool_call.function.name}' to xml ({e}):\n{tool_call.function.arguments}",
+                                    ToolWarning,
+                                    stacklevel=3,
+                                )
+
+                        # Fallback to xmltodict as a best-effort if that didn't work
+
+                        if xml_parameters is None:
+                            try:
+                                xml_parameters = xmltodict.unparse(
+                                    json.loads(native_call.parameters),
+                                    pretty=True,
+                                )
+                            except Exception as e:  # noqa: BLE001
+                                warnings.warn(
+                                    f"Failed to convert tool call '{tool_call.function.name}' to xml using xmltodict ({e}):\n{native_call.parameters}",
+                                    ToolWarning,
+                                    stacklevel=3,
+                                )
+
+                        native_call.parameters = xml_parameters or native_call.parameters
+
+                    native_tool_calls.append(native_call)
+
+                message.content = f"{message.content}\n" + "\n".join(
+                    [call.to_pretty_xml() for call in native_tool_calls],
                 )
-                message.tool_calls = []  # Clear tool calls after rendering
+
+                message.tool_calls = None  # Clear tool calls after rendering
 
         # Inject tool definitions into the system prompt
 
-        definitions: list[XmlToolDefinition] | list[JsonInXmlToolDefinition]
-        if tool_mode == "xml":
-            definitions = [tool.xml_definition for tool in tools]
-        else:
-            definitions = [tool.json_definition for tool in tools]
+        definitions = [
+            tool.xml_definition if tool_mode == "xml" else tool.json_definition for tool in tools
+        ]
 
         tool_system_prompt = get_native_tool_prompt_part(
             definitions,
@@ -116,13 +166,10 @@ def make_native_tool_transform(  # noqa: PLR0915
 
         # Build post transform
 
-        async def post_transform_native_tools(
-            messages: list[Message],
-            params: GenerateParams,
-        ) -> tuple[list[Message], GenerateParams]:
+        async def post_transform_native_tools(chat: "Chat") -> "Chat":  # noqa: PLR0912
             # Re-inject the closing tag if:
             #
-            # 1. Are using native tools
+            # 1. We are using native tools
             # 2. Set a stop token for the tool calls
             # 3. Hit that stop token
 
@@ -140,55 +187,78 @@ def make_native_tool_transform(  # noqa: PLR0915
                         part.text += f"</{TOOL_CALL_TAG}>"
                         break
 
-            if not (tool_calls := chat.last.try_parse_set(NativeToolCall)):
-                return chat
-
             # Convert the tool calls and strip them
 
-            chat.last.tool_calls = [
-                ToolCall(
-                    id=f"rg-{uuid.uuid4().hex[:8]}",
-                    function=FunctionCall(
-                        name=tool_call.name,
-                        arguments=tool_call.parameters,
-                    ),
-                )
-                for tool_call in tool_calls
-            ]
+            for message in [m for m in chat.all if m.role == "assistant"]:
+                if not (tool_calls := message.try_parse_set(NativeToolCall)):
+                    continue
 
-            chat.last.strip(NativeToolCall)
-            chat.last.content = chat.last.content.strip()
+                message.tool_calls = []
 
-            # Convert any xml calls to json params
-
-            if tool_mode == "xml":
-                for tool_call in chat.last.tool_calls:
-                    tool = next(
-                        (t for t in tools if t.name == tool_call.function.name),
-                        None,
+                for native_call in tool_calls:
+                    tool_call = ToolCall(
+                        id=f"rg-{uuid.uuid4().hex[:8]}",
+                        function=FunctionCall(
+                            name=native_call.name,
+                            arguments=native_call.parameters,
+                        ),
                     )
-                    if tool is None:
-                        continue  # We'll catch this later
-                    try:
-                        parsed = tool.model.from_text(
-                            tool.model.xml_start_tag()
-                            + tool_call.function.arguments
-                            + tool.model.xml_end_tag(),
-                        )
-                    except Exception as e:
-                        raise ValueError(
-                            f"Failed to parse parameters from:\n{tool_call.function.arguments}",
-                        ) from e
 
-                    if not parsed:
-                        raise ValueError(
-                            f"Failed to parse parameters from:\n{tool_call.function.arguments}",
-                        )
+                    # Convert any xml calls to json params
 
-                    parameters = parsed[0][0]
-                    tool_call.function.arguments = parameters.model_dump_json()
+                    if tool_mode == "xml":
+                        tool = next(
+                            (t for t in tools if t.name == tool_call.function.name),
+                            None,
+                        )
+                        if tool is None:
+                            continue  # We'll catch this later
+
+                        arguments_dict: dict[str, t.Any] | None = None
+
+                        try:
+                            parsed = tool.model.from_text(
+                                tool.model.xml_start_tag()
+                                + tool_call.function.arguments
+                                + tool.model.xml_end_tag(),
+                            )
+
+                            if parsed:
+                                arguments_dict = parsed[0][0].model_dump(mode="json")
+
+                        except Exception as e:  # noqa: BLE001
+                            warnings.warn(
+                                f"Failed to parse tool call for '{tool_call.function.name}' with arguments ({e}):\n{tool_call.function.arguments}",
+                                ToolWarning,
+                                stacklevel=3,
+                            )
+
+                        # Fallback to xmltodict as a best-effort if that didn't work
+
+                        if arguments_dict is None:
+                            try:
+                                arguments_dict = xmltodict.parse(
+                                    tool_call.function.arguments,
+                                )
+                            except Exception:  # noqa: BLE001
+                                warnings.warn(
+                                    f"Failed to parse tool call for '{tool_call.function.name}' with arguments:\n{tool_call.function.arguments}",
+                                    ToolWarning,
+                                    stacklevel=3,
+                                )
+
+                        if arguments_dict is None:
+                            continue
+
+                        tool_call.function.arguments = json.dumps(arguments_dict)
+
+                    message.tool_calls.append(tool_call)
+
+                message.strip(NativeToolCall)
+                message.content = message.content.strip()
 
             # Convert our tool responses
+            # TODO: handle cased where multiple tool responses are present
 
             for message in chat.all:
                 if (tool_response := message.try_parse(NativeToolResponse)) is None:

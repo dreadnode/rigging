@@ -598,7 +598,7 @@ class Message(BaseModel):
             )
 
         if len(text_parts) == 0:
-            raise ValueError("No text content to remove part from")
+            return
 
         text_part = text_parts[0]
 
@@ -621,11 +621,13 @@ class Message(BaseModel):
                 and part.model.xml_tags() == existing.model.xml_tags()
             ):
                 return  # We clearly already have this part defined
+
             if max(part.slice_.start, existing.slice_.start) < min(
                 part.slice_.stop,
                 existing.slice_.stop,
             ):
                 raise ValueError("Incoming part overlaps with an existing part")
+
         self.parts.append(part)
 
     # Looks more complicated than it is. We just want to clean all the models

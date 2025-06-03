@@ -7,7 +7,6 @@ import inspect
 import json
 import re
 import typing as t
-import warnings
 from dataclasses import dataclass, field
 from functools import cached_property
 
@@ -26,7 +25,7 @@ from rigging.util import deref_json
 if t.TYPE_CHECKING:
     from rigging.message import Message
 
-TOOL_STOP_TAG = "rg:stop"
+TOOL_STOP_TAG = "rg-stop"
 
 P = t.ParamSpec("P")
 R = t.TypeVar("R")
@@ -35,7 +34,7 @@ ToolMode = t.Literal["auto", "api", "xml", "json-in-xml"]
 """
 How tool calls are handled.
 
-- `auto`: The method is chosed based on support (api -> xml).
+- `auto`: The method is chosed based on support (api w/ fallback to json-in-xml).
 - `api`: Tool calls are delegated to api-provided function calling.
 - `xml`: Tool calls are parsed in nested XML format.
 - `json-in-xml`: Tool calls are parsed as raw JSON inside XML tags.
@@ -461,12 +460,13 @@ def tool(
     """
 
     def make_tool(func: t.Callable[..., t.Any]) -> Tool[P, R]:
-        if _is_unbound_method(func):
-            warnings.warn(
-                "Passing a class method to @tool improperly handles the 'self' argument, use @tool_method instead.",
-                SyntaxWarning,
-                stacklevel=3,
-            )
+        # TODO: Improve consistency of detection here before enabling this warning
+        # if _is_unbound_method(func):
+        #     warnings.warn(
+        #         "Passing a class method to @tool improperly handles the 'self' argument, use @tool_method instead.",
+        #         SyntaxWarning,
+        #         stacklevel=3,
+        #     )
 
         return Tool.from_callable(
             func,
@@ -566,12 +566,13 @@ def tool_method(
     """
 
     def make_tool(func: t.Callable[..., t.Any]) -> ToolMethod[P, R]:
-        if not _is_unbound_method(func):
-            warnings.warn(
-                "Passing a regular function to @tool_method improperly handles the 'self' argument, use @tool instead.",
-                SyntaxWarning,
-                stacklevel=3,
-            )
+        # TODO: Improve consistency of detection here before enabling this warning
+        # if not _is_unbound_method(func):
+        #     warnings.warn(
+        #         "Passing a regular function to @tool_method improperly handles the 'self' argument, use @tool instead.",
+        #         SyntaxWarning,
+        #         stacklevel=3,
+        #     )
 
         # Strip the `self` argument from the function signature so
         # our schema generation doesn't include it under the hood.
