@@ -2,7 +2,6 @@
 Models are the core datatypes for structured parsing.
 """
 
-import contextlib
 import dataclasses
 import inspect
 import re
@@ -31,7 +30,7 @@ from pydantic_xml.model import XmlEntityInfo
 from pydantic_xml.typedefs import EntityLocation, NsMap
 
 from rigging.error import MissingModelError
-from rigging.util import escape_xml, to_xml_tag, unescape_xml
+from rigging.util import escape_xml, to_xml_tag, unescape_cdata_tags, unescape_xml
 
 #
 # Core XML serializable models for messages
@@ -97,47 +96,117 @@ class Model(BaseXmlModel):
         )
         cls.__xml_tag__ = tag or XmlTagDescriptor()  # type: ignore [assignment]
 
+    def _postprocess_with_cdata(self, tree: ET.Element) -> ET.Element:
+        # Walk the first elements down and find any that align with str-based fields
+        # If so, we should encode them as CDATA to avoid escaping issues
+
+        basic_fields = {
+            (
+                field_info.path
+                if isinstance(field_info, XmlEntityInfo) and field_info.path
+                else field_name
+            ): field_info
+            for field_name, field_info in self.__class__.model_fields.items()
+        }
+
+        for elem in [tree, *tree]:
+            field_info = basic_fields.get(elem.tag, None)
+
+            # If this is the tree itself, check for an interior primitive field
+            if field_info is None and elem is tree:
+                field_info = next(
+                    (f for f in basic_fields.values() if not isinstance(f, XmlEntityInfo)),
+                    None,
+                )
+
+            if field_info is None:
+                continue
+
+            field_type = field_info.annotation
+            if t.get_origin(field_type) == t.Annotated:
+                field_type = t.get_args(field_type)[0]
+
+            if field_type not in BASIC_TYPES:
+                continue
+
+            # Replace this with an element that uses CDATA
+            if elem.text and escape_xml(unescape_xml(elem.text)) != elem.text:
+                elem.text = f"<![CDATA[{elem.text}]]>"
+
+        return tree
+
     # to_xml() doesn't prettify normally, and extended
     # requirements like lxml seemed like poor form for
     # just this feature
-    def to_pretty_xml(self) -> str:
+    def to_pretty_xml(
+        self,
+        *,
+        skip_empty: bool = False,
+        exclude_none: bool = False,
+        exclude_unset: bool = False,
+        **kwargs: t.Any,
+    ) -> str:
         """
         Converts the model to a pretty XML string with indents and newlines.
 
         Returns:
             The pretty XML representation of the model.
         """
-        tree = self.to_xml_tree()
+        tree = self.to_xml_tree(
+            skip_empty=skip_empty,
+            exclude_none=exclude_none,
+            exclude_unset=exclude_unset,
+        )
+        tree = self._postprocess_with_cdata(tree)
+
         ET.indent(tree, "  ")
         pretty_encoded_xml = str(
             ET.tostring(
                 tree,
                 short_empty_elements=False,
                 encoding="utf-8",
+                **kwargs,
             ).decode(),
         )
 
-        # If this is a complex model, we'll return exactly what we get
-        if not self.__class__.is_simple() and not self.__class__.is_simple_with_attrs():
-            return pretty_encoded_xml
+        # Now we can go back and safely unescape the XML
+        # that we observe between any CDATA tags
 
-        # Otherwise we can try to do some cleaning by unescaping and
-        # re-indenting the XML (helpful for nested-xml)
+        return unescape_cdata_tags(pretty_encoded_xml)
 
-        pretty_encoded_xml = unescape_xml(pretty_encoded_xml)
+    def to_xml(
+        self,
+        *,
+        skip_empty: bool = False,
+        exclude_none: bool = False,
+        exclude_unset: bool = False,
+        **kwargs: t.Any,
+    ) -> str:
+        """
+        Serializes the object to an xml string.
 
-        with contextlib.suppress(ET.ParseError):
-            tree = ET.fromstring(pretty_encoded_xml)  # noqa: S314
-            ET.indent(tree, "  ")
-            pretty_encoded_xml = str(
-                ET.tostring(
-                    tree,
-                    short_empty_elements=False,
-                    encoding="utf-8",
-                ).decode(),
-            )
+        Args:
+            skip_empty: skip empty elements (elements without sub-elements, attributes and text, Nones)
+            exclude_none: exclude `None` values
+            exclude_unset: exclude values that haven't been explicitly set
+            kwargs: additional xml serialization arguments
 
-        return pretty_encoded_xml
+        Returns:
+            object xml representation
+        """
+
+        tree = self.to_xml_tree(
+            skip_empty=skip_empty,
+            exclude_none=exclude_none,
+            exclude_unset=exclude_unset,
+        )
+        tree = self._postprocess_with_cdata(tree)
+        xml = ET.tostring(tree, short_empty_elements=False, encoding="utf-8", **kwargs).decode()
+
+        # Now we can go back and safely unescape the XML
+        # that we observe between any CDATA tags
+
+        return unescape_cdata_tags(xml)
 
     def __str__(self) -> str:
         return self.to_pretty_xml()
@@ -260,6 +329,57 @@ class Model(BaseXmlModel):
                     f"Model '{cls.__name__}' has a single attr() field which is not supported",
                 )
 
+    @classmethod
+    def preprocess_with_cdata(cls, content: str) -> str:
+        """
+        Process the content and attempt to auto-wrap interior
+        field content in CDATA tags if they contain unescaped XML entities.
+
+        Args:
+            content: The XML content to preprocess.
+
+        Returns:
+            The processed XML content with CDATA tags added where necessary.
+        """
+
+        field_map = {
+            (
+                field_info.path
+                if isinstance(field_info, XmlEntityInfo) and field_info.path
+                else field_name
+            ): field_info
+            for field_name, field_info in cls.model_fields.items()
+            if isinstance(field_info, XmlEntityInfo)
+            and field_info.location == EntityLocation.ELEMENT
+        }
+
+        def wrap_with_cdata(match: re.Match[str]) -> str:
+            field_name = match.group(1)
+            tag_attrs = match.group(2) or ""  # Handle attributes if present
+            content = match.group(3)
+
+            if field_name not in field_map:
+                return f"<{field_name}{tag_attrs}>{content}</{field_name}>"
+
+            field_info = field_map[field_name]
+            field_type = field_info.annotation
+            if t.get_origin(field_type) == t.Annotated:
+                field_type = t.get_args(field_type)[0]
+
+            is_basic_field = field_type in BASIC_TYPES
+            is_already_cdata = content.strip().startswith("<![CDATA[")
+            needs_escaping = escape_xml(unescape_xml(content)) != content
+
+            if is_basic_field and not is_already_cdata and needs_escaping:
+                content = f"<![CDATA[{content}]]>"
+
+            return f"<{field_name}{tag_attrs}>{content}</{field_name}>"
+
+        fields_pattern = "|".join(re.escape(field_name) for field_name in field_map)
+        pattern = f"<({fields_pattern})((?:[^>]*?)?)>(.*?)</\\1>"
+
+        return re.sub(pattern, wrap_with_cdata, content, flags=re.DOTALL)
+
     # Attempt to extract this object from an arbitrary string
     # which may contain other XML elements or text, returns
     # the object and the string from which is was parsed.
@@ -289,11 +409,12 @@ class Model(BaseXmlModel):
         cls.ensure_valid()
 
         tag_name = re.escape(cls.__xml_tag__ or "unknown")
-        pattern = f"(<({tag_name}).*?>((.*?)</{tag_name}>))"
+        pattern = f"((<({tag_name}).*?>)((.*?)</{tag_name}>))"
+
         matches = [
             m
             for m in re.finditer(pattern, content, flags=re.DOTALL)
-            if m.group(2) == cls.__xml_tag__
+            if m.group(3) == cls.__xml_tag__
         ]
 
         if not matches:
@@ -303,12 +424,12 @@ class Model(BaseXmlModel):
         # longest first. This should help us avoid matching the model
         # supplying hollow tags before the actual data.
 
-        sorted_matches = sorted(matches, key=lambda m: len(m.group(4)), reverse=True)
+        sorted_matches = sorted(matches, key=lambda m: len(m.group(5)), reverse=True)
 
         extracted: list[tuple[te.Self, slice]] = []
         exceptions: list[Exception] = []
         for match in sorted_matches:
-            full_text, _, inner_with_end_tag, inner = match.groups()
+            full_text, start_tag, _, inner_with_end_tag, inner = match.groups()
 
             # The model might trip up regex by including partial tags
             # in passing before actually using them. We'll continually try
@@ -320,6 +441,8 @@ class Model(BaseXmlModel):
             # backwards if we get failures. This is a simple solution for now.
 
             inner_match: re.Match[str] | None = match
+            slice_ = slice(match.start(), match.end())
+
             while inner_match is not None:
                 inner_matches = re.finditer(
                     pattern,
@@ -327,17 +450,21 @@ class Model(BaseXmlModel):
                     flags=re.DOTALL,
                 )
                 inner_match = next(
-                    (m for m in inner_matches if m.group(2) == cls.__xml_tag__),
+                    (m for m in inner_matches if m.group(3) == cls.__xml_tag__),
                     None,
                 )
                 if inner_match is not None:
-                    full_text, _, inner_with_end_tag, inner = inner_match.groups()
+                    slice_ = slice(
+                        slice_.start + len(start_tag) + inner_match.start(),
+                        slice_.start + len(start_tag) + inner_match.end(),
+                    )
+                    full_text, start_tag, _, inner_with_end_tag, inner = inner_match.groups()
 
             try:
                 model = (
                     cls(**{next(iter(cls.model_fields)): unescape_xml(inner)})
                     if cls.is_simple()
-                    else cls.from_xml(escape_xml(full_text))
+                    else cls.from_xml(cls.preprocess_with_cdata(full_text))
                 )
 
                 # If our model is relatively simple (only attributes and a single non-element field)
@@ -354,7 +481,7 @@ class Model(BaseXmlModel):
                             unescape_xml(inner).strip(),
                         )
 
-                extracted.append((model, slice(match.start(), match.end())))
+                extracted.append((model, slice_))
             except Exception as e:  # noqa: BLE001
                 exceptions.append(e)
                 continue

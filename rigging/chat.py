@@ -623,9 +623,11 @@ class PipelineStep:
         while next_parent is not None:
             if next_parent is next_parent.parent:
                 raise RuntimeError("Parent is self-referential")
+
             if next_parent.parent is None:
                 next_parent.parent = parent
                 return copy
+
             next_parent = next_parent.parent
 
         raise RuntimeError("Unable to set parent step")
