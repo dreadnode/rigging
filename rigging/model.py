@@ -804,6 +804,7 @@ def make_from_signature(
 
 
 class ErrorModel(Model, tag="error"):
+    type: str = element(default="Exception")
     content: str
 
     @field_validator("content", mode="before")
@@ -812,6 +813,19 @@ class ErrorModel(Model, tag="error"):
         if isinstance(value, Exception):
             return str(value)
         return value
+
+    @classmethod
+    def from_exception(cls, exception: Exception) -> te.Self:
+        """
+        Create an ErrorModel instance from an exception.
+
+        Args:
+            exception: The exception to convert.
+
+        Returns:
+            An instance of ErrorModel with the exception content.
+        """
+        return cls(content=str(exception), type=type(exception).__name__)
 
 
 class SystemErrorModel(ErrorModel, tag="system-error"):

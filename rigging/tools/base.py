@@ -7,14 +7,21 @@ import inspect
 import json
 import re
 import typing as t
+import warnings
 from dataclasses import dataclass, field
 from functools import cached_property
 
 import typing_extensions as te
-from pydantic import BaseModel, TypeAdapter, field_validator
+from pydantic import BaseModel, TypeAdapter, ValidationError, field_validator
 
-from rigging.error import Stop, ToolDefinitionError
-from rigging.model import Model, make_from_schema, make_from_signature
+from rigging.error import Stop, ToolDefinitionError, ToolWarning
+from rigging.model import (
+    ErrorModel,
+    Model,
+    SystemErrorModel,
+    make_from_schema,
+    make_from_signature,
+)
 from rigging.tools.native import (
     JsonInXmlToolDefinition,
     XmlToolDefinition,
@@ -289,9 +296,12 @@ class Tool(t.Generic[P, R]):
 
     @property
     def model(self) -> type[Model]:
-        # Do this lazily in case our our xml-based model doesn't
-        # support some of the argument types. We don't want to
-        # break api-based tools because of this.
+        # Usually, we only dynamically construct a model when we are
+        # using `xml` tool calls (noted above). We'll do this lazily
+        # to avoid overhead and exceptions.
+
+        # We use the signature if we have it as it's more accurate,
+        # but fallback to using just the schema if we don't.
 
         if self._model is None:
             try:
@@ -342,41 +352,47 @@ class Tool(t.Generic[P, R]):
 
         with tracer.span(f"Tool {self.name}()", name=self.name) as span:
             if tool_call.name != self.name:
-                raise ValueError(
-                    f"Requested function name '{tool_call.name}' does not match '{self.name}'",
+                warnings.warn(
+                    f"Tool call name mismatch: {tool_call.name} != {self.name}",
+                    ToolWarning,
+                    stacklevel=2,
                 )
+                return Message.from_model(SystemErrorModel(content="Invalid tool call.")), True
 
-            if isinstance(tool_call, ToolCall):
+            if hasattr(tool_call, "id") and isinstance(tool_call.id, str):
                 span.set_attribute("tool_call_id", tool_call.id)
+
+            result: t.Any
+            stop = False
 
             # Load + validate arguments
 
-            kwargs = json.loads(tool_call.function.arguments)
-
-            if self._type_adapter is not None:
-                kwargs = self._type_adapter.validate_python(kwargs)
-
-            span.set_attribute("arguments", kwargs)
+            try:
+                kwargs = json.loads(tool_call.function.arguments)
+                if self._type_adapter is not None:
+                    kwargs = self._type_adapter.validate_python(kwargs)
+                span.set_attribute("arguments", kwargs)
+            except (json.JSONDecodeError, ValidationError) as e:
+                result = ErrorModel.from_exception(e)
 
             # Call the function
 
-            stop = False
-
-            try:
-                result: t.Any = self.fn(**kwargs)  # type: ignore [call-arg]
-                if inspect.isawaitable(result):
-                    result = await result
-            except Stop as e:
-                result = f"<{TOOL_STOP_TAG}>{e.message}</{TOOL_STOP_TAG}>"
-                span.set_attribute("stop", True)
-                stop = True
-            except Exception as e:
-                if self.catch is True or (
-                    not isinstance(self.catch, bool) and isinstance(e, tuple(self.catch))
-                ):
-                    result = f'<error type="{e.__class__.__name__}">{e}</error>'
-                else:
-                    raise
+            else:
+                try:
+                    result = self.fn(**kwargs)  # type: ignore [call-arg]
+                    if inspect.isawaitable(result):
+                        result = await result
+                except Stop as e:
+                    result = f"<{TOOL_STOP_TAG}>{e.message}</{TOOL_STOP_TAG}>"
+                    span.set_attribute("stop", True)
+                    stop = True
+                except Exception as e:
+                    if self.catch is True or (
+                        not isinstance(self.catch, bool) and isinstance(e, tuple(self.catch))
+                    ):
+                        result = ErrorModel.from_exception(e)
+                    else:
+                        raise
 
             span.set_attribute("result", result)
 
