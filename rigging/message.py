@@ -337,7 +337,7 @@ Content = ContentText | ContentImageUrl | ContentAudioInput
 """The types of content that can be included in a message."""
 ContentTypes = (ContentText, ContentImageUrl, ContentAudioInput)
 
-CompatibilityFlag = t.Literal["content_as_str"]
+CompatibilityFlag = t.Literal["content_as_str", "skip_tools"]
 
 
 class Message(BaseModel):
@@ -366,8 +366,10 @@ class Message(BaseModel):
     """The tool calls associated with the message."""
     tool_call_id: str | None = Field(None)
     """Associated call id if this message is a response to a tool call."""
-
-    _compability_flags: set[CompatibilityFlag] = set()
+    metadata: dict[str, t.Any] = Field(default_factory=dict, repr=False)
+    """Metadata associated with the message."""
+    compability_flags: set[CompatibilityFlag] = Field(default_factory=set, repr=False)
+    """Compatibility flags for the message."""
 
     def __init__(
         self,
@@ -540,8 +542,13 @@ class Message(BaseModel):
         Returns:
             The serialized message.
         """
+        include_fields = {"role", "content_parts"}
+        if "skip_tools" not in self.compability_flags:
+            include_fields.add("tool_calls")
+            include_fields.add("tool_call_id")
+
         obj = self.model_dump(
-            include={"role", "content_parts", "tool_calls", "tool_call_id"},
+            include=include_fields,
             exclude_none=True,
         )
 
@@ -575,7 +582,7 @@ class Message(BaseModel):
         # string for API compatibility. Groq is an example of an API
         # which will complain for some roles if we send a list of content parts.
 
-        if "content_as_str" in self._compability_flags:
+        if "content_as_str" in self.compability_flags:
             obj["content"] = "".join(
                 part["text"]
                 for part in obj["content"]
@@ -592,15 +599,21 @@ class Message(BaseModel):
 
     def _remove_part(self, part: ParsedMessagePart) -> None:
         text_parts = [p for p in self.content_parts if isinstance(p, ContentText)]
-        if len(text_parts) > 1:
-            raise NotImplementedError(
-                "Managing parsed parts in messages with multiple content text parts is not supported",
-            )
-
         if len(text_parts) == 0:
             return
 
-        text_part = text_parts[0]
+        # Merge parts if we have multiple text parts
+        if len(text_parts) > 1:
+            text_part = ContentText(
+                text=self.content,
+                cache_control=text_parts[0].cache_control,
+            )
+            self.content_parts = [
+                *[p for p in self.content_parts if not isinstance(p, ContentText)],
+                text_part,
+            ]
+        else:
+            text_part = text_parts[0]
 
         removed_length = part.slice_.stop - part.slice_.start
         text_part.text = text_part.text[: part.slice_.start] + text_part.text[part.slice_.stop :]
@@ -638,15 +651,17 @@ class Message(BaseModel):
 
     def _sync_parts(self) -> None:
         text_parts = [p for p in self.content_parts if isinstance(p, ContentText)]
-        if len(text_parts) > 1:
-            raise NotImplementedError(
-                "Managing parsed parts in messages with multiple content text parts is not supported",
-            )
-
         if len(text_parts) == 0:
-            raise ValueError("No text content to remove part from")
+            return
 
-        text_part = text_parts[0]
+        if len(text_parts) > 1:
+            # Merge the parts
+            text_part = ContentText(
+                text="\n".join(p.text for p in text_parts),
+                cache_control=text_parts[0].cache_control,
+            )
+        else:
+            text_part = text_parts[0]
 
         self.parts = sorted(self.parts, key=lambda p: p.slice_.start)
 
@@ -685,7 +700,22 @@ class Message(BaseModel):
             parts=copy.deepcopy(self.parts),
             tool_calls=copy.deepcopy(self.tool_calls),
             tool_call_id=self.tool_call_id,
+            metadata=copy.deepcopy(self.metadata),
+            compability_flags=copy.deepcopy(self.compability_flags),
         )
+
+    def meta(self, **kwargs: t.Any) -> "Message":
+        """
+        Updates the metadata of the message with the provided key-value pairs.
+
+        Args:
+            **kwargs: Key-value pairs representing the metadata to be updated.
+
+        Returns:
+            The updated message.
+        """
+        self.metadata.update(kwargs)
+        return self
 
     def cache(self, cache_control: dict[str, str] | bool = True) -> "Message":  # noqa: FBT002
         """
@@ -979,4 +1009,26 @@ def inject_system_content(messages: list[Message], content: str) -> list[Message
         messages.insert(0, Message(role="system", content=content))
     elif messages[0].role == "system" and content not in messages[0].content:
         messages[0].content += "\n\n" + content
+    return messages
+
+
+def strip_system_content(messages: list[Message], content: str) -> list[Message]:
+    """
+    Strips the system message from a list of messages.
+
+    Args:
+        messages: The list of messages to modify.
+
+    Returns:
+        The modified list of messages without the system message.
+    """
+    if not messages or messages[0].role != "system":
+        return messages
+
+    system_message = messages[0]
+    system_message.content = system_message.content.replace(content, "").strip()
+
+    if system_message.content == "":
+        return messages[1:]
+
     return messages

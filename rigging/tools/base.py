@@ -115,6 +115,10 @@ class ToolCall(BaseModel):
     def name(self) -> str:
         return self.function.name
 
+    @property
+    def arguments(self) -> str:
+        return self.function.arguments
+
 
 def _is_unbound_method(func: t.Any) -> bool:
     is_method = (

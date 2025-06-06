@@ -2,7 +2,6 @@ import json
 import typing as t
 import uuid
 import warnings
-from typing import runtime_checkable
 
 import xmltodict  # type: ignore[import-untyped]
 
@@ -12,46 +11,78 @@ from rigging.message import (
     ContentText,
     Message,
     inject_system_content,
+    strip_system_content,
 )
 from rigging.tools.base import FunctionCall, Tool, ToolCall, ToolMode
 from rigging.tools.native import (
     TOOL_CALL_TAG,
+    JsonInXmlToolDefinition,
     NativeToolCall,
     NativeToolResponse,
-    get_native_tool_prompt_part,
+    XmlToolDefinition,
 )
+from rigging.transform.base import PostTransform, Transform
 
 if t.TYPE_CHECKING:
     from rigging.chat import Chat
 
 
-@runtime_checkable
-class PostTransform(t.Protocol):
-    def __call__(
-        self,
-        chat: "Chat",
-        /,
-    ) -> "t.Awaitable[Chat]":
-        """
-        Passed messages and params to transform.
-        """
-        ...
+XML_CALL_FORMAT = f"""\
+To use a tool, respond with the following format:
+
+<{TOOL_CALL_TAG} name="$tool_name">
+<$param_name>argument one</$param_name>
+<$param_name>123</$param_name>
+</{TOOL_CALL_TAG}>
+
+If a parameter is a primitive list, provide child elements as items:
+<numbers>
+    <item>1</item>
+    <item>2</item>
+</numbers>
+
+If a parameter is a list of objects, provide them as named child elements:
+<things>
+    <thing>
+        <foo>bar</foo>
+    </thing>
+    <thing>
+        <foo>baz</foo>
+    </thing>
+</things>
+
+If a parameter is a dictionary, provide key-value pairs as attributes:
+<dict key1="value1" key2="123" />\
+"""
+
+XML_IN_JSON_CALL_FORMAT = f"""\
+To use a tool, respond with the following format:
+
+<{TOOL_CALL_TAG} name="$tool_name">
+{{"$param_name": "argument one", "$param_name": 123}}
+</{TOOL_CALL_TAG}>
+
+Arguments should be provided as a valid JSON object between the tags.\
+"""
 
 
-@runtime_checkable
-class Transform(t.Protocol):
-    def __call__(
-        self,
-        messages: list[Message],
-        params: GenerateParams,
-        /,
-    ) -> t.Awaitable[tuple[list[Message], GenerateParams, PostTransform | None]]:
-        """
-        Passed messages and params to transform.
+def get_native_tool_prompt_part(
+    tool_descriptions: list[XmlToolDefinition | JsonInXmlToolDefinition],
+    mode: t.Literal["xml", "json-in-xml"],
+) -> str:
+    call_format = XML_CALL_FORMAT if mode == "xml" else XML_IN_JSON_CALL_FORMAT
+    tool_definitions = "\n".join([tool.to_pretty_xml() for tool in tool_descriptions])
+    return f"""\
+# Tools
 
-        May return an optional post-transform callback to be executed to unwind the transformation.
-        """
-        ...
+You may call one or more functions to assist with the user query. Don't make assumptions about what values to plug into functions.
+
+<tools>
+{tool_definitions}
+</tools>
+
+{call_format}
+"""
 
 
 def make_native_tool_transform(  # noqa: PLR0915
@@ -283,20 +314,7 @@ def make_native_tool_transform(  # noqa: PLR0915
 
             # Strip the system message part
 
-            if chat.all and chat.all[0].role == "system":
-                chat.all[0].content = (
-                    chat.all[0]
-                    .content.replace(
-                        tool_system_prompt,
-                        "",
-                    )
-                    .strip()
-                )
-
-            # If the system message is empty after stripping, remove it
-
-            if chat.messages and chat.messages[0].content == "":
-                chat.messages.pop(0)
+            chat.messages = strip_system_content(chat.messages, tool_system_prompt)
 
             return chat
 

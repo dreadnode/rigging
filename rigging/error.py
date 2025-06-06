@@ -64,6 +64,15 @@ class ToolWarning(PipelineWarning):
     """
 
 
+class MessageWarning(PipelineWarning):
+    """
+    Base class for all message warnings.
+
+    This is used to indicate that something unexpected happened during the message processing,
+    but it is not critical enough to stop the execution.
+    """
+
+
 # System Exceptions
 
 

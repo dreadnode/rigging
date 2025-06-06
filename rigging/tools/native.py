@@ -10,8 +10,8 @@ from pydantic_xml import attr, element
 
 from rigging.model import Model
 
-TOOL_CALL_TAG = "rg-tool-call"
-TOOL_RESPONSE_TAG = "rg-tool-response"
+TOOL_CALL_TAG: t.Literal["rg-tool-call"] = "rg-tool-call"
+TOOL_RESPONSE_TAG: t.Literal["rg-tool-response"] = "rg-tool-response"
 
 DEFAULT_NATIVE_TOOL_MODE: t.Literal["json-in-xml"] = "json-in-xml"
 
@@ -125,63 +125,3 @@ class NativeToolCall(Model, tag=TOOL_CALL_TAG):
 class NativeToolResponse(Model, tag=TOOL_RESPONSE_TAG):
     id: str = attr(default="")
     result: str
-
-
-# prompts
-
-XML_CALL_FORMAT = f"""\
-To use a tool, respond with the following format:
-
-<{TOOL_CALL_TAG} name="$tool_name">
-<$param_name>argument one</$param_name>
-<$param_name>123</$param_name>
-</{TOOL_CALL_TAG}>
-
-If a parameter is a primitive list, provide child elements as items:
-<numbers>
-    <item>1</item>
-    <item>2</item>
-</numbers>
-
-If a parameter is a list of objects, provide them as named child elements:
-<things>
-    <thing>
-        <foo>bar</foo>
-    </thing>
-    <thing>
-        <foo>baz</foo>
-    </thing>
-</things>
-
-If a parameter is a dictionary, provide key-value pairs as attributes:
-<dict key1="value1" key2="123" />\
-"""
-
-XML_IN_JSON_CALL_FORMAT = f"""\
-To use a tool, respond with the following format:
-
-<{TOOL_CALL_TAG} name="$tool_name">
-{{"$param_name": "argument one", "$param_name": 123}}
-</{TOOL_CALL_TAG}>
-
-Arguments should be provided as a valid JSON object between the tags.\
-"""
-
-
-def get_native_tool_prompt_part(
-    tool_descriptions: list[XmlToolDefinition | JsonInXmlToolDefinition],
-    mode: t.Literal["xml", "json-in-xml"],
-) -> str:
-    call_format = XML_CALL_FORMAT if mode == "xml" else XML_IN_JSON_CALL_FORMAT
-    tool_definitions = "\n".join([tool.to_pretty_xml() for tool in tool_descriptions])
-    return f"""\
-# Tools
-
-You may call one or more functions to assist with the user query. Don't make assumptions about what values to plug into functions.
-
-<tools>
-{tool_definitions}
-</tools>
-
-{call_format}
-"""
