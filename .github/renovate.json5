@@ -38,7 +38,7 @@
     {
       matchManagers: ["poetry", "pip_requirements"],
       matchDepTypes: ["python"],
-      allowedVersions: "^3.9",
+      allowedVersions: "^3.8",
       enabled: true,
     },
     {
