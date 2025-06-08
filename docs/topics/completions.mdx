@@ -4,7 +4,7 @@ description: "Using Rigging for text completions"
 public: true
 ---
 
-The majority of Rigging was built around "instruct" or "chat" LLM interfaces where a base model has been tuned to work with a structured layer on top of raw text completion. We typically find that base models are more unpredictable with their outputs, tend to be more sensitive to small changes in their context windows, and require frequent use of stop tokens to prevent unneccesary generation.
+The majority of Rigging was built around "instruct" or "chat" LLM interfaces where a base model has been tuned to work with a structured layer on top of raw text completion. We typically find that base models are more unpredictable with their outputs, tend to be more sensitive to small changes in their context windows, and require frequent use of stop tokens to prevent unnecessary generation.
 
 However, there are some places where completing raw text and working with base models might be desirable:
 
@@ -25,7 +25,7 @@ with the other code in rigging. Here are the highlights:
 - `generate_messages` -> `generate_texts`
 
 On all of these interfaces, you'll note that sequences of `Message` objects have been
-replaced with basic `str` objects for both inputs and ouputs.
+replaced with basic `str` objects for both inputs and outputs.
 
 ## Translator Example
 
@@ -46,9 +46,9 @@ Input: $input
 Output: """
 
 translator = (
-    rg.get_generator('gpt-3.5-turbo') 
+    rg.get_generator('gpt-3.5-turbo')
     .complete(PROMPT)
-    .with_(stop=["---", "Input:", "\n\n"]) 
+    .with_(stop=["---", "Input:", "\n\n"])
 )
 
 text = "Could you please tell me where the nearest train station is?"

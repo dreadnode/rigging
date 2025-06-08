@@ -6,7 +6,7 @@ import dataclasses
 import inspect
 import re
 import typing as t
-from xml.etree import ElementTree as ET
+from xml.etree import ElementTree as ET  # nosec
 
 import typing_extensions as te
 import xmltodict  # type: ignore [import-untyped]
@@ -183,16 +183,29 @@ class Model(BaseXmlModel):
         **kwargs: t.Any,
     ) -> str:
         """
-        Serializes the object to an xml string.
+                Serializes the object to an xml string.
 
-        Args:
-            skip_empty: skip empty elements (elements without sub-elements, attributes and text, Nones)
-            exclude_none: exclude `None` values
-            exclude_unset: exclude values that haven't been explicitly set
-            kwargs: additional xml serialization arguments
+        <<<<<<< HEAD
+                Args:
+                    skip_empty: skip empty elements (elements without sub-elements, attributes and text, Nones)
+                    exclude_none: exclude `None` values
+                    exclude_unset: exclude values that haven't been explicitly set
+                    kwargs: additional xml serialization arguments
+        =======
+                with contextlib.suppress(ET.ParseError):
+                    tree = ET.fromstring(pretty_encoded_xml)  # noqa: S314 # nosec
+                    ET.indent(tree, "  ")
+                    pretty_encoded_xml = str(
+                        ET.tostring(
+                            tree,
+                            short_empty_elements=False,
+                            encoding="utf-8",
+                        ).decode(),
+                    )
+        >>>>>>> origin/main
 
-        Returns:
-            object xml representation
+                Returns:
+                    object xml representation
         """
 
         tree = self.to_xml_tree(
@@ -686,6 +699,7 @@ def make_from_schema(
     Args:
         schema: The JSON schema to build the model from.
         name: The name of the model (otherwise inferred from the schema).
+        allow_primitive: If True, allows the model to be a simple primitive
 
     Returns:
         The Pydantic model class.

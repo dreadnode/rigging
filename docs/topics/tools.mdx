@@ -29,7 +29,7 @@ Rigging uses function signatures (type hints and docstrings) to automatically ge
 
 ### Using `@tool` for Functions
 
-Decorate any regular Python function (including static methods) with `@rigging.tool.tool` to make it usable by the Rigging framework.
+Decorate any regular Python function (including static methods) with `@rigging.tool` to make it usable by the Rigging framework.
 
 ```python
 import typing as t
@@ -62,7 +62,7 @@ print(get_weather.parameters_schema)
 
 ### Using `@tool_method` for Class Methods
 
-If your tool logic resides within a class and needs access to instance state (`self`), use the `@rigging.tool.tool_method` decorator instead.
+If your tool logic resides within a class and needs access to instance state (`self`), use the `@rigging.tool_method` decorator instead.
 
 ```python
 import typing as t
@@ -103,6 +103,37 @@ print(user_profile_tool.description)
 
 Both decorators use `Tool.from_callable()` internally to wrap your function/method into a `Tool` object. This object holds the function, its generated schema, name, and description.
 
+### Async vs Sync
+
+You can define your tools as either synchronous or asynchronous functions. Rigging will automatically handle the invocation based on the function's type. Usually it's good practice to use `async def` for all your tool functions, and you can opt into any asynchronous behavior later when you start to scale your pipelines.
+
+```python
+import rigging as rg
+
+@rg.tool
+async def afetch_data(url: str) -> dict:
+    """Fetches data from a given URL (async)"""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            return await response.json()
+
+@rg.tool
+def fetch_data(url: str) -> dict:
+    """Fetches data from a given URL (sync)"""
+    response = requests.get(url)
+    return response.json()
+
+data = await afetch_data("https://api.example.com/data")
+data = fetch_data("https://api.example.com/data")
+
+@rg.prompt(tools=[afetch_data, fetch_data])
+def explore_api(url: str) -> rg.Chat:
+    "Explore the API at the given URL"
+    ...
+
+chat = await explore_api("https://api.example.com/data")
+```
+
 ## Using Tools in Pipelines
 
 To make tools available during generation, pass them to the `ChatPipeline.using()` method.
@@ -132,22 +163,51 @@ print(chat.conversation)
 
 The `mode` parameter in `.using()` controls how Rigging interacts with the language model for tool calls:
 
--  **`"auto"` (Default):** Rigging checks if the model provider supports API-level function calling (like OpenAI, Anthropic, Google). If yes, it uses that native, efficient mechanism. If not, it falls back to `"xml"`.
--  **`"api"`:** Forces the use of the provider's function calling API. Will fail if the provider doesn't support it.
--  **`"xml"`:** Rigging injects instructions and an XML schema into the prompt, telling the model how to format its output to request a tool call using specific XML tags. Rigging parses this XML.
--  **`"json-in-xml"`:** Similar to `"xml"`, but the model is instructed to place a JSON object containing the arguments within the XML tags.
+-  **`auto` (Default):** Rigging checks if the model provider supports API-level function calling (like OpenAI, Anthropic, Google). If yes, it uses that native, efficient mechanism. If not, it falls back to `xml`.
+-  **`api`:** Forces the use of the provider's function calling API. Will fail if the provider doesn't support it.
+-  **`xml`:** Rigging injects instructions and an XML schema into the prompt, telling the model how to format its output to request a tool call using specific XML tags. Rigging parses this XML.
+-  **`json-in-xml`:** Similar to `xml`, but the model is instructed to place a JSON object containing the arguments within the XML tags.
 
-Generally, `"auto"` is recommended as it leverages the most efficient method available.
+Generally, `auto` is recommended as it leverages the most efficient method available.
 
 ### Controlling Recursion (`max_depth`)
 
 The `max_depth` parameter limits how many levels deep tool calls can go. If a tool itself triggers another prompt that uses tools, this prevents infinite loops.
 
+### Stopping Tool Calls
+
+You may want to use a particular tool, or catch a condition inside a tool, and indicate to any pipelines that it should stop going back to the model for more calls. You can do this by raising a `rigging.Stop` exception with a message to the model.
+
+```python
+import rigging as rg
+
+@rg.tool
+def execute_code(code: str) -> str:
+    "Finish a task and report a summary of work"
+    ...
+
+    if "<flag>" in output: # Stop the model from executing more code
+        raise rg.Stop(f"Task finished")
+
+    return output
+
+chat = (
+    await rg.get_generator("openai/gpt-4o-mini")
+    .chat("Work to accomplish <work>, then finish it.")
+    .using(finish_task)
+    .run()
+)
+```
+
+<Note>
+This stop indication won't completely halt the pipeline, but it will let it continue to any additional parsing mechanics or custom callbacks which follow tool calling.
+</Note>
+
 ## MCP Integration (Model Context Protocol)
 
 The [Model Context Protocol (MCP)](https://github.com/model-context-protocol/specification) is an open standard for language models to interact with external tools and services. Rigging provides a client to connect to MCP-compliant servers.
 
-Use the `rigging.tool.mcp` function, specifying the transport method (`"stdio"` or `"sse"`) and the connection parameters. It returns an *async context manager*.
+Use the `rigging.tool.mcp` function, specifying the transport method (`stdio` or `sse`) and the connection parameters. It returns an *async context manager*.
 
 ### Using `stdio` (Standard Input/Output)
 
@@ -160,7 +220,7 @@ import rigging as rg
 command = "my-mcp-server"
 args = ["--port", "stdio"] # Example arguments
 
-async with rg.tool.mcp("stdio", command=command, args=args) as mcp_client:
+async with rg.mcp("stdio", command=command, args=args) as mcp_client:
     # mcp_client.tools contains the list of tools discovered from the server
     print(f"Discovered {len(mcp_client.tools)} MCP tools via stdio.")
 
@@ -187,7 +247,7 @@ import rigging as rg
 # URL of the MCP SSE endpoint
 MCP_SSE_URL = "http://localhost:8001/mcp" # Example URL
 
-async with rg.tool.mcp("sse", url=MCP_SSE_URL) as mcp_client:
+async with rg.mcp("sse", url=MCP_SSE_URL) as mcp_client:
     # mcp_client.tools contains the list of tools discovered from the server
     print(f"Discovered {len(mcp_client.tools)} MCP tools via SSE.")
 
@@ -219,7 +279,7 @@ ROBOPAGES_URL = "http://localhost:8080" # Example URL
 
 try:
     # Fetch tools from the server
-    robopages_tools = rg.tool.robopages(ROBOPAGES_URL)
+    robopages_tools = rg.robopages(ROBOPAGES_URL)
 
     # Use the fetched tools in a pipeline
     chat = (
@@ -242,14 +302,14 @@ This fetches the tool definitions (name, description, parameters) from the Robop
 When you call `.using()`:
 
 1.  Rigging prepares the tool definitions based on the selected `mode`.
-2.  For `"api"` mode, the definitions (`ApiToolDefinition`) are passed to the model provider's API.
-3.  For `"xml"` or `"json-in-xml"` modes, Rigging injects the tool schemas and usage instructions into the system prompt.
+2.  For `api` mode, the definitions (`ApiToolDefinition`) are passed to the model provider's API.
+3.  For `xml` or `json-in-xml` modes, Rigging injects the tool schemas and usage instructions into the system prompt.
 4.  During generation, if the model decides to call a tool:
-    *   In `"api"` mode, the provider returns structured tool call information (`ApiToolCall`).
+    *   In `api` mode, the provider returns structured tool call information (`ApiToolCall`).
     *   In native modes, Rigging parses the model's output for the expected XML format (`XmlToolCall` or `JsonInXmlToolCall`).
 5.  Rigging validates the arguments provided by the model against the tool's signature using Pydantic.
 6.  Your original Python function/method (or the relevant MCP/Robopages call) is executed with the validated arguments.
-7.  The return value is formatted into a message (`Message` with `role="tool"` for API calls, or a user message containing `NativeToolResult` for native calls) and sent back to the model.
+7.  The return value is formatted into a message (`Message` with `role="tool` for API calls, or a user message containing `NativeToolResult` for native calls) and sent back to the model.
 8.  The generation process continues until the model produces a final response without tool calls or the `max_depth` is reached.
 
 ### Error Handling

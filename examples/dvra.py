@@ -70,7 +70,7 @@ class Request(Action):
 
 class Response(rg.Model):
     status_code: int = rg.attr()
-    headers: list[Header] = rg.element(defualt=[])
+    headers: list[Header] = rg.element(default=[])
     body: str_strip = rg.element(default="")
 
 

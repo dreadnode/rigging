@@ -193,7 +193,7 @@ class Tool(t.Generic[P, R]):
             fn_for_signature = fn.func  # type: ignore [assignment]
             fn = fn.run  # type: ignore [assignment]
 
-        # In the case that we are recieving a bound function which is tracking
+        # In the case that we are receiving a bound function which is tracking
         # an originating prompt, unwrap the prompt and use it's function for
         # the signature. Be sure to error for cases where we aren't dealing
         # with the singular Prompt.run, as we don't currently have logic to

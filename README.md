@@ -23,7 +23,7 @@ Flexible LLM library for code and agents
 
 Rigging is a lightweight LLM framework to make using language models in production code as simple and effective as possible. Here are the highlights:
 
-- **Structured Pydantic models** can be used interchangably with unstructured text output.
+- **Structured Pydantic models** can be used interchangeably with unstructured text output.
 - LiteLLM as the default generator giving you **instant access to a huge array of models**.
 - Define prompts as python functions with **type hints and docstrings**.
 - Simple **tool use**, even for models which don't support them at the API.

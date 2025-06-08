@@ -1,0 +1,77 @@
+---
+name: Template Sync
+on:
+  # checkov:skip=CKV_GHA_7: "Workflow dispatch inputs are required for manual debugging and configuration"
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: Dry Run
+        default: "false"
+        required: false
+      logLevel:
+        description: Log Level
+        default: "debug"
+        required: false
+
+  schedule:
+    # Run on the 1st of every month at 00:00 UTC
+    - cron: "0 0 1 * *"
+
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/**"
+      - ".hooks/**"
+      - ".pre-commit-config.yaml"
+      - ".mdlrc"
+      - ".editorconfig"
+      - "Taskfile.yaml"
+      - ".task/**"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  template-sync:
+    name: Template Sync
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Token
+        uses: actions/create-github-app-token@df432ceedc7162793a195dd1713ff69aefc7379e # v2.0.6
+        id: app-token
+        with:
+          app-id: "${{ secrets.BOT_APP_ID }}"
+          private-key: "${{ secrets.BOT_APP_PRIVATE_KEY }}"
+          owner: "${{ github.repository_owner }}"
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          token: "${{ steps.app-token.outputs.token }}"
+
+      - name: Template Sync
+        uses: AndreasAugustin/actions-template-sync@v2
+        with:
+          source_gh_token: ${{ steps.app-token.outputs.token }}
+          git_user_name: github-actions[bot]
+          git_user_email: github-actions[bot]@users.noreply.github.com
+          pr_title: "chore: sync infrastructure files with template"
+          pr_labels: sync,template
+          pr_body: |
+            🤖 A new version of the python template files is available.
+
+            This PR was automatically created to sync the following:
+            - GitHub Actions workflows
+            - Pre-commit hooks and configs
+            - Task definitions
+            - Editor configs and linter rules
+
+            Please review the changes carefully before merging.
+          source_repo_path: dreadnode/python-template
+          steps: "prechecks,pull,commit,push,pr"
+          upstream_branch: main

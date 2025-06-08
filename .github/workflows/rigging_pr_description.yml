@@ -1,3 +1,4 @@
+---
 name: Update PR Description with Rigging
 
 on:
@@ -31,22 +32,23 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          DESCRIPTION=$(uv run --no-project .github/scripts/generate_pr_description.py --base-ref origin/${{ github.base_ref }} --exclude *.lock)
-          echo "description<<EOF" >> $GITHUB_OUTPUT
-          echo "$DESCRIPTION" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          DESCRIPTION="$(uv run --no-project .hooks/generate_pr_description.py --base-ref "origin/${{ github.base_ref }}" --exclude "./*.lock")"
+          {
+            echo "description<<EOF"
+            echo "${DESCRIPTION}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Update PR Description
         uses: nefrob/pr-description@4dcc9f3ad5ec06b2a197c5f8f93db5e69d2fdca7 # v1.2.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           content: |
-            
+
             ---
-            
+
             ## Generated Summary
 
             ${{ steps.description.outputs.description }}
 
             This summary was generated with ❤️ by [rigging](https://docs.dreadnode.io/rigging/)
-          

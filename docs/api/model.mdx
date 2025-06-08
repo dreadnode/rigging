@@ -1,0 +1,748 @@
+---
+title: rigging.model
+---
+
+{/*
+::: rigging.model
+*/}
+
+Models are the core datatypes for structured parsing.
+
+Answer
+------
+
+Quick model for answers.
+
+CommaDelimitedAnswer
+--------------------
+
+Comma delimited answer (,)
+
+DelimitedAnswer
+---------------
+
+Mixed support delimited answer (- | / ,) selected based on most-matches
+
+### items
+
+```python
+items: list[str]
+```
+
+Parsed items from the content.
+
+Description
+-----------
+
+Quick model for descriptions.
+
+Instructions
+------------
+
+Quick model for instructions.
+
+Model
+-----
+
+### from\_text
+
+```python
+from_text(content: str) -> list[tuple[te.Self, slice]]
+```
+
+The core parsing method which attempts to extract and parse as many
+valid instances of a model from semi-structured text.
+
+**Parameters:**
+
+* **`content`**
+  (`str`)
+  –The text content to parse.
+
+**Returns:**
+
+* `list[tuple[Self, slice]]`
+  –A list of tuples containing the extracted models and their corresponding slices.
+
+**Raises:**
+
+* `MissingModelError`
+  –If the specified model tags are not found in the message.
+* `ValidationError`
+  –If an error occurs while parsing the content.
+
+<Accordion title="Source code in rigging/model.py" icon="code">
+```python
+@classmethod
+def from_text(cls, content: str) -> list[tuple[te.Self, slice]]:
+    """
+    The core parsing method which attempts to extract and parse as many
+    valid instances of a model from semi-structured text.
+
+    Args:
+        content: The text content to parse.
+
+    Returns:
+        A list of tuples containing the extracted models and their corresponding slices.
+
+    Raises:
+        MissingModelError: If the specified model tags are not found in the message.
+        ValidationError: If an error occurs while parsing the content.
+    """
+    cls.ensure_valid()
+
+    tag_name = cls.__xml_tag__
+    pattern = f"(<({tag_name}).*?>((.*?)</{tag_name}>))"
+    matches = [
+        m
+        for m in re.finditer(pattern, content, flags=re.DOTALL)
+        if m.group(2) == cls.__xml_tag__
+    ]
+
+    if not matches:
+        raise MissingModelError(f"Failed to find '{cls.xml_tags()}' in message")
+
+    # Sort matches_with_tag based on the length of the interior text,
+    # longest first. This should help us avoid matching the model
+    # supplying hollow tags before the actual data.
+
+    sorted_matches = sorted(matches, key=lambda m: len(m.group(4)), reverse=True)
+
+    extracted: list[tuple[te.Self, slice]] = []
+    exceptions: list[Exception] = []
+    for match in sorted_matches:
+        full_text, _, inner_with_end_tag, inner = match.groups()
+
+        # The model might trip up regex by including partial tags
+        # in passing before actually using them. We'll continually try
+        # to parse the inner text until we can't extract our model anymore.
+        #
+        # Example: "Sure I'll use <answer> tags: <answer>hello</answer>"
+        #
+        # TODO: The opposite could be true, and we could greedily parse
+        # backwards if we get failures. This is a simple solution for now.
+
+        inner_match: re.Match[str] | None = match
+        while inner_match is not None:
+            inner_matches = re.finditer(
+                pattern,
+                inner_with_end_tag,
+                flags=re.DOTALL,
+            )
+            inner_match = next(
+                (m for m in inner_matches if m.group(2) == cls.__xml_tag__),
+                None,
+            )
+            if inner_match is not None:
+                full_text, _, inner_with_end_tag, inner = inner_match.groups()
+
+        try:
+            model = (
+                cls(**{next(iter(cls.model_fields)): unescape_xml(inner)})
+                if cls.is_simple()
+                else cls.from_xml(escape_xml(full_text))
+            )
+
+            # If our model is relatively simple (only attributes and a single non-element field)
+            # we should go back and update our non-element field with the extracted content.
+
+            if cls.is_simple_with_attrs():
+                name, field = next(
+                    (name, field)
+                    for name, field in cls.model_fields.items()
+                    if not isinstance(field, XmlEntityInfo)
+                )
+                if field.annotation in BASIC_TYPES:
+                    model.__dict__[name] = field.annotation(
+                        unescape_xml(inner).strip(),
+                    )
+
+            extracted.append((model, slice(match.start(), match.end())))
+        except Exception as e:  # noqa: BLE001
+            exceptions.append(e)
+            continue
+
+    # TODO: This is poor form atm, but the exception stacking
+    # and final error should involve some careful thought
+
+    if not extracted:
+        raise exceptions[0]
+
+    # sort back to original order
+    return sorted(extracted, key=lambda x: x[1].start)
+```
+
+
+</Accordion>
+
+### is\_simple
+
+```python
+is_simple() -> bool
+```
+
+Check if the model is "simple", meaning it has a single field with a basic datatype.
+
+Until we refactor our XML parsing, this helps make the parsing more consistent for models
+which can support it.
+
+**Returns:**
+
+* `bool`
+  –True if the model is simple, False otherwise.
+
+<Accordion title="Source code in rigging/model.py" icon="code">
+```python
+@classmethod
+def is_simple(cls) -> bool:
+    """
+    Check if the model is "simple", meaning it has a single field with a basic datatype.
+
+    Until we refactor our XML parsing, this helps make the parsing more consistent for models
+    which can support it.
+
+    Returns:
+        True if the model is simple, False otherwise.
+    """
+    field_values = list(cls.model_fields.values())
+    if len(field_values) != 1:
+        return False
+
+    # If the field is a pydantic-xml wrapper like element()
+    # or attr(), we'll assume the user knows what they're doing
+    if isinstance(field_values[0], XmlEntityInfo):
+        return False
+
+    annotation = field_values[0].annotation
+    if t.get_origin(annotation) == t.Annotated:
+        annotation = t.get_args(annotation)[0]
+
+    return annotation in BASIC_TYPES
+```
+
+
+</Accordion>
+
+### is\_simple\_with\_attrs
+
+```python
+is_simple_with_attrs() -> bool
+```
+
+Check if the model would otherwise be marked as "simple", but has other fields which are
+all attributes. If so, we can do some parsing magic below and make sure our non-element
+field is updated with the extracted content properly, while pydantic-xml takes care
+of the attributes.
+
+**Returns:**
+
+* `bool`
+  –True if the model is simple with attrs, False otherwise.
+
+<Accordion title="Source code in rigging/model.py" icon="code">
+```python
+@classmethod
+def is_simple_with_attrs(cls) -> bool:
+    """
+    Check if the model would otherwise be marked as "simple", but has other fields which are
+    all attributes. If so, we can do some parsing magic below and make sure our non-element
+    field is updated with the extracted content properly, while pydantic-xml takes care
+    of the attributes.
+
+    Returns:
+        True if the model is simple with attrs, False otherwise.
+    """
+    field_values = list(cls.model_fields.values())
+
+    none_entity_fields = [f for f in field_values if not isinstance(f, XmlEntityInfo)]
+    entity_fields = [f for f in field_values if isinstance(f, XmlEntityInfo)]
+    attr_fields = [f for f in entity_fields if f.location == EntityLocation.ATTRIBUTE]
+
+    if len(none_entity_fields) != 1 or len(attr_fields) != len(entity_fields):
+        return False
+
+    annotation = field_values[0].annotation
+    if t.get_origin(annotation) == t.Annotated:
+        annotation = t.get_args(annotation)[0]
+
+    return annotation in BASIC_TYPES
+```
+
+
+</Accordion>
+
+### one\_from\_text
+
+```python
+one_from_text(
+    content: str, *, fail_on_many: bool = False
+) -> tuple[te.Self, slice]
+```
+
+Finds and returns a single match from the given text content.
+
+**Parameters:**
+
+* **`content`**
+  (`str`)
+  –The text content to search for matches.
+* **`fail_on_many`**
+  (`bool`, default:
+  `False`
+  )
+  –If True, raises a ValidationError if multiple matches are found.
+
+**Returns:**
+
+* `tuple[Self, slice]`
+  –A tuple containing the matched model and the slice indicating the match location.
+
+**Raises:**
+
+* `ValidationError`
+  –If multiple matches are found and fail\_on\_many is True.
+
+<Accordion title="Source code in rigging/model.py" icon="code">
+```python
+@classmethod
+def one_from_text(
+    cls,
+    content: str,
+    *,
+    fail_on_many: bool = False,
+) -> tuple[te.Self, slice]:
+    """
+    Finds and returns a single match from the given text content.
+
+    Args:
+        content: The text content to search for matches.
+        fail_on_many: If True, raises a ValidationError if multiple matches are found.
+
+    Returns:
+        A tuple containing the matched model and the slice indicating the match location.
+
+    Raises:
+        ValidationError: If multiple matches are found and fail_on_many is True.
+    """
+    matches = cls.from_text(content)
+    if fail_on_many and len(matches) > 1:
+        raise ValidationError("Multiple matches found with 'fail_on_many=True'")
+    return max(matches, key=lambda x: x[1].stop - x[1].start)
+```
+
+
+</Accordion>
+
+### to\_pretty\_xml
+
+```python
+to_pretty_xml() -> str
+```
+
+Converts the model to a pretty XML string with indents and newlines.
+
+**Returns:**
+
+* `str`
+  –The pretty XML representation of the model.
+
+<Accordion title="Source code in rigging/model.py" icon="code">
+```python
+def to_pretty_xml(self) -> str:
+    """
+    Converts the model to a pretty XML string with indents and newlines.
+
+    Returns:
+        The pretty XML representation of the model.
+    """
+    tree = self.to_xml_tree()
+    ET.indent(tree, "  ")
+    pretty_encoded_xml = str(
+        ET.tostring(
+            tree,
+            short_empty_elements=False,
+            encoding="utf-8",
+        ).decode(),
+    )
+
+    # If this is a complex model, we'll return exactly what we get
+    if not self.__class__.is_simple() and not self.__class__.is_simple_with_attrs():
+        return pretty_encoded_xml
+
+    # Otherwise we can try to do some cleaning by unescaping and
+    # re-indenting the XML (helpful for nested-xml)
+
+    pretty_encoded_xml = unescape_xml(pretty_encoded_xml)
+
+    with contextlib.suppress(ET.ParseError):
+        tree = ET.fromstring(pretty_encoded_xml)  # noqa: S314 # nosec
+        ET.indent(tree, "  ")
+        pretty_encoded_xml = str(
+            ET.tostring(
+                tree,
+                short_empty_elements=False,
+                encoding="utf-8",
+            ).decode(),
+        )
+
+    return pretty_encoded_xml
+```
+
+
+</Accordion>
+
+### xml\_end\_tag
+
+```python
+xml_end_tag() -> str
+```
+
+Helper method which wrapped the class tag in XML braces with a leading slash.
+
+<Accordion title="Source code in rigging/model.py" icon="code">
+```python
+@classmethod
+def xml_end_tag(cls) -> str:
+    """Helper method which wrapped the class tag in XML braces with a leading slash."""
+    return f"</{cls.__xml_tag__}>"
+```
+
+
+</Accordion>
+
+### xml\_example
+
+```python
+xml_example() -> str
+```
+
+Returns an example XML representation of the given class.
+
+Models should typically override this method to provide a more complex example.
+
+By default, this method returns a hollow XML scaffold one layer deep.
+
+**Returns:**
+
+* `str`
+  –A string containing the XML representation of the class.
+
+<Accordion title="Source code in rigging/model.py" icon="code">
+```python
+@classmethod
+def xml_example(cls) -> str:
+    """
+    Returns an example XML representation of the given class.
+
+    Models should typically override this method to provide a more complex example.
+
+    By default, this method returns a hollow XML scaffold one layer deep.
+
+    Returns:
+        A string containing the XML representation of the class.
+    """
+    if cls.is_simple():
+        return cls.xml_tags()
+
+    schema = cls.model_json_schema()
+    properties = schema["properties"]
+    structure = {cls.__xml_tag__: dict.fromkeys(properties)}
+    xml_string = xmltodict.unparse(
+        structure,
+        pretty=True,
+        full_document=False,
+        indent="  ",
+        short_empty_elements=True,
+    )
+    return t.cast("str", xml_string)  # Bad type hints in xmltodict
+```
+
+
+</Accordion>
+
+### xml\_start\_tag
+
+```python
+xml_start_tag() -> str
+```
+
+Helper method which wrapped the class tag in XML braces.
+
+<Accordion title="Source code in rigging/model.py" icon="code">
+```python
+@classmethod
+def xml_start_tag(cls) -> str:
+    """Helper method which wrapped the class tag in XML braces."""
+    return f"<{cls.__xml_tag__}>"
+```
+
+
+</Accordion>
+
+### xml\_tags
+
+```python
+xml_tags() -> str
+```
+
+Helper method which returns the full XML tags for the class.
+
+<Accordion title="Source code in rigging/model.py" icon="code">
+```python
+@classmethod
+def xml_tags(cls) -> str:
+    """Helper method which returns the full XML tags for the class."""
+    return cls.xml_start_tag() + cls.xml_end_tag()
+```
+
+
+</Accordion>
+
+NewlineDelimitedAnswer
+----------------------
+
+Newline delimited answer (
+)
+
+Question
+--------
+
+Quick model for questions.
+
+QuestionAnswer
+--------------
+
+Quick model for question-answer pairs.
+
+### answer
+
+```python
+answer: Answer = element()
+```
+
+The answer
+
+### question
+
+```python
+question: Question = element()
+```
+
+The question
+
+Thinking
+--------
+
+Quick model for thinking messages.
+
+YesNoAnswer
+-----------
+
+Yes/No answer answer with coercion
+
+### boolean
+
+```python
+boolean: bool
+```
+
+The boolean value of the answer.
+
+make\_from\_schema
+------------------
+
+```python
+make_from_schema(
+    schema: dict[str, Any],
+    name: str | None = None,
+    *,
+    allow_primitive: bool = False,
+) -> type[Model]
+```
+
+Helper to build a Rigging model dynamically from a JSON schema.
+
+<Note>
+There are plenty of edge cases this doesn't handle, consider this
+very experimental and only suitable for simple schemas.
+</Note>
+
+**Parameters:**
+
+* **`schema`**
+  (`dict[str, Any]`)
+  –The JSON schema to build the model from.
+* **`name`**
+  (`str | None`, default:
+  `None`
+  )
+  –The name of the model (otherwise inferred from the schema).
+* **`allow_primitive`**
+  (`bool`, default:
+  `False`
+  )
+  –If True, allows the model to be a simple primitive
+
+**Returns:**
+
+* `type[Model]`
+  –The Pydantic model class.
+
+<Accordion title="Source code in rigging/model.py" icon="code">
+```python
+def make_from_schema(
+    schema: dict[str, t.Any],
+    name: str | None = None,
+    *,
+    allow_primitive: bool = False,
+) -> type[Model]:
+    """
+    Helper to build a Rigging model dynamically from a JSON schema.
+
+    Note:
+        There are plenty of edge cases this doesn't handle, consider this
+        very experimental and only suitable for simple schemas.
+
+    Args:
+        schema: The JSON schema to build the model from.
+        name: The name of the model (otherwise inferred from the schema).
+        allow_primitive: If True, allows the model to be a simple primitive
+
+    Returns:
+        The Pydantic model class.
+    """
+    properties = schema.get("properties", {})
+    required = set(schema.get("required", []))
+    fields: dict[str, tuple[FieldType, FieldInfo]] = {}
+
+    # If we only have one property and the caller allows it,
+    # make the model "simple/primitive" by not using the element() wrapper
+    field_cls = Field if len(properties) == 1 and allow_primitive else element
+
+    for field_name, field_schema in properties.items():
+        field_type, field_info = _process_field(field_name, field_schema)
+
+        fields[field_name] = (
+            field_type,
+            field_cls(
+                default=... if field_name in required else None,
+                description=field_schema.get("description", ""),
+                title=field_schema.get("title", ""),
+                **field_info,
+            )
+            if isinstance(field_info, dict)
+            else field_info,
+        )
+
+    name = name or schema.get("title", "SchemaModel")
+    return create_pydantic_xml_model(name, __base__=Model, **fields)  # type: ignore [arg-type]
+```
+
+
+</Accordion>
+
+make\_primitive
+---------------
+
+```python
+make_primitive(
+    name: str,
+    type_: type[PrimitiveT] = str,
+    *,
+    tag: str | None = None,
+    doc: str | None = None,
+    validator: Callable[[str], str | None] | None = None,
+    strip_content: bool = True,
+) -> type[Primitive[PrimitiveT]]
+```
+
+Helper to create a simple primitive model with an optional content validator.
+
+<Note>
+This API is experimental and may change in the future.
+</Note>
+
+**Parameters:**
+
+* **`name`**
+  (`str`)
+  –The name of the model.
+* **`tag`**
+  (`str | None`, default:
+  `None`
+  )
+  –The XML tag for the model.
+* **`doc`**
+  (`str | None`, default:
+  `None`
+  )
+  –The documentation for the model.
+* **`validator`**
+  (`Callable[[str], str | None] | None`, default:
+  `None`
+  )
+  –An optional content validator for the model.
+* **`strip_content`**
+  (`bool`, default:
+  `True`
+  )
+  –Whether to strip the content string before pydantic validation.
+
+**Returns:**
+
+* `type[Primitive[PrimitiveT]]`
+  –The primitive model class.
+
+<Accordion title="Source code in rigging/model.py" icon="code">
+```python
+def make_primitive(
+    name: str,
+    type_: type[PrimitiveT] = str,  # type: ignore [assignment]
+    *,
+    tag: str | None = None,
+    doc: str | None = None,
+    validator: t.Callable[[str], str | None] | None = None,
+    strip_content: bool = True,
+) -> type[Primitive[PrimitiveT]]:
+    """
+    Helper to create a simple primitive model with an optional content validator.
+
+    Note:
+        This API is experimental and may change in the future.
+
+    Args:
+        name: The name of the model.
+        tag: The XML tag for the model.
+        doc: The documentation for the model.
+        validator: An optional content validator for the model.
+        strip_content: Whether to strip the content string before pydantic validation.
+
+    Returns:
+        The primitive model class.
+    """
+
+    def _validate(value: str) -> str:
+        if validator is not None:
+            return validator(value) or value
+        return value
+
+    if strip_content:
+        type_ = t.Annotated[
+            type_,
+            BeforeValidator(lambda x: x.strip() if isinstance(x, str) else x),
+        ]  # type: ignore [assignment]
+
+    return create_pydantic_model(
+        name,
+        __base__=Primitive[type_],  # type: ignore [valid-type, arg-type]
+        __doc__=doc,
+        __cls_kwargs__={"tag": tag},
+        content=(type_, ...),
+        __validators__={"content_validator": field_validator("content")(_validate)}
+        if validator
+        else {},
+    )
+```
+
+
+</Accordion>

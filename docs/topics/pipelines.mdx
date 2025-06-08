@@ -6,7 +6,7 @@ public: true
 
 Rigging's pipelines (`ChatPipeline`, `CompletionPipeline`) offer powerful ways to control the generation flow and process results. This includes passive monitoring, adding post-processing steps, and even creating complex iterative generation loops.
 
-## Watch Callbacks (Passive Monitoring)
+## Watch Callbacks
 
 The simplest way to observe the pipeline is using **watch callbacks**. These are passive listeners that receive `Chat` or `Completion` objects as they are finalized within a pipeline run, but they don't modify the pipeline's execution. They are ideal for logging, monitoring, or triggering external actions based on generated content.
 
@@ -41,9 +41,9 @@ chats = await pipeline.run_many(3)
 
 To actively modify chats or influence the generation process *after* a generation step completes, use the **`then()`** and **`map()`** callback methods.
 
-- `ChatPipeline.then()`: Processes each `Chat` object individually.
-- `ChatPipeline.map()`: Processes a `list[Chat]` objects all at once (useful for batch operations).
-- These methods can also be called directly on `Prompt` objects.
+- `ChatPipeline.then()`: Processes each `Chat` object individually
+- `ChatPipeline.map()`: Processes a `list[Chat]` objects all at once (useful for batch operations)
+- These methods can also be called directly on `Prompt` objects
 
 ### Basic Post-Processing
 
@@ -75,7 +75,7 @@ print(chat.metadata.get("sentiment"))
 
 ### Iterative Generation and Validation
 
-Callbacks can also drive *further* generation steps, enabling complex validation loops, conditional branching, or agent-like behavior.
+Callbacks can also drive further generation steps, enabling complex validation loops, conditional branching, or agent-like behavior.
 
 To achieve this, a `then` or `map` callback can do either of the following:
 1. Return or yield a `PipelineStepGenerator` or `PipelineStepContextManager`. This is typically done by calling `.step()` on a new or restarted pipeline.
@@ -124,7 +124,7 @@ else:
 
 - **Recursion Control**: The `max_depth` parameter on `then()` and `map()` is crucial. It limits how many nested pipeline steps can be triggered from within a callback, preventing infinite loops. If this depth is exceeded, a `MaxDepthError` is raised (or handled based on `on_failed` mode).
 
-## Handling Parsing Requirements (`until_parsed_as`)
+## Output Parsing and Validation
 
 A common use case for iterative generation is ensuring the model's output successfully parses into a specific `Model`. Rigging provides the convenient `ChatPipeline.until_parsed_as()` method for this.
 
@@ -154,7 +154,79 @@ else:
 
 - **Parameter Change**: Note that `max_rounds` from v2 is replaced by `max_depth`. The `attempt_recovery` and `drop_dialog` parameters are removed as recovery is implicit and dialog is preserved.
 
-## Fine-grained Control (`step()`)
+## Prompt Caching
+
+Rigging has [prompt caching](https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching) with supported providers to save tokens and reduce API costs. This feature lets you mark parts of a conversation with cache markers to communicate with the inference provider about where caching is best applied.
+
+Under the hood, caching works through `cache_control` entries on messages, which signal to the generator which parts of a conversation are eligible for caching. Rigging manages these entries automatically when you enable caching.
+
+<Note>
+We do our best to gracefully handle cases where the underlying provider does not support caching, but some interactions might fail with these `cache_control` markers in place. Providers are also still defining how caching should work, and these mechanics may change in the future.
+</Note>
+
+### Enabling Caching
+
+Caching can be enabled at two levels:
+
+1. **Pipeline level** - Apply caching policy to an entire conversation:
+
+```python
+import rigging as rg
+
+pipeline = (
+    rg.get_generator("claude-3-7-sonnet-latest")
+    .chat([
+        Message(role="system", content="You are a helpful assistant."),
+        Message(role="user", content="What is machine learning?")
+    ])
+    .cache("latest")  # Or just .cache() as "latest" is the default
+)
+
+# Run the pipeline with caching enabled
+await rg.interact(pipeline)
+```
+
+2. **Message level** - Control caching for individual messages:
+
+```python
+import rigging as rg
+from rigging import Message
+
+message = Message(role="user", content="Please explain this document: [document]")
+
+# Set `cache_control` to {"type": "ephemeral"}
+message.cache()
+
+# Or a custom cache control settings
+message.cache({"type": "custom"})
+
+chat = (
+    await
+    rg.get_generator("claude-3-7-sonnet-latest")
+    .chat(message)
+    .run()
+)
+```
+
+### Caching Modes
+
+Currently, Rigging supports one caching mode for pipelines:
+
+- **`latest`** (default): Applies `cache_control` markers to the last 2 non-assistant messages before inference. This is effective for long-running conversation and want to both reuse the latest cache entry and establish a new one at every step.
+
+### Disabling Caching
+
+You can disable caching by passing `False` to the cache method on pipelines or messages.
+
+```python
+# At message level
+message.cache(False)
+
+# At pipeline level
+pipeline.cache(False)
+```
+
+## Fine-grained Step Control
 
 For maximum control and introspection, you can use the `ChatPipeline.step()` (or `step_many`, `step_batch`) async context manager. This yields `PipelineStep` objects representing each stage of the execution (`generated`, `callback`, `final`).
 
@@ -178,17 +250,21 @@ async with pipeline.step() as steps:
 print("Pipeline finished.")
 ```
 
-## Handling Failures (`on_failed`, `catch`)
+<Tip>
+Anywhere you see `max_depth` as a parameter, we are using this context manager under the hood to understand how many recursive generations are occurring.
+</Tip>
 
-Pipelines provide robust ways to handle errors during generation or callback execution.
+## Handling Failures
 
-### `on_failed` Mode
+Pipelines provide robust ways to handle errors during generation or callback execution. You might want to avoid certain errors from halting the entire pipeline, especially in batch processing scenarios.
 
-The `on_failed` parameter (set via `.catch()` or on `run_many`/`run_batch`/`run_over`) determines behavior when a catchable error occurs:
+### Setting Error Behavior
 
-- **`"raise"` (Default):** The exception is raised, halting execution.
-- **`"skip"`:** The chat where the error occurred is discarded. `run_many`/`run_batch`/`run_over` will return only the successful chats. (Not valid for single `.run()`).
-- **`"include"`:** The chat is marked with `.failed = True` and the exception stored in `.error`. The chat is included in the results.
+The `on_failed` parameter (set with `.catch()` or on `run_many`/`run_batch`/`run_over`) determines behavior when a catchable error occurs:
+
+- **`raise` (Default):** The exception is raised, halting execution.
+- **`skip`:** The chat where the error occurred is discarded. `run_many`/`run_batch`/`run_over` will return only the successful chats. (Not valid for single `.run()`).
+- **`include`:** The chat is marked with `.failed = True` and the exception stored in `.error`. The chat is included in the results, but may be incomplete or invalid.
 
 ```python
 import rigging as rg
@@ -211,9 +287,9 @@ for failed_chat in failed_chats:
 
 ```
 
-### Defining Catchable Errors (`catch`)
+### Defining Catchable Errors
 
-By default, pipelines catch critical internal errors like `ValidationError` and `MaxDepthError` when `on_failed` is `"skip"` or `"include"`. You can specify additional exception types to be treated as non-fatal errors using `ChatPipeline.catch()`.
+By default, pipelines catch critical internal errors like `ValidationError` and `MaxDepthError` when `on_failed` is `skip` or `include`. You can specify additional exception types to be treated as non-fatal errors using `ChatPipeline.catch()`.
 
 ```python
 import rigging as rg
@@ -224,7 +300,7 @@ pipeline = (
     rg.get_generator(...)
     .chat(...)
     # Treat SomeCustomAPIError as a non-fatal error
-    .catch(SomeCustomAPIError, on_failed="skip") 
+    .catch(SomeCustomAPIError, on_failed="skip")
 )
 
 # Now, if SomeCustomAPIError occurs, the chat will be skipped instead of raising

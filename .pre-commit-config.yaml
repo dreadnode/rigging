@@ -1,0 +1,99 @@
+---
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: [--maxkb=10240]
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-executables-have-shebangs
+      - id: check-json
+      - id: check-shebang-scripts-are-executable
+      - id: check-symlinks
+      - id: check-yaml
+      - id: detect-private-key
+      - id: end-of-file-fixer
+        exclude: ^docs/
+      - id: trailing-whitespace
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.7
+    hooks:
+      - id: actionlint
+
+  - repo: https://github.com/adrienverge/yamllint.git
+    rev: v1.37.1
+    hooks:
+      - id: yamllint
+        entry: yamllint --strict -c .hooks/linters/yamllint.yaml
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.1
+    hooks:
+      - id: codespell
+        entry: codespell -q 3 -f --skip=".git,.github" -L te,Sie,braket,astroid
+
+  # Python code security
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.3
+    hooks:
+      - id: bandit
+        name: Code security checks
+        args: ["-c", "pyproject.toml"]
+        additional_dependencies: ["bandit[toml]"]
+        exclude: ^tests/
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ["--baseline", ".secrets.baseline", "--exclude-files", "examples/*"]
+        exclude: .secrets.baseline
+
+  # Clean jupyter notebook outputs
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.8.1
+    hooks:
+      - id: nbstripout
+        args: [--keep-id]
+
+  # - repo: https://github.com/astral-sh/ruff-pre-commit
+  #   rev: v0.11.7
+  #   hooks:
+  #     - id: ruff
+  #       args: [--fix]
+  #     - id: ruff-format
+
+  # - repo: https://github.com/pre-commit/mirrors-mypy
+  #   rev: v1.15.0
+  #   hooks:
+  #     - id: mypy
+  #       additional_dependencies:
+  #         - "pydantic"
+  #         - "types-PyYAML"
+  #         - "types-requests"
+  #         - "types-setuptools"
+
+  - repo: local
+    hooks:
+      # Ensure our GH actions are pinned to a specific hash
+      - id: check-github-actions
+        name: Check GitHub Actions for Pinned Dependencies
+        entry: .hooks/check_pinned_hash_dependencies.py
+        language: python
+        files: \.github/.*\.yml$
+
+      - id: prettier
+        name: Run prettier
+        entry: .hooks/prettier.sh
+        language: script
+        types: [json, yaml]
+
+      # Generate documentation
+      - id: generate-docs
+        name: Generate docs
+        entry: poetry run python .hooks/generate_docs.py
+        language: system
+        pass_filenames: false
+        always_run: true

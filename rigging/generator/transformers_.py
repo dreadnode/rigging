@@ -80,7 +80,7 @@ class TransformersGenerator(Generator):
                     "load_in_4bit",
                 },
             )
-            self._llm = AutoModelForCausalLM.from_pretrained(self.model, **llm_kwargs)
+            self._llm = AutoModelForCausalLM.from_pretrained(self.model, **llm_kwargs)  # type: ignore [no-untyped-call]
         return self._llm
 
     @property

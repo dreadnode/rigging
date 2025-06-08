@@ -32,7 +32,7 @@ DEFAULT_DOC = "Convert the following inputs to outputs ({func_name})."
 """Default docstring if none is provided to a prompt function."""
 
 DEFAULT_MAX_PARSE_ROUNDS = 3
-"""Default maximum number of recurive output parsing attempts to allow."""
+"""Default maximum number of recursive output parsing attempts to allow."""
 DEFAULT_MAX_TOOL_ROUNDS = 20
 """Default maximum number of recursive tool calls to allow."""
 
@@ -47,7 +47,7 @@ class Ctx:
     """
     Used in type annotations to provide additional context for the prompt construction.
 
-    You can use this annotation on inputs and ouputs to prompt functions.
+    You can use this annotation on inputs and outputs to prompt functions.
 
     Example:
         ```
@@ -74,7 +74,7 @@ def unwrap_annotated(annotation: t.Any) -> tuple[t.Any, Ctx | None]:
 
 
 def get_undeclared_variables(template: str) -> set[str]:
-    env = Environment()  # noqa: S701
+    env = Environment()  # noqa: S701 # nosec
     parsed_template = env.parse(template)
     return meta.find_undeclared_variables(parsed_template)
 
@@ -785,7 +785,7 @@ class Prompt(t.Generic[P, R]):
         Pass the arguments to the jinja2 template and render the full prompt.
         """
 
-        env = Environment(  # noqa: S701
+        env = Environment(  # noqa: S701 # nosec
             trim_blocks=True,
             lstrip_blocks=True,
             keep_trailing_newline=True,
@@ -1132,7 +1132,7 @@ def prompt(
 
     Note:
         A docstring is not required, but this can be used to provide guidance to the model, or
-        even handle any number of input transormations. Any input parameter which is not
+        even handle any number of input transformations. Any input parameter which is not
         handled inside the docstring will be automatically added and formatted internally.
 
     Note:

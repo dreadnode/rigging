@@ -1,0 +1,1714 @@
+---
+title: rigging.generator
+---
+
+{/*
+::: rigging.generator
+::: rigging.generator.vllm_
+::: rigging.generator.transformers_
+*/}
+
+Generators produce completions for a given set of messages or text.
+
+StopReason
+----------
+
+```python
+StopReason = Literal[
+    "stop",
+    "length",
+    "content_filter",
+    "tool_calls",
+    "unknown",
+]
+```
+
+Reporting reason for generation completing.
+
+GenerateParams
+--------------
+
+Parameters for generating text using a language model.
+
+These are designed to generally overlap with underlying
+APIs like litellm, but will be extended as needed.
+
+<Note>
+Use the `extra` field to pass additional parameters to the API.
+</Note>
+
+### api\_base
+
+```python
+api_base: str | None = None
+```
+
+The base URL for the API.
+
+### audio
+
+```python
+audio: dict[str, str] | None = None
+```
+
+The audio parameters to be used in the generation.
+
+### extra
+
+```python
+extra: dict[str, Any] = Field(default_factory=dict)
+```
+
+Extra parameters to be passed to the API.
+
+### frequency\_penalty
+
+```python
+frequency_penalty: float | None = None
+```
+
+The frequency penalty.
+
+### max\_tokens
+
+```python
+max_tokens: int | None = None
+```
+
+The maximum number of tokens to generate.
+
+### modalities
+
+```python
+modalities: list[str] | None = None
+```
+
+The modalities to be used in the generation.
+
+### parallel\_tool\_calls
+
+```python
+parallel_tool_calls: bool | None = None
+```
+
+Whether to run allow tool calls in parallel.
+
+### presence\_penalty
+
+```python
+presence_penalty: float | None = None
+```
+
+The presence penalty.
+
+### seed
+
+```python
+seed: int | None = None
+```
+
+The random seed.
+
+### stop
+
+```python
+stop: list[str] | None = None
+```
+
+A list of stop sequences to stop generation at.
+
+### temperature
+
+```python
+temperature: float | None = None
+```
+
+The sampling temperature.
+
+### timeout
+
+```python
+timeout: int | None = None
+```
+
+The timeout for the API request.
+
+### tool\_choice
+
+```python
+tool_choice: ApiToolChoice | None = None
+```
+
+The tool choice to be used in the generation.
+
+### tools
+
+```python
+tools: list[ApiToolDefinition] | None = None
+```
+
+The tools to be used in the generation.
+
+### top\_k
+
+```python
+top_k: int | None = None
+```
+
+The top-k sampling parameter.
+
+### top\_p
+
+```python
+top_p: float | None = None
+```
+
+The nucleus sampling probability.
+
+### merge\_with
+
+```python
+merge_with(
+    *others: GenerateParams | None,
+) -> GenerateParams
+```
+
+Apply a series of parameter overrides to the current instance and return a copy.
+
+**Parameters:**
+
+* **`*others`**
+  (`GenerateParams | None`, default:
+  `()`
+  )
+  –The parameters to be merged with the current instance's parameters.
+  Can be multiple and overrides will be applied in order.
+
+**Returns:**
+
+* `GenerateParams`
+  –The merged parameters instance.
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+def merge_with(self, *others: "GenerateParams | None") -> "GenerateParams":
+    """
+    Apply a series of parameter overrides to the current instance and return a copy.
+
+    Args:
+        *others: The parameters to be merged with the current instance's parameters.
+            Can be multiple and overrides will be applied in order.
+
+    Returns:
+        The merged parameters instance.
+    """
+    if len(others) == 0 or all(p is None for p in others):
+        return self
+
+    updates: dict[str, t.Any] = {}
+    for other in [o for o in others if o is not None]:
+        other_dict = other.model_dump(exclude_unset=True, exclude_none=True)
+        for name in other_dict:
+            updates[name] = getattr(other, name)
+
+    return self.model_copy(update=updates)
+```
+
+
+</Accordion>
+
+### to\_dict
+
+```python
+to_dict() -> dict[str, t.Any]
+```
+
+Convert the parameters to a dictionary.
+
+**Returns:**
+
+* `dict[str, Any]`
+  –The parameters as a dictionary.
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+def to_dict(self) -> dict[str, t.Any]:
+    """
+    Convert the parameters to a dictionary.
+
+    Returns:
+        The parameters as a dictionary.
+    """
+    params = self.model_dump(exclude_none=True)
+    if "extra" in params:
+        params.update(params.pop("extra"))
+    return params
+```
+
+
+</Accordion>
+
+GeneratedMessage
+----------------
+
+A generated message with additional generation information.
+
+### extra
+
+```python
+extra: dict[str, Any] = Field(default_factory=dict)
+```
+
+Any additional information from the generation.
+
+### message
+
+```python
+message: Message
+```
+
+The generated message.
+
+### stop\_reason
+
+```python
+stop_reason: Annotated[
+    StopReason, BeforeValidator(convert_stop_reason)
+] = "unknown"
+```
+
+The reason for stopping generation.
+
+### usage
+
+```python
+usage: Usage | None = None
+```
+
+The usage statistics for the generation if available.
+
+GeneratedText
+-------------
+
+A generated text with additional generation information.
+
+### extra
+
+```python
+extra: dict[str, Any] = Field(default_factory=dict)
+```
+
+Any additional information from the generation.
+
+### stop\_reason
+
+```python
+stop_reason: Annotated[
+    StopReason, BeforeValidator(convert_stop_reason)
+] = "unknown"
+```
+
+The reason for stopping generation.
+
+### text
+
+```python
+text: str
+```
+
+The generated text.
+
+### usage
+
+```python
+usage: Usage | None = None
+```
+
+The usage statistics for the generation if available.
+
+Generator
+---------
+
+Base class for all rigging generators.
+
+This class provides common functionality and methods for generating completion messages.
+
+A subclass of this can implement both or one of the following:
+
+* `generate_messages`: Process a batch of messages.
+* `generate_texts`: Process a batch of texts.
+
+### api\_key
+
+```python
+api_key: str | None = Field(None, exclude=True)
+```
+
+The API key used for authentication.
+
+### model
+
+```python
+model: str
+```
+
+The model name to be used by the generator.
+
+### params
+
+```python
+params: GenerateParams
+```
+
+The parameters used for generating completion messages.
+
+### chat
+
+```python
+chat(
+    messages: Sequence[MessageDict],
+    params: GenerateParams | None = None,
+) -> ChatPipeline
+```
+
+```python
+chat(
+    messages: Sequence[Message]
+    | MessageDict
+    | Message
+    | str
+    | None = None,
+    params: GenerateParams | None = None,
+) -> ChatPipeline
+```
+
+```python
+chat(
+    messages: Sequence[MessageDict]
+    | Sequence[Message]
+    | MessageDict
+    | Message
+    | str
+    | None = None,
+    params: GenerateParams | None = None,
+) -> ChatPipeline
+```
+
+Build a chat pipeline with the given messages and optional params overloads.
+
+**Parameters:**
+
+* **`messages`**
+  (`Sequence[MessageDict] | Sequence[Message] | MessageDict | Message | str | None`, default:
+  `None`
+  )
+  –The messages to be sent in the chat.
+* **`params`**
+  (`GenerateParams | None`, default:
+  `None`
+  )
+  –Optional parameters for generating responses.
+
+**Returns:**
+
+* `ChatPipeline`
+  –The chat pipeline to run.
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+def chat(
+    self,
+    messages: t.Sequence[MessageDict]
+    | t.Sequence[Message]
+    | MessageDict
+    | Message
+    | str
+    | None = None,
+    params: GenerateParams | None = None,
+) -> "ChatPipeline":
+    """
+    Build a chat pipeline with the given messages and optional params overloads.
+
+    Args:
+        messages: The messages to be sent in the chat.
+        params: Optional parameters for generating responses.
+
+    Returns:
+        The chat pipeline to run.
+    """
+    from rigging.chat import ChatPipeline, WatchChatCallback
+
+    chat_watch_callbacks = [
+        cb for cb in self._watch_callbacks if isinstance(cb, (WatchChatCallback))
+    ]
+
+    return ChatPipeline(
+        self,
+        Message.fit_as_list(messages) if messages else [],
+        params=params,
+        watch_callbacks=chat_watch_callbacks,
+    )
+```
+
+
+</Accordion>
+
+### complete
+
+```python
+complete(
+    text: str, params: GenerateParams | None = None
+) -> CompletionPipeline
+```
+
+Build a completion pipeline of the given text with optional param overloads.
+
+**Parameters:**
+
+* **`text`**
+  (`str`)
+  –The input text to be completed.
+* **`params`**
+  (`GenerateParams | None`, default:
+  `None`
+  )
+  –The parameters to be used for completion.
+
+**Returns:**
+
+* `CompletionPipeline`
+  –The completed text.
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+def complete(self, text: str, params: GenerateParams | None = None) -> "CompletionPipeline":
+    """
+    Build a completion pipeline of the given text with optional param overloads.
+
+    Args:
+        text: The input text to be completed.
+        params: The parameters to be used for completion.
+
+    Returns:
+        The completed text.
+    """
+    from rigging.completion import CompletionPipeline, WatchCompletionCallback
+
+    completion_watch_callbacks = [
+        cb for cb in self._watch_callbacks if isinstance(cb, (WatchCompletionCallback))
+    ]
+
+    return CompletionPipeline(
+        self,
+        text,
+        params=params,
+        watch_callbacks=completion_watch_callbacks,
+    )
+```
+
+
+</Accordion>
+
+### generate\_messages
+
+```python
+generate_messages(
+    messages: Sequence[Sequence[Message]],
+    params: Sequence[GenerateParams],
+) -> t.Sequence[GeneratedMessage | BaseException]
+```
+
+Generate a batch of messages using the specified parameters.
+
+<Note>
+The length of `params` must be the same as the length of `many`.
+</Note>
+
+**Parameters:**
+
+* **`messages`**
+  (`Sequence[Sequence[Message]]`)
+  –A sequence of sequences of messages.
+* **`params`**
+  (`Sequence[GenerateParams]`)
+  –A sequence of GenerateParams objects.
+
+**Returns:**
+
+* `Sequence[GeneratedMessage | BaseException]`
+  –A sequence of generated messages.
+
+**Raises:**
+
+* `NotImplementedError`
+  –This method is not supported by this generator.
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+async def generate_messages(
+    self,
+    messages: t.Sequence[t.Sequence[Message]],
+    params: t.Sequence[GenerateParams],
+) -> t.Sequence[GeneratedMessage | BaseException]:
+    """
+    Generate a batch of messages using the specified parameters.
+
+    Note:
+        The length of `params` must be the same as the length of `many`.
+
+    Args:
+        messages: A sequence of sequences of messages.
+        params: A sequence of GenerateParams objects.
+
+    Returns:
+        A sequence of generated messages.
+
+    Raises:
+        NotImplementedError: This method is not supported by this generator.
+    """
+    raise NotImplementedError("`generate_messages` is not supported by this generator.")
+```
+
+
+</Accordion>
+
+### generate\_texts
+
+```python
+generate_texts(
+    texts: Sequence[str], params: Sequence[GenerateParams]
+) -> t.Sequence[GeneratedText | BaseException]
+```
+
+Generate a batch of text completions using the generator.
+
+<Note>
+This method falls back to looping over the inputs and calling `generate_text` for each item.
+</Note>
+
+<Note>
+If supplied, the length of `params` must be the same as the length of `many`.
+</Note>
+
+**Parameters:**
+
+* **`texts`**
+  (`Sequence[str]`)
+  –The input texts for generating the batch.
+* **`params`**
+  (`Sequence[GenerateParams]`)
+  –Additional parameters for generating each text in the batch.
+
+**Returns:**
+
+* `Sequence[GeneratedText | BaseException]`
+  –The generated texts.
+
+**Raises:**
+
+* `NotImplementedError`
+  –This method is not supported by this generator.
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+async def generate_texts(
+    self,
+    texts: t.Sequence[str],
+    params: t.Sequence[GenerateParams],
+) -> t.Sequence[GeneratedText | BaseException]:
+    """
+    Generate a batch of text completions using the generator.
+
+    Note:
+        This method falls back to looping over the inputs and calling `generate_text` for each item.
+
+    Note:
+        If supplied, the length of `params` must be the same as the length of `many`.
+
+    Args:
+        texts: The input texts for generating the batch.
+        params: Additional parameters for generating each text in the batch.
+
+    Returns:
+        The generated texts.
+
+    Raises:
+        NotImplementedError: This method is not supported by this generator.
+    """
+    raise NotImplementedError("`generate_texts` is not supported by this generator.")
+```
+
+
+</Accordion>
+
+### load
+
+```python
+load() -> Self
+```
+
+If supported, trigger underlying loading and preparation of the model.
+
+**Returns:**
+
+* `Self`
+  –The generator.
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+def load(self) -> Self:
+    """
+    If supported, trigger underlying loading and preparation of the model.
+
+    Returns:
+        The generator.
+    """
+    return self
+```
+
+
+</Accordion>
+
+### prompt
+
+```python
+prompt(
+    func: Callable[P, Coroutine[None, None, R]],
+) -> Prompt[P, R]
+```
+
+Decorator to convert a function into a prompt bound to this generator.
+
+See [rigging.prompt.prompt][] for more information.
+
+**Parameters:**
+
+* **`func`**
+  (`Callable[P, Coroutine[None, None, R]]`)
+  –The function to be converted into a prompt.
+
+**Returns:**
+
+* `Prompt[P, R]`
+  –The prompt.
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+def prompt(self, func: t.Callable[P, t.Coroutine[None, None, R]]) -> "Prompt[P, R]":
+    """
+    Decorator to convert a function into a prompt bound to this generator.
+
+    See [rigging.prompt.prompt][] for more information.
+
+    Args:
+        func: The function to be converted into a prompt.
+
+    Returns:
+        The prompt.
+    """
+    from rigging.prompt import prompt
+
+    return prompt(func, generator=self)
+```
+
+
+</Accordion>
+
+### supports\_function\_calling
+
+```python
+supports_function_calling() -> bool | None
+```
+
+Check if the generator supports calling functions explicitly or is unknown.
+
+**Returns:**
+
+* `bool | None`
+  –True/False if the generator supports function calling, None if unknown.
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+async def supports_function_calling(self) -> bool | None:
+    """
+    Check if the generator supports calling functions explicitly or is unknown.
+
+    Returns:
+        True/False if the generator supports function calling, None if unknown.
+    """
+    return None
+```
+
+
+</Accordion>
+
+### to\_identifier
+
+```python
+to_identifier(params: GenerateParams | None = None) -> str
+```
+
+Converts the generator instance back into a rigging identifier string.
+
+This calls [rigging.generator.get\_identifier][] with the current instance.
+
+**Parameters:**
+
+* **`params`**
+  (`GenerateParams | None`, default:
+  `None`
+  )
+  –The generation parameters.
+
+**Returns:**
+
+* `str`
+  –The identifier string.
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+def to_identifier(self, params: GenerateParams | None = None) -> str:
+    """
+    Converts the generator instance back into a rigging identifier string.
+
+    This calls [rigging.generator.get_identifier][] with the current instance.
+
+    Args:
+        params: The generation parameters.
+
+    Returns:
+        The identifier string.
+    """
+    return get_identifier(self, params)
+```
+
+
+</Accordion>
+
+### unload
+
+```python
+unload() -> Self
+```
+
+If supported, clean up resources used by the underlying model.
+
+**Returns:**
+
+* `Self`
+  –The generator.
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+def unload(self) -> Self:
+    """
+    If supported, clean up resources used by the underlying model.
+
+    Returns:
+        The generator.
+    """
+    return self
+```
+
+
+</Accordion>
+
+### watch
+
+```python
+watch(
+    *callbacks: WatchChatCallback | WatchCompletionCallback,
+    allow_duplicates: bool = False,
+) -> Generator
+```
+
+Registers watch callbacks to be passed to any created
+[rigging.chat.ChatPipeline][] or [rigging.completion.CompletionPipeline][].
+
+**Parameters:**
+
+* **`*callbacks`**
+  (`WatchChatCallback | WatchCompletionCallback`, default:
+  `()`
+  )
+  –The callback functions to be executed.
+* **`allow_duplicates`**
+  (`bool`, default:
+  `False`
+  )
+  –Whether to allow (seemingly) duplicate callbacks to be added.
+
+**Returns:**
+
+* `Generator`
+  –The current instance of the chat.
+
+Example
+
+```python
+async def log(chats: list[Chat]) -> None:
+    ...
+
+await pipeline.watch(log).run()
+```
+
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+def watch(
+    self,
+    *callbacks: "WatchChatCallback | WatchCompletionCallback",
+    allow_duplicates: bool = False,
+) -> "Generator":
+    """
+    Registers watch callbacks to be passed to any created
+    [rigging.chat.ChatPipeline][] or [rigging.completion.CompletionPipeline][].
+
+    Args:
+        *callbacks: The callback functions to be executed.
+        allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
+
+    Returns:
+        The current instance of the chat.
+
+    Example:
+        ~~~
+        async def log(chats: list[Chat]) -> None:
+            ...
+
+        await pipeline.watch(log).run()
+        ~~~
+    """
+    for callback in callbacks:
+        if allow_duplicates or callback not in self._watch_callbacks:
+            self._watch_callbacks.append(callback)
+    return self
+```
+
+
+</Accordion>
+
+### wrap
+
+```python
+wrap(func: Callable[[CallableT], CallableT] | None) -> Self
+```
+
+If supported, wrap any underlying interior framework calls with this function.
+
+This is useful for adding things like backoff or rate limiting.
+
+**Parameters:**
+
+* **`func`**
+  (`Callable[[CallableT], CallableT] | None`)
+  –The function to wrap the calls with.
+
+**Returns:**
+
+* `Self`
+  –The generator.
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+def wrap(self, func: t.Callable[[CallableT], CallableT] | None) -> Self:
+    """
+    If supported, wrap any underlying interior framework calls with this function.
+
+    This is useful for adding things like backoff or rate limiting.
+
+    Args:
+        func: The function to wrap the calls with.
+
+    Returns:
+        The generator.
+    """
+    # TODO: Not sure why mypy is complaining here
+    self._wrap = func  # type: ignore [assignment]
+    return self
+```
+
+
+</Accordion>
+
+HTTPGenerator
+-------------
+
+Generator to map messages to HTTP requests and back.
+
+The generator takes a `spec` attribute which describes how to encode
+messages into HTTP requests and decode the responses back into messages.
+
+You can pass this spec as a python dictionary, JSON string, YAML string,
+or a base64 encoded JSON/YAML string.
+
+Example
+
+```python
+import rigging as rg
+
+spec = r"""
+request:
+url: "https://{{ model }}.crucible.dreadnode.io/submit"
+headers:
+    "X-Api-Key": "{{ api_key }}"
+    "Content-Type": "application/json"
+transforms:
+    - type: "json"
+    pattern: {
+        "data": "$content"
+    }
+response:
+transforms:
+    - type: "jsonpath"
+    pattern: $.flag,output,message
+"""
+
+crucible = rg.get_generator("http!test,api_key=<key>")
+crucible.spec = spec
+
+chat = await crucible.chat("How about a flag?").run()
+
+print(chat.conversation)
+```
+
+### spec
+
+```python
+spec: HTTPSpec | None = None
+```
+
+Specification for building/parsing HTTP interactions.
+
+LiteLLMGenerator
+----------------
+
+Generator backed by the LiteLLM library.
+
+Find more information about supported models and formats [in their docs.](https://docs.litellm.ai/docs/providers).
+
+<Note>
+Batching support is not performant and simply a loop over inputs.
+</Note>
+
+<Warning>
+While some providers support passing `n` to produce a batch
+of completions per request, we don't currently use this in the
+implementation due to it's brittle requirements.
+</Warning>
+
+<Tip>
+Consider setting [`max_connections`][rigging.generator.litellm\_.LiteLLMGenerator.max\_connections]
+or [`min_delay_between_requests`][rigging.generator.litellm\_.LiteLLMGenerator.min\_delay\_between\_requests
+if you run into API limits. You can pass this directly in the generator id:
+
+```python
+get_generator("litellm!openai/gpt-4o,max_connections=2,min_delay_between_requests=1000")
+```
+</Tip>
+
+### max\_connections
+
+```python
+max_connections: int = 10
+```
+
+How many simultaneous requests to pool at one time.
+This is useful to set when you run into API limits at a provider.
+
+Set to 0 to remove the limit.
+
+### min\_delay\_between\_requests
+
+```python
+min_delay_between_requests: float = 0.0
+```
+
+Minimum time (ms) between each request.
+This is useful to set when you run into API limits at a provider.
+
+Usage
+-----
+
+Usage statistics for a generation.
+
+### input\_tokens
+
+```python
+input_tokens: int
+```
+
+The number of input tokens.
+
+### output\_tokens
+
+```python
+output_tokens: int
+```
+
+The number of output tokens.
+
+### total\_tokens
+
+```python
+total_tokens: int
+```
+
+The total number of tokens processed.
+
+chat
+----
+
+```python
+chat(
+    generator: Generator,
+    messages: Sequence[MessageDict],
+    params: GenerateParams | None = None,
+) -> ChatPipeline
+```
+
+```python
+chat(
+    generator: Generator,
+    messages: Sequence[Message]
+    | MessageDict
+    | Message
+    | str
+    | None = None,
+    params: GenerateParams | None = None,
+) -> ChatPipeline
+```
+
+```python
+chat(
+    generator: Generator,
+    messages: Sequence[MessageDict]
+    | Sequence[Message]
+    | MessageDict
+    | Message
+    | str
+    | None = None,
+    params: GenerateParams | None = None,
+) -> ChatPipeline
+```
+
+Creates a chat pipeline using the given generator, messages, and params.
+
+**Parameters:**
+
+* **`generator`**
+  (`Generator`)
+  –The generator to use for creating the chat.
+* **`messages`**
+  (`Sequence[MessageDict] | Sequence[Message] | MessageDict | Message | str | None`, default:
+  `None`
+  )
+  –The messages to include in the chat. Can be a single message or a sequence of messages.
+* **`params`**
+  (`GenerateParams | None`, default:
+  `None`
+  )
+  –Additional parameters for generating the chat.
+
+**Returns:**
+
+* `ChatPipeline`
+  –chat pipeline to run.
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+def chat(
+    generator: Generator,
+    messages: t.Sequence[MessageDict]
+    | t.Sequence[Message]
+    | MessageDict
+    | Message
+    | str
+    | None = None,
+    params: GenerateParams | None = None,
+) -> "ChatPipeline":
+    """
+    Creates a chat pipeline using the given generator, messages, and params.
+
+    Args:
+        generator: The generator to use for creating the chat.
+        messages: The messages to include in the chat. Can be a single message or a sequence of messages.
+        params: Additional parameters for generating the chat.
+
+    Returns:
+        chat pipeline to run.
+    """
+    return generator.chat(messages, params)
+```
+
+
+</Accordion>
+
+get\_generator
+--------------
+
+```python
+get_generator(
+    identifier: str, *, params: GenerateParams | None = None
+) -> Generator
+```
+
+Get a generator by an identifier string. Uses LiteLLM by default.
+
+Identifier strings are formatted like `<provider>!<model>,<**kwargs>`
+
+(provider is optional andif not specified)
+
+Examples:
+
+* "gpt-3.5-turbo" -> `LiteLLMGenerator(model="gpt-3.5-turbo")`
+* "litellm!claude-2.1" -> `LiteLLMGenerator(model="claude-2.1")`
+* "mistral/mistral-tiny" -> `LiteLLMGenerator(model="mistral/mistral-tiny")`
+
+You can also specify arguments to the generator by comma-separating them:
+
+* "mistral/mistral-medium,max\_tokens=1024"
+* "gpt-4-0613,temperature=0.9,max\_tokens=512"
+* "claude-2.1,stop\_sequences=Human:;test,max\_tokens=100"
+
+(These get parsed as [rigging.generator.GenerateParams][])
+
+**Parameters:**
+
+* **`identifier`**
+  (`str`)
+  –The identifier string to use to get a generator.
+* **`params`**
+  (`GenerateParams | None`, default:
+  `None`
+  )
+  –The generation parameters to use for the generator.
+  These will override any parameters specified in the identifier string.
+
+**Returns:**
+
+* `Generator`
+  –The generator object.
+
+**Raises:**
+
+* `InvalidModelSpecified`
+  –If the identifier is invalid.
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+@lru_cache(maxsize=128)
+def get_generator(identifier: str, *, params: GenerateParams | None = None) -> Generator:
+    """
+    Get a generator by an identifier string. Uses LiteLLM by default.
+
+    Identifier strings are formatted like `<provider>!<model>,<**kwargs>`
+
+    (provider is optional andif not specified)
+
+    Examples:
+
+    - "gpt-3.5-turbo" -> `LiteLLMGenerator(model="gpt-3.5-turbo")`
+    - "litellm!claude-2.1" -> `LiteLLMGenerator(model="claude-2.1")`
+    - "mistral/mistral-tiny" -> `LiteLLMGenerator(model="mistral/mistral-tiny")`
+
+    You can also specify arguments to the generator by comma-separating them:
+
+    - "mistral/mistral-medium,max_tokens=1024"
+    - "gpt-4-0613,temperature=0.9,max_tokens=512"
+    - "claude-2.1,stop_sequences=Human:;test,max_tokens=100"
+
+    (These get parsed as [rigging.generator.GenerateParams][])
+
+    Args:
+        identifier: The identifier string to use to get a generator.
+        params: The generation parameters to use for the generator.
+            These will override any parameters specified in the identifier string.
+
+    Returns:
+        The generator object.
+
+    Raises:
+        InvalidModelSpecified: If the identifier is invalid.
+    """
+
+    provider: str = next(iter(g_providers.keys()))
+    model: str = identifier
+
+    if not identifier:
+        raise InvalidModelSpecifiedError(identifier)
+
+    # Split provider, model, and kwargs
+
+    if "!" in identifier:
+        try:
+            provider, model = identifier.split("!")
+        except Exception as e:
+            raise InvalidModelSpecifiedError(identifier) from e
+
+    if provider not in g_providers:
+        raise InvalidModelSpecifiedError(identifier)
+
+    if not isinstance(g_providers[provider], type):
+        lazy_generator = t.cast("LazyGenerator", g_providers[provider])
+        g_providers[provider] = lazy_generator()
+
+    generator_cls = t.cast("type[Generator]", g_providers[provider])
+
+    kwargs = {}
+    if "," in model:
+        try:
+            model, kwargs_str = model.split(",", 1)
+            kwargs = dict(arg.split("=", 1) for arg in kwargs_str.split(","))
+        except Exception as e:
+            raise InvalidModelSpecifiedError(identifier) from e
+
+    # See if any of the kwargs would apply to the cls constructor directly
+    init_signature = inspect.signature(generator_cls)
+    init_kwargs: dict[str, t.Any] = {
+        k: kwargs.pop(k) for k in list(kwargs.keys())[:] if k in init_signature.parameters
+    }
+
+    # Do some subtle type conversion
+    for k, v in init_kwargs.items():
+        try:
+            init_kwargs[k] = float(v)
+            continue
+        except ValueError:
+            pass
+
+        try:
+            init_kwargs[k] = int(v)
+            continue
+        except ValueError:
+            pass
+
+        if isinstance(v, str) and v.lower() in ["true", "false"]:
+            init_kwargs[k] = v.lower() == "true"
+
+    try:
+        merged_params = GenerateParams(**kwargs).merge_with(params)
+    except Exception as e:
+        raise InvalidModelSpecifiedError(identifier) from e
+
+    return generator_cls(model=model, params=merged_params, **init_kwargs)
+```
+
+
+</Accordion>
+
+get\_identifier
+---------------
+
+```python
+get_identifier(
+    generator: Generator,
+    params: GenerateParams | None = None,
+) -> str
+```
+
+Converts the generator instance back into a rigging identifier string.
+
+<Warning>
+The `extra` parameter field is not currently supported in identifiers.
+</Warning>
+
+**Parameters:**
+
+* **`generator`**
+  (`Generator`)
+  –The generator object.
+* **`params`**
+  (`GenerateParams | None`, default:
+  `None`
+  )
+  –The generation parameters.
+
+**Returns:**
+
+* `str`
+  –The identifier string for the generator.
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+def get_identifier(generator: Generator, params: GenerateParams | None = None) -> str:
+    """
+    Converts the generator instance back into a rigging identifier string.
+
+    Warning:
+        The `extra` parameter field is not currently supported in identifiers.
+
+    Args:
+        generator: The generator object.
+        params: The generation parameters.
+
+    Returns:
+        The identifier string for the generator.
+    """
+
+    provider = next(
+        name
+        for name, klass in g_providers.items()
+        if isinstance(klass, type) and isinstance(generator, klass)
+    )
+    identifier = f"{provider}!{generator.model}"
+
+    extra_cls_args = generator.model_dump(
+        exclude_unset=True,
+        exclude={"model", "api_key", "params"},
+    )
+    if extra_cls_args:
+        identifier += f",{','.join([f'{k}={v}' for k, v in extra_cls_args.items()])}"
+
+    merged_params = generator.params.merge_with(params)
+    if merged_params.extra:
+        logger.debug("Extra parameters are not supported in identifiers.")
+        merged_params.extra = {}
+
+    params_dict = merged_params.to_dict()
+    if params_dict:
+        if "stop" in params_dict:
+            params_dict["stop"] = ";".join(params_dict["stop"])
+        identifier += f",{','.join([f'{k}={v}' for k, v in params_dict.items()])}"
+
+    return identifier
+```
+
+
+</Accordion>
+
+register\_generator
+-------------------
+
+```python
+register_generator(
+    provider: str,
+    generator_cls: type[Generator] | LazyGenerator,
+) -> None
+```
+
+Register a generator class for a provider id.
+
+This let's you use [rigging.generator.get\_generator][] with a custom generator class.
+
+**Parameters:**
+
+* **`provider`**
+  (`str`)
+  –The name of the provider.
+* **`generator_cls`**
+  (`type[Generator] | LazyGenerator`)
+  –The generator class to register.
+
+**Returns:**
+
+* `None`
+  –None
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+def register_generator(provider: str, generator_cls: type[Generator] | LazyGenerator) -> None:
+    """
+    Register a generator class for a provider id.
+
+    This let's you use [rigging.generator.get_generator][] with a custom generator class.
+
+    Args:
+        provider: The name of the provider.
+        generator_cls: The generator class to register.
+
+    Returns:
+        None
+    """
+    global g_providers  # noqa: PLW0602
+    g_providers[provider] = generator_cls
+```
+
+
+</Accordion>
+VLLMGenerator
+-------------
+
+Generator backed by the vLLM library for local model loading.
+
+Find more information about supported models and formats [in their docs.](https://docs.vllm.ai/en/latest/index.html)
+
+<Warning>
+The use of VLLM requires the `vllm` package to be installed directly or by
+installing rigging as `rigging[all]`.
+</Warning>
+
+<Note>
+This generator doesn't leverage any async capabilities.
+</Note>
+
+<Note>
+The model load into memory will occur lazily when the first generation is requested.
+If you'd want to force this to happen earlier, you can use the
+[`.load()`][rigging.generator.Generator.load] method.
+
+To unload, call [`.unload()`][rigging.generator.Generator.unload].
+</Note>
+
+### dtype
+
+```python
+dtype: str = 'auto'
+```
+
+Tensor dtype passed to [`vllm.LLM`](https://docs.vllm.ai/en/latest/offline_inference/llm.html)
+
+### enforce\_eager
+
+```python
+enforce_eager: bool = False
+```
+
+Eager enforcement passed to [`vllm.LLM`](https://docs.vllm.ai/en/latest/offline_inference/llm.html)
+
+### gpu\_memory\_utilization
+
+```python
+gpu_memory_utilization: float = 0.9
+```
+
+Memory utilization passed to [`vllm.LLM`](https://docs.vllm.ai/en/latest/offline_inference/llm.html)
+
+### llm
+
+```python
+llm: LLM
+```
+
+The underlying [`vLLM model`](https://docs.vllm.ai/en/latest/offline_inference/llm.html) instance.
+
+### quantization
+
+```python
+quantization: str | None = None
+```
+
+Quantiziation passed to [`vllm.LLM`](https://docs.vllm.ai/en/latest/offline_inference/llm.html)
+
+### trust\_remote\_code
+
+```python
+trust_remote_code: bool = False
+```
+
+Trust remote code passed to [`vllm.LLM`](https://docs.vllm.ai/en/latest/offline_inference/llm.html)
+
+### from\_obj
+
+```python
+from_obj(
+    model: str,
+    llm: LLM,
+    *,
+    params: GenerateParams | None = None,
+) -> VLLMGenerator
+```
+
+Create a generator from an existing vLLM instance.
+
+**Parameters:**
+
+* **`llm`**
+  (`LLM`)
+  –The vLLM instance to create the generator from.
+
+**Returns:**
+
+* `VLLMGenerator`
+  –The VLLMGenerator instance.
+
+<Accordion title="Source code in rigging/generator/vllm_.py" icon="code">
+```python
+@classmethod
+def from_obj(
+    cls,
+    model: str,
+    llm: vllm.LLM,
+    *,
+    params: GenerateParams | None = None,
+) -> "VLLMGenerator":
+    """Create a generator from an existing vLLM instance.
+
+    Args:
+        llm: The vLLM instance to create the generator from.
+
+    Returns:
+        The VLLMGenerator instance.
+    """
+    generator = cls(model=model, params=params or GenerateParams())
+    generator._llm = llm
+    return generator
+```
+
+
+</Accordion>
+DEFAULT\_MAX\_TOKENS
+--------------------
+
+```python
+DEFAULT_MAX_TOKENS = 1024
+```
+
+Lifting the default max tokens from transformers
+
+TransformersGenerator
+---------------------
+
+Generator backed by the Transformers library for local model loading.
+
+<Warning>
+The use of Transformers requires the `transformers` package to be installed directly or by
+installing rigging as `rigging[all]`.
+</Warning>
+
+<Warning>
+The `transformers` library is expansive with many different models, tokenizers,
+options, constructors, etc. We do our best to implement a consistent interface,
+but there may be limitations. Where needed, use
+[`.from_obj()`][rigging.generator.transformers\_.TransformersGenerator.from\_obj].
+</Warning>
+
+<Note>
+This generator doesn't leverage any async capabilities.
+</Note>
+
+<Note>
+The model load into memory will occur lazily when the first generation is requested.
+If you'd want to force this to happen earlier, you can use the
+[`.load()`][rigging.generator.Generator.load] method.
+
+To unload, call [`.unload()`][rigging.generator.Generator.unload].
+</Note>
+
+### device\_map
+
+```python
+device_map: str = 'auto'
+```
+
+Device map passed to [`AutoModelForCausalLM.from_pretrained`](https://huggingface.co/docs/transformers/v4.41.0/en/model_doc/auto)
+
+### llm
+
+```python
+llm: AutoModelForCausalLM
+```
+
+The underlying `AutoModelForCausalLM` instance.
+
+### load\_in\_4bit
+
+```python
+load_in_4bit: bool = False
+```
+
+Load in 4 bit passed to [`AutoModelForCausalLM.from_pretrained`](https://huggingface.co/docs/transformers/v4.41.0/en/model_doc/auto)
+
+### load\_in\_8bit
+
+```python
+load_in_8bit: bool = False
+```
+
+Load in 8 bit passed to [`AutoModelForCausalLM.from_pretrained`](https://huggingface.co/docs/transformers/v4.41.0/en/model_doc/auto)
+
+### pipeline
+
+```python
+pipeline: TextGenerationPipeline
+```
+
+The underlying `TextGenerationPipeline` instance.
+
+### tokenizer
+
+```python
+tokenizer: AutoTokenizer
+```
+
+The underlying `AutoTokenizer` instance.
+
+### torch\_dtype
+
+```python
+torch_dtype: str = 'auto'
+```
+
+Torch dtype passed to [`AutoModelForCausalLM.from_pretrained`](https://huggingface.co/docs/transformers/v4.41.0/en/model_doc/auto)
+
+### trust\_remote\_code
+
+```python
+trust_remote_code: bool = False
+```
+
+Trust remote code passed to [`AutoModelForCausalLM.from_pretrained`](https://huggingface.co/docs/transformers/v4.41.0/en/model_doc/auto)
+
+### from\_obj
+
+```python
+from_obj(
+    model: Any,
+    tokenizer: AutoTokenizer,
+    *,
+    pipeline: TextGenerationPipeline | None = None,
+    params: GenerateParams | None = None,
+) -> TransformersGenerator
+```
+
+Create a new instance of TransformersGenerator from an already loaded model and tokenizer.
+
+**Parameters:**
+
+* **`model`**
+  (`Any`)
+  –The loaded model for text generation.
+* **`tokenizer`**
+  –The tokenizer associated with the model.
+* **`pipeline`**
+  (`TextGenerationPipeline | None`, default:
+  `None`
+  )
+  –The text generation pipeline. Defaults to None.
+
+**Returns:**
+
+* `TransformersGenerator`
+  –The TransformersGenerator instance.
+
+<Accordion title="Source code in rigging/generator/transformers_.py" icon="code">
+```python
+@classmethod
+def from_obj(
+    cls,
+    model: t.Any,
+    tokenizer: AutoTokenizer,
+    *,
+    pipeline: TextGenerationPipeline | None = None,
+    params: GenerateParams | None = None,
+) -> "TransformersGenerator":
+    """
+    Create a new instance of TransformersGenerator from an already loaded model and tokenizer.
+
+    Args:
+        model: The loaded model for text generation.
+        tokenizer : The tokenizer associated with the model.
+        pipeline: The text generation pipeline. Defaults to None.
+
+    Returns:
+        The TransformersGenerator instance.
+    """
+    instance = cls(model=model, params=params or GenerateParams())
+    instance._llm = model
+    instance._tokenizer = tokenizer
+    instance._pipeline = pipeline
+    return instance
+```
+
+
+</Accordion>

@@ -4,7 +4,7 @@ description: "Iterating over messages, params, and generators, as well as batchi
 public: true
 ---
 
-Rigging has good support for iterating over messages, params, and generators, as well as large batching of requests. How efficiently these mechanisms operates is dependent on the underlying generator that's being used, but Rigging has been developed with scale in mind.
+Rigging has good support for iterating over messages, parameters, and generators, as well as large batching of requests. How efficiently these mechanisms operates is dependent on the underlying generator that's being used, but Rigging has been developed with scale in mind.
 
 ## Multiple Generations
 
@@ -45,7 +45,7 @@ for i, chat in enumerate(chats):
 --- Chat 1 (?: False) ---
 [user]: Tell me a joke about an animal.
 
-[assistant]: Why did the spider go to the computer? 
+[assistant]: Why did the spider go to the computer?
 
 To check his website!
 
@@ -69,12 +69,12 @@ Because they're afraid of the mouse!
 
 ## Batching Inputs
 
-The `run_batch` functions let you batch accross a set of inputs:
+The `run_batch` functions let you batch across a set of inputs:
 
 - `ChatPipeline.run_batch()`
 - `CompletionPipeline.run_batch()`
- 
-As processing proceeds with things like `.then()` or `.map()`, that chats will resolve individually and collapse into the final results.
+
+As processing proceeds with things like `.then()` or `.map()`, the chats will resolve individually and collapse into the final results.
 
 <CodeGroup>
 ```python Batching Inputs
@@ -109,18 +109,18 @@ for i, chat in enumerate(chats):
 ```
 </CodeGroup>
 
-<Tip> 
+<Tip>
 **Skipping failed results**
 
-Passing `on_failed='skip'` to `.run_batch`, or configuring a pipeline with `.catch(..., on_failed='skip')` will cause the function to ignore any parsing errors like `ExhaustedMaxRoundsError` and only return the chats that were successful.
+Passing `on_failed='skip'` to `.run_batch`, or configuring a pipeline with `.catch(..., on_failed='skip')` will cause the function to ignore any parsing errors like `ExhaustedMaxRoundsError` and only return successful chats.
 </Tip>
 
 ## Batching Parameters
 
-In addition to batching against input messages or strings, you can fix a single input and build a batch accross a set of generation parameters. The inputs to `.run_batch` will scale either the generate parameters or the input messages if either is a single item.
+In addition to batching against input messages or strings, you can fix a single input and build a batch across a set of generation parameters. The inputs to `.run_batch` will scale either the generate parameters or the input messages if either is a single item.
 
 <CodeGroup>
-```python Batching 
+```python Batching
 import rigging as rg
 
 pipeline = rg.get_generator("gpt-3.5-turbo").chat()
@@ -187,7 +187,7 @@ Generators can be passed as string identifiers or full instances of `Generator`.
 Much like the `run_many` and `run_batch` functions, you can control the handling of failures with the `on_failed` parameter.
 
 <CodeGroup>
-```python Run Over 
+```python Run Over
 import rigging as rg
 from rigging.model import Answer
 
