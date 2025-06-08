@@ -197,7 +197,7 @@ pipeline = (
     .chat("Hello, how are you?")
 )
 
-# We can fork before generation has occured
+# We can fork before generation has occurred
 specific = await pipeline.fork("Be specific please.").run()
 poetic = await pipeline.fork("Be as poetic as possible").with_(temperature=1.5).run() # (1)!
 
