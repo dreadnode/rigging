@@ -37,7 +37,7 @@ ToolMode = t.Literal["auto", "api", "xml", "json-in-xml"]
 """
 How tool calls are handled.
 
-- `auto`: The method is chosed based on support (api > xml).
+- `auto`: The method is chosen based on support (api > xml).
 - `api`: Tool calls are delegated to api-provided function calling.
 - `xml`: Tool calls are parsed in nested XML format.
 - `json-in-xml`: Tool calls are parsed as raw JSON inside XML tags.
@@ -117,7 +117,7 @@ class Tool(t.Generic[P, R]):
             fn_for_signature = fn.func  # type: ignore [assignment]
             fn = fn.run  # type: ignore [assignment]
 
-        # In the case that we are recieving a bound function which is tracking
+        # In the case that we are receiving a bound function which is tracking
         # an originating prompt, unwrap the prompt and use it's function for
         # the signature. Be sure to error for cases where we aren't dealing
         # with the singular Prompt.run, as we don't currently have logic to

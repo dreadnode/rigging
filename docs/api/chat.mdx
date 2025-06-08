@@ -1,0 +1,3066 @@
+---
+title: rigging.chat
+---
+
+{/*
+::: rigging.chat
+*/}
+
+Chats are used pre and post generation to hold messages.
+
+They are the primary way to interact with the generator.
+
+CacheMode
+---------
+
+```python
+CacheMode = Literal['latest']
+```
+
+How to handle cache\_control entries on messages.
+
+* latest: Assign cache\_control to the latest 2 non-assistant messages in the pipeline before inference.
+
+DEFAULT\_MAX\_DEPTH
+-------------------
+
+```python
+DEFAULT_MAX_DEPTH = 20
+```
+
+Maximum depth of nested pipeline generations to attempt before giving up.
+
+DEFAULT\_MAX\_ROUNDS
+--------------------
+
+```python
+DEFAULT_MAX_ROUNDS = 5
+```
+
+Maximum number of internal callback rounds to attempt during generation before giving up.
+
+FailMode
+--------
+
+```python
+FailMode = Literal['raise', 'skip', 'include']
+```
+
+How to handle failures in pipelines.
+
+* raise: Raise an exception when a failure is encountered.
+* skip: Ignore the error and do not include the failed chat in the final output.
+* include: Mark the message as failed and include it in the final output.
+
+MapChatCallback
+---------------
+
+```python
+MapChatCallback = _MapChatCallback | _MapChatStepCallback
+```
+
+Passed a finalized chats to process. Can replace chats in the pipeline
+by returning any number of new or existing chats.
+
+ThenChatCallback
+----------------
+
+```python
+ThenChatCallback = _ThenChatCallback | _ThenChatStepCallback
+```
+
+Passed a finalized chat to process and can return a new chat to replace it.
+
+Chat
+----
+
+```python
+Chat(
+    messages: Messages,
+    generated: Messages | None = None,
+    generator: Generator | None = None,
+    pipeline: ChatPipeline | None = None,
+    **kwargs: Any,
+)
+```
+
+A completed chat interaction.
+
+Initialize a Chat object.
+
+**Parameters:**
+
+* **`messages`**
+  (`Messages`)
+  –The messages for the chat.
+* **`generated`**
+  (`Messages | None`, default:
+  `None`
+  )
+  –The next messages for the chat.
+* **`generator`**
+  (`Generator | None`, default:
+  `None`
+  )
+  –The generator associated with this chat.
+* **`**kwargs`**
+  (`Any`, default:
+  `{}`
+  )
+  –Additional keyword arguments (typically used for deserialization)
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def __init__(
+    self,
+    messages: Messages,
+    generated: Messages | None = None,
+    generator: Generator | None = None,
+    pipeline: "ChatPipeline | None" = None,
+    **kwargs: t.Any,
+):
+    """
+    Initialize a Chat object.
+
+    Args:
+        messages: The messages for the chat.
+        generated: The next messages for the chat.
+        generator: The generator associated with this chat.
+        **kwargs: Additional keyword arguments (typically used for deserialization)
+    """
+
+    if "generator_id" in kwargs and generator is None:
+        # TODO: Should we move params to self.params?
+        generator_id = kwargs.pop("generator_id")
+        if generator_id:
+            generator = get_generator(generator_id)
+
+    # We can't deserialize an error
+    if isinstance(kwargs.get("error"), str):
+        kwargs.pop("error")
+
+    super().__init__(
+        messages=Message.fit_as_list(messages),
+        generated=Message.fit_as_list(generated) if generated is not None else [],
+        generator=generator,
+        **kwargs,
+    )
+
+    self._pipeline = pipeline
+```
+
+
+</Accordion>
+
+### all
+
+```python
+all: list[Message]
+```
+
+Returns all messages in the chat, including the next messages.
+
+### conversation
+
+```python
+conversation: str
+```
+
+Returns a string representation of the chat.
+
+### error
+
+```python
+error: (
+    Annotated[
+        BaseException,
+        PlainSerializer(
+            lambda x: str(x),
+            return_type=str,
+            when_used=json - unless - none,
+        ),
+        WithJsonSchema(
+            {type: string, description: "Error message"}
+        ),
+    ]
+    | None
+) = Field(None, repr=False)
+```
+
+Holds any exception that was caught during the generation pipeline.
+
+### extra
+
+```python
+extra: dict[str, Any] = Field(
+    default_factory=dict, repr=False
+)
+```
+
+Any additional information from the generation.
+
+### failed
+
+```python
+failed: bool = Field(False, exclude=False, repr=True)
+```
+
+Indicates whether conditions during generation were not met.
+This is typically used for graceful error handling when parsing.
+
+### generated
+
+```python
+generated: list[Message] = Field(default_factory=list)
+```
+
+The list of messages resulting from the generation.
+
+### generator
+
+```python
+generator: Generator | None = Field(
+    None, exclude=True, repr=False
+)
+```
+
+The generator associated with the chat.
+
+### generator\_id
+
+```python
+generator_id: str | None
+```
+
+The identifier of the generator used to create the chat
+
+### last
+
+```python
+last: Message
+```
+
+Alias for .all[-1]
+
+### message\_dicts
+
+```python
+message_dicts: list[MessageDict]
+```
+
+Returns the chat as a minimal message dictionaries.
+
+**Returns:**
+
+* `list[MessageDict]`
+  –The MessageDict list
+
+### messages
+
+```python
+messages: list[Message]
+```
+
+The list of messages prior to generation.
+
+### metadata
+
+```python
+metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+Additional metadata for the chat.
+
+### next
+
+```python
+next: list[Message]
+```
+
+Alias for the .generated property
+
+### params
+
+```python
+params: GenerateParams | None = Field(
+    None, exclude=True, repr=False
+)
+```
+
+Any additional generation params used for this chat.
+
+### prev
+
+```python
+prev: list[Message]
+```
+
+Alias for the .messages property
+
+### stop\_reason
+
+```python
+stop_reason: StopReason = Field(default='unknown')
+```
+
+The reason the generation stopped.
+
+### timestamp
+
+```python
+timestamp: datetime = Field(default_factory=now, repr=False)
+```
+
+The timestamp when the chat was created.
+
+### usage
+
+```python
+usage: Usage | None = Field(None, repr=False)
+```
+
+The usage statistics for the generation if available.
+
+### uuid
+
+```python
+uuid: UUID = Field(default_factory=uuid4)
+```
+
+The unique identifier for the chat.
+
+### apply
+
+```python
+apply(**kwargs: str) -> Chat
+```
+
+Calls [rigging.message.Message.apply][] on the last message in the chat with the given keyword arguments.
+
+**Parameters:**
+
+* **`**kwargs`**
+  (`str`, default:
+  `{}`
+  )
+  –The string mapping of replacements.
+
+**Returns:**
+
+* `Chat`
+  –The updated chat.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def apply(self, **kwargs: str) -> "Chat":
+    """
+    Calls [rigging.message.Message.apply][] on the last message in the chat with the given keyword arguments.
+
+    Args:
+        **kwargs: The string mapping of replacements.
+
+    Returns:
+        The updated chat.
+    """
+    if self.generated:
+        self.generated[-1] = self.generated[-1].apply(**kwargs)
+    else:
+        self.messages[-1] = self.messages[-1].apply(**kwargs)
+    return self
+```
+
+
+</Accordion>
+
+### apply\_to\_all
+
+```python
+apply_to_all(**kwargs: str) -> Chat
+```
+
+Calls [rigging.message.Message.apply][] on all messages in the chat with the given keyword arguments.
+
+**Parameters:**
+
+* **`**kwargs`**
+  (`str`, default:
+  `{}`
+  )
+  –The string mapping of replacements.
+
+**Returns:**
+
+* `Chat`
+  –The updated chat.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def apply_to_all(self, **kwargs: str) -> "Chat":
+    """
+    Calls [rigging.message.Message.apply][] on all messages in the chat with the given keyword arguments.
+
+    Args:
+        **kwargs: The string mapping of replacements.
+
+    Returns:
+        The updated chat.
+    """
+    self.messages = Message.apply_to_list(self.messages, **kwargs)
+    self.generated = Message.apply_to_list(self.generated, **kwargs)
+    return self
+```
+
+
+</Accordion>
+
+### clone
+
+```python
+clone(*, only_messages: bool = False) -> Chat
+```
+
+Creates a deep copy of the chat.
+
+**Parameters:**
+
+* **`only_messages`**
+  (`bool`, default:
+  `False`
+  )
+  –If True, only the messages will be cloned.
+  If False (default), the entire chat object will be cloned.
+
+**Returns:**
+
+* `Chat`
+  –A cloned chat.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def clone(self, *, only_messages: bool = False) -> "Chat":
+    """
+    Creates a deep copy of the chat.
+
+    Args:
+        only_messages: If True, only the messages will be cloned.
+            If False (default), the entire chat object will be cloned.
+
+    Returns:
+        A cloned chat.
+    """
+    new = Chat(
+        [m.model_copy() for m in self.messages],
+        [m.model_copy() for m in self.generated],
+        self.generator,
+    )
+    if not only_messages:
+        new.metadata = deepcopy(self.metadata)
+        new.params = self.params.model_copy() if self.params is not None else None
+        new.stop_reason = self.stop_reason
+        new.usage = self.usage.model_copy() if self.usage is not None else None
+        new.extra = deepcopy(self.extra)
+        new.failed = self.failed
+        new.error = self.error
+    return new
+```
+
+
+</Accordion>
+
+### continue\_
+
+```python
+continue_(
+    messages: Sequence[Message]
+    | Sequence[MessageDict]
+    | Message
+    | str,
+) -> ChatPipeline
+```
+
+Alias for the [rigging.chat.Chat.fork][] with `include_all=True`.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def continue_(
+    self,
+    messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | str,
+) -> "ChatPipeline":
+    """Alias for the [rigging.chat.Chat.fork][] with `include_all=True`."""
+    return self.fork(messages, include_all=True)
+```
+
+
+</Accordion>
+
+### fork
+
+```python
+fork(
+    messages: Sequence[Message]
+    | Sequence[MessageDict]
+    | Message
+    | MessageDict
+    | str,
+    *,
+    include_all: bool = False,
+) -> ChatPipeline
+```
+
+Forks the chat by creating calling [rigging.chat.Chat.restart][] and appending the specified messages.
+
+**Parameters:**
+
+* **`messages`**
+  (`Sequence[Message] | Sequence[MessageDict] | Message | MessageDict | str`)
+  –The messages to be added to the new `ChatPipeline` instance.
+* **`include_all`**
+  (`bool`, default:
+  `False`
+  )
+  –Whether to include the next messages in the restarted chat.
+
+**Returns:**
+
+* `ChatPipeline`
+  –A new pipeline with specified messages added.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def fork(
+    self,
+    messages: t.Sequence[Message] | t.Sequence[MessageDict] | Message | MessageDict | str,
+    *,
+    include_all: bool = False,
+) -> "ChatPipeline":
+    """
+    Forks the chat by creating calling [rigging.chat.Chat.restart][] and appending the specified messages.
+
+    Args:
+        messages:
+            The messages to be added to the new `ChatPipeline` instance.
+        include_all: Whether to include the next messages in the restarted chat.
+
+    Returns:
+        A new pipeline with specified messages added.
+    """
+    return self.restart(include_all=include_all).add(messages)
+```
+
+
+</Accordion>
+
+### inject\_system\_content
+
+```python
+inject_system_content(content: str) -> Chat
+```
+
+Injects content into the chat as a system message.
+
+<Note>
+If the chat is empty or the first message is not a system message,
+a new system message with the given content is inserted at the beginning of the chat.
+If the first message is a system message, the content is appended to it.
+</Note>
+
+**Parameters:**
+
+* **`content`**
+  (`str`)
+  –The content to be injected.
+
+**Returns:**
+
+* `Chat`
+  –The updated chat.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def inject_system_content(self, content: str) -> "Chat":
+    """
+    Injects content into the chat as a system message.
+
+    Note:
+        If the chat is empty or the first message is not a system message,
+        a new system message with the given content is inserted at the beginning of the chat.
+        If the first message is a system message, the content is appended to it.
+
+    Args:
+        content: The content to be injected.
+
+    Returns:
+        The updated chat.
+    """
+    if len(self.messages) == 0 or self.messages[0].role != "system":
+        self.messages.insert(0, Message(role="system", content=content))
+    elif self.messages[0].role == "system" and content not in self.messages[0].content:
+        self.messages[0].content += "\n\n" + content
+    return self
+```
+
+
+</Accordion>
+
+### inject\_tool\_prompt
+
+```python
+inject_tool_prompt(
+    tools: Sequence[Tool[..., Any]], mode: ToolMode
+) -> Chat
+```
+
+Injects a default tool use prompt into the system prompt.
+
+**Parameters:**
+
+* **`tools`**
+  (`Sequence[Tool[..., Any]]`)
+  –A sequence of Tool objects.
+
+**Returns:**
+
+* `Chat`
+  –The updated chat.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def inject_tool_prompt(
+    self,
+    tools: t.Sequence[Tool[..., t.Any]],
+    mode: ToolMode,
+) -> "Chat":
+    """
+    Injects a default tool use prompt into the system prompt.
+
+    Args:
+        tools: A sequence of Tool objects.
+
+    Returns:
+        The updated chat.
+    """
+    if mode not in ["xml", "json-in-xml"]:
+        return self
+
+    definitions: list[XmlToolDefinition] | list[JsonInXmlToolDefinition]
+    if mode == "xml":
+        definitions = [tool.xml_definition for tool in tools]
+    else:
+        definitions = [tool.json_definition for tool in tools]
+
+    tool_system_prompt = tool_description_prompt_part(
+        definitions,
+        t.cast("t.Literal['xml', 'json-in-xml']", mode),
+    )
+    return self.inject_system_content(tool_system_prompt)
+```
+
+
+</Accordion>
+
+### meta
+
+```python
+meta(**kwargs: Any) -> Chat
+```
+
+Updates the metadata of the chat with the provided key-value pairs.
+
+**Parameters:**
+
+* **`**kwargs`**
+  (`Any`, default:
+  `{}`
+  )
+  –Key-value pairs representing the metadata to be updated.
+
+**Returns:**
+
+* `Chat`
+  –The updated chat.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def meta(self, **kwargs: t.Any) -> "Chat":
+    """
+    Updates the metadata of the chat with the provided key-value pairs.
+
+    Args:
+        **kwargs: Key-value pairs representing the metadata to be updated.
+
+    Returns:
+        The updated chat.
+    """
+    self.metadata.update(kwargs)
+    return self
+```
+
+
+</Accordion>
+
+### restart
+
+```python
+restart(
+    *,
+    generator: Generator | None = None,
+    include_all: bool = False,
+) -> ChatPipeline
+```
+
+Attempt to convert back to a ChatPipeline for further generation.
+
+**Parameters:**
+
+* **`generator`**
+  (`Generator | None`, default:
+  `None`
+  )
+  –The generator to use for the restarted chat. Otherwise
+  the generator from the original ChatPipeline will be used.
+* **`include_all`**
+  (`bool`, default:
+  `False`
+  )
+  –Whether to include the next messages in the restarted chat.
+
+**Returns:**
+
+* `ChatPipeline`
+  –The restarted chat.
+
+**Raises:**
+
+* `ValueError`
+  –If the chat was not created with a ChatPipeline and no generator is provided.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def restart(
+    self,
+    *,
+    generator: Generator | None = None,
+    include_all: bool = False,
+) -> "ChatPipeline":
+    """
+    Attempt to convert back to a ChatPipeline for further generation.
+
+    Args:
+        generator: The generator to use for the restarted chat. Otherwise
+            the generator from the original ChatPipeline will be used.
+        include_all: Whether to include the next messages in the restarted chat.
+
+    Returns:
+        The restarted chat.
+
+    Raises:
+        ValueError: If the chat was not created with a ChatPipeline and no generator is provided.
+    """
+    messages = self.all if include_all else self.messages
+    if generator is None:
+        if self._pipeline is not None:
+            return self._pipeline.clone(chat=Chat(messages))
+        generator = self.generator
+    if generator is None:
+        raise ValueError("Cannot restart a chat without an associated generator")
+    return generator.chat(messages, self.params)
+```
+
+
+</Accordion>
+
+### strip
+
+```python
+strip(
+    model_type: type[Model], fail_on_missing: bool = False
+) -> Chat
+```
+
+Strips all parsed parts of a particular type from the message content.
+
+**Parameters:**
+
+* **`model_type`**
+  (`type[Model]`)
+  –The type of model to keep in the chat.
+* **`fail_on_missing`**
+  (`bool`, default:
+  `False`
+  )
+  –Whether to raise an exception if a message of the specified model type is not found.
+
+**Returns:**
+
+* `Chat`
+  –A new chat with only the messages of the specified model type.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def strip(self, model_type: type[Model], fail_on_missing: bool = False) -> "Chat":  # noqa: FBT001, FBT002 (historical)
+    """
+    Strips all parsed parts of a particular type from the message content.
+
+    Args:
+        model_type: The type of model to keep in the chat.
+        fail_on_missing: Whether to raise an exception if a message of the specified model type is not found.
+
+    Returns:
+        A new chat with only the messages of the specified model type.
+    """
+    new = self.clone()
+    for message in new.all:
+        message.strip(model_type, fail_on_missing=fail_on_missing)
+    return new
+```
+
+
+</Accordion>
+
+### to\_df
+
+```python
+to_df() -> t.Any
+```
+
+Converts the chat to a Pandas DataFrame.
+
+See [rigging.data.chats\_to\_df][] for more information.
+
+**Returns:**
+
+* `Any`
+  –The chat as a DataFrame.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def to_df(self) -> t.Any:
+    """
+    Converts the chat to a Pandas DataFrame.
+
+    See [rigging.data.chats_to_df][] for more information.
+
+    Returns:
+        The chat as a DataFrame.
+    """
+    # Late import for circular
+    from rigging.data import chats_to_df
+
+    return chats_to_df(self)
+```
+
+
+</Accordion>
+
+### to\_elastic
+
+```python
+to_elastic(
+    index: str,
+    client: AsyncElasticsearch,
+    *,
+    op_type: ElasticOpType = "index",
+    create_index: bool = True,
+    **kwargs: Any,
+) -> int
+```
+
+Converts the chat data to Elasticsearch format and indexes it.
+
+See [rigging.data.chats\_to\_elastic][] for more information.
+
+**Returns:**
+
+* `int`
+  –The number of chats indexed.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+async def to_elastic(
+    self,
+    index: str,
+    client: AsyncElasticsearch,
+    *,
+    op_type: "ElasticOpType" = "index",
+    create_index: bool = True,
+    **kwargs: t.Any,
+) -> int:
+    """
+    Converts the chat data to Elasticsearch format and indexes it.
+
+    See [rigging.data.chats_to_elastic][] for more information.
+
+    Returns:
+        The number of chats indexed.
+    """
+    from rigging.data import chats_to_elastic
+
+    return await chats_to_elastic(
+        self,
+        index,
+        client,
+        op_type=op_type,
+        create_index=create_index,
+        **kwargs,
+    )
+```
+
+
+</Accordion>
+
+ChatList
+--------
+
+Represents a list of chat objects.
+
+Inherits from the built-in `list` class and is specialized for storing `Chat` objects.
+
+### to\_df
+
+```python
+to_df() -> t.Any
+```
+
+Converts the chat list to a Pandas DataFrame.
+
+See [rigging.data.chats\_to\_df][] for more information.
+
+**Returns:**
+
+* `Any`
+  –The chat list as a DataFrame.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def to_df(self) -> t.Any:
+    """
+    Converts the chat list to a Pandas DataFrame.
+
+    See [rigging.data.chats_to_df][] for more information.
+
+    Returns:
+        The chat list as a DataFrame.
+    """
+    # Late import for circular
+    from rigging.data import chats_to_df
+
+    return chats_to_df(self)
+```
+
+
+</Accordion>
+
+### to\_elastic
+
+```python
+to_elastic(
+    index: str,
+    client: AsyncElasticsearch,
+    *,
+    op_type: ElasticOpType = "index",
+    create_index: bool = True,
+    **kwargs: Any,
+) -> int
+```
+
+Converts the chat list to Elasticsearch format and indexes it.
+
+See [rigging.data.chats\_to\_elastic][] for more information.
+
+**Returns:**
+
+* `int`
+  –The number of chats indexed.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+async def to_elastic(
+    self,
+    index: str,
+    client: AsyncElasticsearch,
+    *,
+    op_type: "ElasticOpType" = "index",
+    create_index: bool = True,
+    **kwargs: t.Any,
+) -> int:
+    """
+    Converts the chat list to Elasticsearch format and indexes it.
+
+    See [rigging.data.chats_to_elastic][] for more information.
+
+    Returns:
+        The number of chats indexed.
+    """
+    from rigging.data import chats_to_elastic
+
+    return await chats_to_elastic(
+        self,
+        index,
+        client,
+        op_type=op_type,
+        create_index=create_index,
+        **kwargs,
+    )
+```
+
+
+</Accordion>
+
+### to\_json
+
+```python
+to_json() -> list[dict[str, t.Any]]
+```
+
+Helper to convert the chat list to a list of dictionaries.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def to_json(self) -> list[dict[str, t.Any]]:
+    """
+    Helper to convert the chat list to a list of dictionaries.
+    """
+    return [chat.model_dump() for chat in self]
+```
+
+
+</Accordion>
+
+ChatPipeline
+------------
+
+```python
+ChatPipeline(
+    generator: Generator,
+    messages: Sequence[Message],
+    *,
+    params: GenerateParams | None = None,
+    watch_callbacks: list[WatchChatCallback] | None = None,
+)
+```
+
+Pipeline to manipulate and produce chats.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def __init__(
+    self,
+    generator: Generator,
+    messages: t.Sequence[Message],
+    *,
+    params: GenerateParams | None = None,
+    watch_callbacks: list[WatchChatCallback] | None = None,
+):
+    self.generator: Generator = generator
+    """The generator object responsible for generating the chat."""
+    self.chat: Chat = Chat(messages)
+    """The chat object representing the conversation."""
+    self.params = params
+    """The parameters for generating messages."""
+    self.metadata: dict[str, t.Any] = {}
+    """Additional metadata associated with the chat."""
+    self.errors_to_catch: set[type[Exception]] = {MaxDepthError, ValidationError}
+    """The list of exceptions to catch during generation if you are including or skipping failures."""
+    self.errors_to_exclude: set[type[Exception]] = set()
+    """The list of exceptions to exclude from the catch list."""
+    self.on_failed: FailMode = "raise"
+    """How to handle failures in the pipeline unless overridden in calls."""
+    self.caching: CacheMode | None = None
+    """How to handle cache_control entries on messages."""
+
+    self.until_types: list[type[Model]] = []
+    self.tools: list[Tool[..., t.Any]] = []
+    self.tool_mode: ToolMode = "auto"
+    self.api_tool_choice: ApiToolChoice | None = None
+    self.inject_tool_prompt = True
+    self.add_tool_stop_token = True
+    self.then_callbacks: list[tuple[ThenChatCallback, int]] = []
+    self.map_callbacks: list[tuple[MapChatCallback, int]] = []
+    self.watch_callbacks: list[WatchChatCallback] = watch_callbacks or []
+```
+
+
+</Accordion>
+
+### caching
+
+```python
+caching: CacheMode | None = None
+```
+
+How to handle cache\_control entries on messages.
+
+### chat
+
+```python
+chat: Chat = Chat(messages)
+```
+
+The chat object representing the conversation.
+
+### errors\_to\_catch
+
+```python
+errors_to_catch: set[type[Exception]] = {
+    MaxDepthError,
+    ValidationError,
+}
+```
+
+The list of exceptions to catch during generation if you are including or skipping failures.
+
+### errors\_to\_exclude
+
+```python
+errors_to_exclude: set[type[Exception]] = set()
+```
+
+The list of exceptions to exclude from the catch list.
+
+### generator
+
+```python
+generator: Generator = generator
+```
+
+The generator object responsible for generating the chat.
+
+### metadata
+
+```python
+metadata: dict[str, Any] = {}
+```
+
+Additional metadata associated with the chat.
+
+### on\_failed
+
+```python
+on_failed: FailMode = 'raise'
+```
+
+How to handle failures in the pipeline unless overridden in calls.
+
+### params
+
+```python
+params = params
+```
+
+The parameters for generating messages.
+
+### add
+
+```python
+add(
+    messages: Sequence[MessageDict]
+    | Sequence[Message]
+    | MessageDict
+    | Message
+    | Content
+    | str,
+    *,
+    merge_strategy: Literal[
+        "only-user-role", "all", "none"
+    ] = "none",
+) -> ChatPipeline
+```
+
+Appends new message(s) to the internal chat before generation.
+
+<Note>
+`merge_strategy` configures behavior when the last message in the chat
+is the same role as the first incoming message. This is useful for appending content
+automatically to avoid duplicate messages of the same role - which may cause issues with
+some inference models. In version >=3.0, the default has been set to `none` to avoid
+unexpected behavior.
+</Note>
+
+**Parameters:**
+
+* **`messages`**
+  (`Sequence[MessageDict] | Sequence[Message] | MessageDict | Message | Content | str`)
+  –The messages to be added to the chat. It can be a single message or a sequence of messages.
+* **`merge_strategy`**
+  (`Literal['only-user-role', 'all', 'none']`, default:
+  `'none'`
+  )
+  –The strategy to use when merging message content when the roles match.
+  - "only-user-role": Only merge content of the last existing message and the first incoming message if the last message role is "user".
+  - "all": Merge content of the last existing message and the first incoming message if their roles match.
+  - "none": Keep messages independent and do not merge any content.
+
+**Returns:**
+
+* `ChatPipeline`
+  –The updated pipeline.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def add(
+    self,
+    messages: t.Sequence[MessageDict]
+    | t.Sequence[Message]
+    | MessageDict
+    | Message
+    | Content
+    | str,
+    *,
+    merge_strategy: t.Literal["only-user-role", "all", "none"] = "none",
+) -> "ChatPipeline":
+    """
+    Appends new message(s) to the internal chat before generation.
+
+    Note:
+        `merge_strategy` configures behavior when the last message in the chat
+        is the same role as the first incoming message. This is useful for appending content
+        automatically to avoid duplicate messages of the same role - which may cause issues with
+        some inference models. In version >=3.0, the default has been set to `none` to avoid
+        unexpected behavior.
+
+    Args:
+        messages: The messages to be added to the chat. It can be a single message or a sequence of messages.
+        merge_strategy: The strategy to use when merging message content when the roles match.
+            - "only-user-role": Only merge content of the last existing message and the first incoming message if the last message role is "user".
+            - "all": Merge content of the last existing message and the first incoming message if their roles match.
+            - "none": Keep messages independent and do not merge any content.
+
+    Returns:
+        The updated pipeline.
+    """
+    message_list = Message.fit_as_list(messages)
+
+    if (
+        merge_strategy != "none"
+        and self.chat.all
+        and self.chat.all[-1].role == message_list[0].role
+        and (
+            merge_strategy == "all"
+            or (merge_strategy == "only-user-role" and self.chat.all[-1].role == "user")
+        )
+    ):
+        self.chat.all[-1].content_parts += message_list[0].content_parts
+        message_list = message_list[1:]
+
+    self.chat.generated += message_list
+    return self
+```
+
+
+</Accordion>
+
+### apply
+
+```python
+apply(**kwargs: str) -> ChatPipeline
+```
+
+Clones this chat pipeline and calls [rigging.chat.Chat.apply][] with the given keyword arguments.
+
+**Parameters:**
+
+* **`**kwargs`**
+  (`str`, default:
+  `{}`
+  )
+  –Keyword arguments to be applied to the chat.
+
+**Returns:**
+
+* `ChatPipeline`
+  –A new pipeline with updated chat.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def apply(self, **kwargs: str) -> "ChatPipeline":
+    """
+    Clones this chat pipeline and calls [rigging.chat.Chat.apply][] with the given keyword arguments.
+
+    Args:
+        **kwargs: Keyword arguments to be applied to the chat.
+
+    Returns:
+        A new pipeline with updated chat.
+    """
+    new = self.clone()
+    new.chat.apply(**kwargs)
+    return new
+```
+
+
+</Accordion>
+
+### apply\_to\_all
+
+```python
+apply_to_all(**kwargs: str) -> ChatPipeline
+```
+
+Clones this chat pipeline and calls [rigging.chat.Chat.apply\_to\_all][] with the given keyword arguments.
+
+**Parameters:**
+
+* **`**kwargs`**
+  (`str`, default:
+  `{}`
+  )
+  –Keyword arguments to be applied to the chat.
+
+**Returns:**
+
+* `ChatPipeline`
+  –A new pipeline with updated chat.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def apply_to_all(self, **kwargs: str) -> "ChatPipeline":
+    """
+    Clones this chat pipeline and calls [rigging.chat.Chat.apply_to_all][] with the given keyword arguments.
+
+    Args:
+        **kwargs: Keyword arguments to be applied to the chat.
+
+    Returns:
+        A new pipeline with updated chat.
+    """
+    new = self.clone()
+    new.chat.apply_to_all(**kwargs)
+    return new
+```
+
+
+</Accordion>
+
+### cache
+
+```python
+cache(
+    mode: CacheMode | None | Literal[False] = "latest",
+) -> ChatPipeline
+```
+
+Sets the caching mode for the pipeline.
+
+**Parameters:**
+
+* **`mode`**
+  (`CacheMode | None | Literal[False]`, default:
+  `'latest'`
+  )
+  –The caching mode to use. Defaults to "latest".
+
+**Returns:**
+
+* `ChatPipeline`
+  –The updated pipeline.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def cache(
+    self,
+    mode: CacheMode | None | t.Literal[False] = "latest",
+) -> "ChatPipeline":
+    """
+    Sets the caching mode for the pipeline.
+
+    Args:
+        mode: The caching mode to use. Defaults to "latest".
+
+    Returns:
+        The updated pipeline.
+    """
+    if mode is False:
+        mode = None
+    self.caching = mode
+    return self
+```
+
+
+</Accordion>
+
+### catch
+
+```python
+catch(
+    *errors: type[Exception],
+    on_failed: FailMode | None = None,
+    exclude: list[type[Exception]] | None = None,
+) -> ChatPipeline
+```
+
+Adds exceptions to catch during generation when including or skipping failures.
+
+**Parameters:**
+
+* **`*errors`**
+  (`type[Exception]`, default:
+  `()`
+  )
+  –The exception types to catch.
+* **`on_failed`**
+  (`FailMode | None`, default:
+  `None`
+  )
+  –How to handle failures in the pipeline unless overridden in calls.
+
+**Returns:**
+
+* `ChatPipeline`
+  –The updated pipeline.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def catch(
+    self,
+    *errors: type[Exception],
+    on_failed: FailMode | None = None,
+    exclude: list[type[Exception]] | None = None,
+) -> "ChatPipeline":
+    """
+    Adds exceptions to catch during generation when including or skipping failures.
+
+    Args:
+        *errors: The exception types to catch.
+        on_failed: How to handle failures in the pipeline unless overridden in calls.
+
+    Returns:
+        The updated pipeline.
+    """
+    self.errors_to_catch.update(errors)
+    self.errors_to_exclude.update(exclude or [])
+    self.on_failed = on_failed or self.on_failed
+    return self
+```
+
+
+</Accordion>
+
+### clone
+
+```python
+clone(
+    *,
+    only_messages: bool = False,
+    chat: Chat | None = None,
+    callbacks: bool
+    | Sequence[MapChatCallback | ThenChatCallback] = True,
+) -> ChatPipeline
+```
+
+Creates a clone of the current `ChatPipeline` instance.
+
+**Parameters:**
+
+* **`only_messages`**
+  (`bool`, default:
+  `False`
+  )
+  –If True, only the messages will be cloned.
+  If False (default), the entire `ChatPipeline` instance will be cloned
+  including until callbacks, types, tools, metadata, etc.
+* **`chat`**
+  (`Chat | None`, default:
+  `None`
+  )
+  –An optional chat object clone for use in the new pipeline, otherwise the current
+  internal chat object will be cloned.
+* **`callbacks`**
+  (`bool | Sequence[MapChatCallback | ThenChatCallback]`, default:
+  `True`
+  )
+  –If True (default), all callbacks will be cloned. If False, no callbacks will be cloned.
+  Otherwise provide a sequence of callbacks which should be maintained in the new pipeline.
+
+**Returns:**
+
+* `ChatPipeline`
+  –The cloned ChatPipeline.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def clone(
+    self,
+    *,
+    only_messages: bool = False,
+    chat: Chat | None = None,
+    callbacks: bool | t.Sequence[MapChatCallback | ThenChatCallback] = True,
+) -> "ChatPipeline":
+    """
+    Creates a clone of the current `ChatPipeline` instance.
+
+    Args:
+        only_messages: If True, only the messages will be cloned.
+            If False (default), the entire `ChatPipeline` instance will be cloned
+            including until callbacks, types, tools, metadata, etc.
+        chat: An optional chat object clone for use in the new pipeline, otherwise the current
+            internal chat object will be cloned.
+        callbacks: If True (default), all callbacks will be cloned. If False, no callbacks will be cloned.
+            Otherwise provide a sequence of callbacks which should be maintained in the new pipeline.
+
+    Returns:
+        The cloned ChatPipeline.
+    """
+    new = ChatPipeline(
+        self.generator,
+        [],
+        params=self.params.model_copy() if self.params is not None else None,
+        watch_callbacks=self.watch_callbacks,
+    )
+    new.chat = (chat or self.chat).clone()
+    if not only_messages:
+        new.until_types = self.until_types.copy()
+        new.tools = self.tools.copy()
+        new.tool_mode = self.tool_mode
+        new.metadata = deepcopy(self.metadata)
+        new.on_failed = self.on_failed
+        new.errors_to_catch = self.errors_to_catch.copy()
+        new.errors_to_exclude = self.errors_to_exclude.copy()
+        new.caching = self.caching
+
+        new.watch_callbacks = self.watch_callbacks.copy()
+
+        # Check if any of our callbacks are bound methods to a Chatpipeline.
+        # If so, we should rebind them to `self` to ensure they work correctly
+        # and aren't operating with old state.
+
+        if callbacks is False:
+            return new
+
+        new.then_callbacks = [
+            (callback, max_depth)
+            if not hasattr(callback, "__self__")
+            or not isinstance(callback.__self__, ChatPipeline)
+            else (types.MethodType(callback.__func__, new), max_depth)  # type: ignore [union-attr]
+            for callback, max_depth in self.then_callbacks.copy()
+        ]
+        new.map_callbacks = [
+            (callback, max_depth)
+            if not hasattr(callback, "__self__")
+            or not isinstance(callback.__self__, ChatPipeline)
+            else (types.MethodType(callback.__func__, new), max_depth)  # type: ignore [union-attr]
+            for callback, max_depth in self.map_callbacks.copy()
+        ]
+
+        if not isinstance(callbacks, bool):
+            new.then_callbacks = [
+                (callback, max_depth)
+                for callback, max_depth in self.then_callbacks
+                if callback in callbacks
+            ]
+            new.map_callbacks = [
+                (callback, max_depth)
+                for callback, max_depth in self.map_callbacks
+                if callback in callbacks
+            ]
+
+    return new
+```
+
+
+</Accordion>
+
+### fork
+
+```python
+fork(
+    messages: Sequence[MessageDict]
+    | Sequence[Message]
+    | MessageDict
+    | Message
+    | str,
+) -> ChatPipeline
+```
+
+Creates a new instance of `ChatPipeline` by forking the current chat and adding the specified messages.
+
+This is a convenience method for calling `clone().add(messages)`.
+
+**Parameters:**
+
+* **`messages`**
+  (`Sequence[MessageDict] | Sequence[Message] | MessageDict | Message | str`)
+  –A sequence of messages or a single message to be added to the new chat.
+
+**Returns:**
+
+* `ChatPipeline`
+  –The cloned pipeline with messages added.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def fork(
+    self,
+    messages: t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | str,
+) -> "ChatPipeline":
+    """
+    Creates a new instance of `ChatPipeline` by forking the current chat and adding the specified messages.
+
+    This is a convenience method for calling `clone().add(messages)`.
+
+    Args:
+        messages: A sequence of messages or a single message to be added to the new chat.
+
+    Returns:
+        The cloned pipeline with messages added.
+    """
+    return self.clone().add(messages)
+```
+
+
+</Accordion>
+
+### map
+
+```python
+map(
+    *callbacks: MapChatCallback,
+    max_depth: int = DEFAULT_MAX_DEPTH,
+    allow_duplicates: bool = False,
+) -> ChatPipeline
+```
+
+Registers a callback to be executed after the generation process completes.
+
+<Note>
+You must return a list of Chat objects from the callback which will
+represent the state of chats for the remainder of the callbacks and
+the final return value from the pipeline.
+</Note>
+
+**Parameters:**
+
+* **`callbacks`**
+  (`MapChatCallback`, default:
+  `()`
+  )
+  –The callback function to be executed.
+* **`max_depth`**
+  (`int`, default:
+  `DEFAULT_MAX_DEPTH`
+  )
+  –The maximum depth to allow recursive pipeline calls during this callback.
+
+**Returns:**
+
+* `ChatPipeline`
+  –The updated pipeline.
+
+Example
+
+```python
+async def process(chats: list[Chat]) -> list[Chat]:
+    ...
+
+await pipeline.map(process).run()
+```
+
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def map(
+    self,
+    *callbacks: MapChatCallback,
+    max_depth: int = DEFAULT_MAX_DEPTH,
+    allow_duplicates: bool = False,
+) -> "ChatPipeline":
+    """
+    Registers a callback to be executed after the generation process completes.
+
+    Note:
+        You must return a list of Chat objects from the callback which will
+        represent the state of chats for the remainder of the callbacks and
+        the final return value from the pipeline.
+
+    Args:
+        callbacks: The callback function to be executed.
+        max_depth: The maximum depth to allow recursive pipeline calls during this callback.
+
+    Returns:
+        The updated pipeline.
+
+    Example:
+        ~~~
+        async def process(chats: list[Chat]) -> list[Chat]:
+            ...
+
+        await pipeline.map(process).run()
+        ~~~
+    """
+    for callback in callbacks:
+        if not asyncio.iscoroutinefunction(callback):
+            raise TypeError(
+                f"Callback '{get_qualified_name(callback)}' must be an async function",
+            )
+
+        if allow_duplicates:
+            continue
+
+        if callback in [c[0] for c in self.map_callbacks]:
+            raise ValueError(
+                f"Callback '{get_qualified_name(callback)}' is already registered.",
+            )
+
+    self.map_callbacks.extend([(callback, max_depth) for callback in callbacks])
+    return self
+```
+
+
+</Accordion>
+
+### meta
+
+```python
+meta(**kwargs: Any) -> ChatPipeline
+```
+
+Updates the metadata of the chat with the provided key-value pairs.
+
+**Parameters:**
+
+* **`**kwargs`**
+  (`Any`, default:
+  `{}`
+  )
+  –Key-value pairs representing the metadata to be updated.
+
+**Returns:**
+
+* `ChatPipeline`
+  –The updated pipeline.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def meta(self, **kwargs: t.Any) -> "ChatPipeline":
+    """
+    Updates the metadata of the chat with the provided key-value pairs.
+
+    Args:
+        **kwargs: Key-value pairs representing the metadata to be updated.
+
+    Returns:
+        The updated pipeline.
+    """
+    self.metadata.update(kwargs)
+    return self
+```
+
+
+</Accordion>
+
+### prompt
+
+```python
+prompt(
+    func: Callable[P, Coroutine[None, None, R]],
+) -> Prompt[P, R]
+```
+
+Decorator to convert a function into a prompt bound to this pipeline.
+
+See [rigging.prompt.prompt][] for more information.
+
+**Parameters:**
+
+* **`func`**
+  (`Callable[P, Coroutine[None, None, R]]`)
+  –The function to be converted into a prompt.
+
+**Returns:**
+
+* `Prompt[P, R]`
+  –The prompt.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def prompt(self, func: t.Callable[P, t.Coroutine[None, None, R]]) -> "Prompt[P, R]":
+    """
+    Decorator to convert a function into a prompt bound to this pipeline.
+
+    See [rigging.prompt.prompt][] for more information.
+
+    Args:
+        func: The function to be converted into a prompt.
+
+    Returns:
+        The prompt.
+    """
+    from rigging.prompt import prompt
+
+    return prompt(func, pipeline=self)
+```
+
+
+</Accordion>
+
+### run
+
+```python
+run(
+    *,
+    on_failed: FailMode | None = None,
+    allow_failed: bool = False,
+) -> Chat
+```
+
+Execute the generation process for a single message.
+
+**Parameters:**
+
+* **`on_failed`**
+  (`FailMode | None`, default:
+  `None`
+  )
+  –The behavior when a message fails to generate.
+* **`allow_failed`**
+  (`bool`, default:
+  `False`
+  )
+  –Deprecated, use `on_failed="include"`.
+
+**Returns:**
+
+* `Chat`
+  –The generated Chat.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+async def run(
+    self,
+    *,
+    on_failed: FailMode | None = None,
+    allow_failed: bool = False,
+) -> Chat:
+    """
+    Execute the generation process for a single message.
+
+    Args:
+        on_failed: The behavior when a message fails to generate.
+        allow_failed: Deprecated, use `on_failed="include"`.
+
+    Returns:
+        The generated Chat.
+    """
+    if allow_failed:
+        warnings.warn(
+            "The 'allow_failed' argument is deprecated, use 'on_failed=\"include\"'.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+    if on_failed is None:
+        on_failed = "include" if allow_failed else self.on_failed
+
+    last: PipelineStep | None = None
+    async with self.step(on_failed=on_failed) as steps:
+        async for step in steps:
+            last = step
+
+    if last is None or last.state != "final":
+        raise RuntimeError("The pipeline did not complete successfully")
+
+    if not last.chats:
+        raise RuntimeError("The pipeline process did not produce any chats")
+
+    return last.chats[-1]
+```
+
+
+</Accordion>
+
+### run\_batch
+
+```python
+run_batch(
+    many: Sequence[Sequence[Message]]
+    | Sequence[Message]
+    | Sequence[MessageDict]
+    | Sequence[str]
+    | MessageDict
+    | str,
+    params: Sequence[GenerateParams | None] | None = None,
+    *,
+    on_failed: FailMode | None = None,
+) -> ChatList
+```
+
+Executes the generation process over multiple input messages.
+
+<Note>
+Anything already in this chat pipeline will be prepended to the input messages.
+</Note>
+
+**Parameters:**
+
+* **`many`**
+  (`Sequence[Sequence[Message]] | Sequence[Message] | Sequence[MessageDict] | Sequence[str] | MessageDict | str`)
+  –A sequence of sequences of messages to be generated.
+* **`params`**
+  (`Sequence[GenerateParams | None] | None`, default:
+  `None`
+  )
+  –A sequence of parameters to be used for each set of messages.
+* **`on_failed`**
+  (`FailMode | None`, default:
+  `None`
+  )
+  –The behavior when a message fails to generate.
+
+**Returns:**
+
+* `ChatList`
+  –A list of generatated Chats.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+async def run_batch(
+    self,
+    many: t.Sequence[t.Sequence[Message]]
+    | t.Sequence[Message]
+    | t.Sequence[MessageDict]
+    | t.Sequence[str]
+    | MessageDict
+    | str,
+    params: t.Sequence[GenerateParams | None] | None = None,
+    *,
+    on_failed: FailMode | None = None,
+) -> ChatList:
+    """
+    Executes the generation process over multiple input messages.
+
+    Note:
+        Anything already in this chat pipeline will be prepended to the input messages.
+
+    Args:
+        many: A sequence of sequences of messages to be generated.
+        params: A sequence of parameters to be used for each set of messages.
+        on_failed: The behavior when a message fails to generate.
+
+    Returns:
+        A list of generatated Chats.
+    """
+
+    last: PipelineStep | None = None
+    async with self.step_batch(many, params=params, on_failed=on_failed) as steps:
+        async for step in steps:
+            last = step
+
+    if last is None or last.state != "final":
+        raise ValueError("The generation process did not complete successfully")
+
+    return last.chats
+```
+
+
+</Accordion>
+
+### run\_many
+
+```python
+run_many(
+    count: int,
+    *,
+    params: Sequence[GenerateParams | None] | None = None,
+    on_failed: FailMode | None = None,
+) -> ChatList
+```
+
+Executes the generation process in parallel over the same input.
+
+**Parameters:**
+
+* **`count`**
+  (`int`)
+  –The number of times to execute the generation process.
+* **`params`**
+  (`Sequence[GenerateParams | None] | None`, default:
+  `None`
+  )
+  –A sequence of parameters to be used for each execution.
+* **`on_failed`**
+  (`FailMode | None`, default:
+  `None`
+  )
+  –The behavior when a message fails to generate.
+
+**Returns:**
+
+* `ChatList`
+  –A list of generatated Chats.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+async def run_many(
+    self,
+    count: int,
+    *,
+    params: t.Sequence[GenerateParams | None] | None = None,
+    on_failed: FailMode | None = None,
+) -> ChatList:
+    """
+    Executes the generation process in parallel over the same input.
+
+    Args:
+        count: The number of times to execute the generation process.
+        params: A sequence of parameters to be used for each execution.
+        on_failed: The behavior when a message fails to generate.
+
+    Returns:
+        A list of generatated Chats.
+    """
+
+    last: PipelineStep | None = None
+    async with self.step_many(count, params=params, on_failed=on_failed) as steps:
+        async for step in steps:
+            last = step
+
+    if last is None or last.state != "final":
+        raise ValueError("The generation process did not complete successfully")
+
+    return last.chats
+```
+
+
+</Accordion>
+
+### run\_over
+
+```python
+run_over(
+    *generators: Generator | str,
+    include_original: bool = True,
+    on_failed: FailMode | None = None,
+) -> ChatList
+```
+
+Executes the generation process across multiple generators.
+
+For each generator, this pipeline is cloned and the generator is replaced
+before the run call. All callbacks and parameters are preserved.
+
+**Parameters:**
+
+* **`*generators`**
+  (`Generator | str`, default:
+  `()`
+  )
+  –A sequence of generators to be used for the generation process.
+* **`include_original`**
+  (`bool`, default:
+  `True`
+  )
+  –Whether to include the original generator in the list of runs.
+* **`on_failed`**
+  (`FailMode | None`, default:
+  `None`
+  )
+  –The behavior when a message fails to generate.
+
+**Returns:**
+
+* `ChatList`
+  –A list of generatated Chats.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+async def run_over(
+    self,
+    *generators: Generator | str,
+    include_original: bool = True,
+    on_failed: FailMode | None = None,
+) -> ChatList:
+    """
+    Executes the generation process across multiple generators.
+
+    For each generator, this pipeline is cloned and the generator is replaced
+    before the run call. All callbacks and parameters are preserved.
+
+    Args:
+        *generators: A sequence of generators to be used for the generation process.
+        include_original: Whether to include the original generator in the list of runs.
+        on_failed: The behavior when a message fails to generate.
+
+    Returns:
+        A list of generatated Chats.
+    """
+    await self._pre_run()
+
+    on_failed = on_failed or self.on_failed
+
+    _generators: list[Generator] = [
+        g if isinstance(g, Generator) else get_generator(g) for g in generators
+    ]
+    if include_original:
+        _generators.append(self.generator)
+
+    coros: list[t.Coroutine[t.Any, t.Any, Chat]] = []
+    for generator in _generators:
+        sub = self.clone()
+        sub.generator = generator
+        coros.append(sub.run(allow_failed=(on_failed != "raise")))
+
+    with tracer.span(f"Chat over {len(coros)} generators", count=len(coros)):
+        return ChatList(await asyncio.gather(*coros))
+```
+
+
+</Accordion>
+
+### step
+
+```python
+step(
+    *, on_failed: FailMode | None = None
+) -> t.AsyncIterator[PipelineStepGenerator]
+```
+
+Step through the generation process for a single message.
+
+**Parameters:**
+
+* **`on_failed`**
+  (`FailMode | None`, default:
+  `None`
+  )
+  –The behavior when a message fails to generate.
+  (this is used as an alternative to allow\_failed)
+
+**Yields:**
+
+* `AsyncIterator[PipelineStepGenerator]`
+  –Pipeline steps.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+@asynccontextmanager
+async def step(
+    self,
+    *,
+    on_failed: FailMode | None = None,
+) -> t.AsyncIterator[PipelineStepGenerator]:
+    """
+    Step through the generation process for a single message.
+
+    Args:
+        on_failed: The behavior when a message fails to generate.
+            (this is used as an alternative to allow_failed)
+
+    Yields:
+        Pipeline steps.
+    """
+
+    if on_failed == "skip":
+        raise ValueError(
+            "Cannot use 'skip' mode with single message generation (pass allow_failed=True or on_failed='include'/'raise')",
+        )
+
+    await self._pre_run()
+
+    on_failed = on_failed or self.on_failed
+
+    messages = [self.chat.all]
+    params = self._fit_params(1, [self.params])
+
+    with tracer.span(
+        f"Chat with {self.generator.to_identifier()}",
+        generator_id=self.generator.to_identifier(),
+        params=self.params.to_dict() if self.params is not None else {},
+    ) as span:
+        async with aclosing(
+            self._step(span, messages, params, on_failed),
+        ) as generator:
+            yield generator
+```
+
+
+</Accordion>
+
+### step\_batch
+
+```python
+step_batch(
+    many: Sequence[Sequence[Message]]
+    | Sequence[Message]
+    | Sequence[MessageDict]
+    | Sequence[str]
+    | MessageDict
+    | str,
+    params: Sequence[GenerateParams | None] | None = None,
+    *,
+    on_failed: FailMode | None = None,
+) -> t.AsyncIterator[PipelineStepGenerator]
+```
+
+Step through the generation process over multiple inputs.
+
+<Note>
+Anything already in this chat pipeline will be prepended to the input messages.
+</Note>
+
+**Parameters:**
+
+* **`many`**
+  (`Sequence[Sequence[Message]] | Sequence[Message] | Sequence[MessageDict] | Sequence[str] | MessageDict | str`)
+  –A sequence of sequences of messages to be generated.
+* **`params`**
+  (`Sequence[GenerateParams | None] | None`, default:
+  `None`
+  )
+  –A sequence of parameters to be used for each set of messages.
+* **`on_failed`**
+  (`FailMode | None`, default:
+  `None`
+  )
+  –The behavior when a message fails to generate.
+
+**Yields:**
+
+* `AsyncIterator[PipelineStepGenerator]`
+  –Pipeline steps.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+@asynccontextmanager
+async def step_batch(
+    self,
+    many: t.Sequence[t.Sequence[Message]]
+    | t.Sequence[Message]
+    | t.Sequence[MessageDict]
+    | t.Sequence[str]
+    | MessageDict
+    | str,
+    params: t.Sequence[GenerateParams | None] | None = None,
+    *,
+    on_failed: FailMode | None = None,
+) -> t.AsyncIterator[PipelineStepGenerator]:
+    """
+    Step through the generation process over multiple inputs.
+
+    Note:
+        Anything already in this chat pipeline will be prepended to the input messages.
+
+    Args:
+        many: A sequence of sequences of messages to be generated.
+        params: A sequence of parameters to be used for each set of messages.
+        on_failed: The behavior when a message fails to generate.
+
+    Yields:
+        Pipeline steps.
+    """
+    await self._pre_run()
+
+    on_failed = on_failed or self.on_failed
+
+    # Get the maximum of either incoming messages or params
+
+    count = max(len(many), len(params) if params is not None else 0)
+
+    # If we have less messages than params, we need to either:
+    # 1. Error because we have >1 messages that we can't reasonably
+    #    zip with our parameters of a different length
+    # 2. Duplicate a single message we have len(params) times as the
+    #    user is just batching only over parameters
+
+    messages = [[*self.chat.all, *Message.fit_as_list(m)] for m in many]
+    if len(messages) < count:
+        if len(messages) != 1:
+            raise ValueError(
+                f"Can't fit {len(messages)} messages to {count} params",
+            )
+        messages = messages * count
+
+    params = self._fit_params(count, params)
+
+    with tracer.span(
+        f"Chat batch with {self.generator.to_identifier()} ({count})",
+        count=count,
+        generator_id=self.generator.to_identifier(),
+        params=self.params.to_dict() if self.params is not None else {},
+    ) as span:
+        async with aclosing(
+            self._step(span, messages, params, on_failed),
+        ) as generator:
+            yield generator
+```
+
+
+</Accordion>
+
+### step\_many
+
+```python
+step_many(
+    count: int,
+    *,
+    params: Sequence[GenerateParams | None] | None = None,
+    on_failed: FailMode | None = None,
+) -> t.AsyncIterator[PipelineStepGenerator]
+```
+
+Step through the generation process in parallel over the same input.
+
+**Parameters:**
+
+* **`count`**
+  (`int`)
+  –The number of parallel generations.
+* **`params`**
+  (`Sequence[GenerateParams | None] | None`, default:
+  `None`
+  )
+  –A sequence of parameters to be used for each execution.
+* **`on_failed`**
+  (`FailMode | None`, default:
+  `None`
+  )
+  –The behavior when a message fails to generate.
+
+**Yields:**
+
+* `AsyncIterator[PipelineStepGenerator]`
+  –Pipeline steps.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+@asynccontextmanager
+async def step_many(
+    self,
+    count: int,
+    *,
+    params: t.Sequence[GenerateParams | None] | None = None,
+    on_failed: FailMode | None = None,
+) -> t.AsyncIterator[PipelineStepGenerator]:
+    """
+    Step through the generation process in parallel over the same input.
+
+    Args:
+        count: The number of parallel generations.
+        params: A sequence of parameters to be used for each execution.
+        on_failed: The behavior when a message fails to generate.
+
+    Yields:
+        Pipeline steps.
+    """
+    await self._pre_run()
+
+    on_failed = on_failed or self.on_failed
+
+    messages = [self.chat.all] * count
+    params = self._fit_params(count, params)
+
+    with tracer.span(
+        f"Chat with {self.generator.to_identifier()} (x{count})",
+        count=count,
+        generator_id=self.generator.to_identifier(),
+        params=self.params.to_dict() if self.params is not None else {},
+    ) as span:
+        async with aclosing(
+            self._step(span, messages, params, on_failed),
+        ) as generator:
+            yield generator
+```
+
+
+</Accordion>
+
+### then
+
+```python
+then(
+    *callbacks: ThenChatCallback,
+    max_depth: int = DEFAULT_MAX_DEPTH,
+    allow_duplicates: bool = False,
+) -> ChatPipeline
+```
+
+Registers one or many callbacks to be executed after the generation process completes.
+
+<Note>
+Returning a Chat object from the callback will replace that chat
+for the remainder of the callbacks and the final return value
+from the pipeline.
+</Note>
+
+**Parameters:**
+
+* **`callbacks`**
+  (`ThenChatCallback`, default:
+  `()`
+  )
+  –The callback functions to be added.
+* **`max_depth`**
+  (`int`, default:
+  `DEFAULT_MAX_DEPTH`
+  )
+  –The maximum depth to allow recursive pipeline calls during this callback.
+
+**Returns:**
+
+* `ChatPipeline`
+  –The updated pipeline.
+
+Example
+
+```python
+async def process(chat: Chat) -> Chat | None:
+    ...
+
+await pipeline.then(process).run()
+```
+
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def then(
+    self,
+    *callbacks: ThenChatCallback,
+    max_depth: int = DEFAULT_MAX_DEPTH,
+    allow_duplicates: bool = False,
+) -> "ChatPipeline":
+    """
+    Registers one or many callbacks to be executed after the generation process completes.
+
+    Note:
+        Returning a Chat object from the callback will replace that chat
+        for the remainder of the callbacks and the final return value
+        from the pipeline.
+
+    Args:
+        callbacks: The callback functions to be added.
+        max_depth: The maximum depth to allow recursive pipeline calls during this callback.
+
+    Returns:
+        The updated pipeline.
+
+    Example:
+        ~~~
+        async def process(chat: Chat) -> Chat | None:
+            ...
+
+        await pipeline.then(process).run()
+        ~~~
+    """
+    for callback in callbacks:
+        if not asyncio.iscoroutinefunction(callback):
+            raise TypeError(
+                f"Callback '{get_qualified_name(callback)}' must be an async function",
+            )
+
+        if allow_duplicates:
+            continue
+
+        if callback in [c[0] for c in self.then_callbacks]:
+            raise ValueError(
+                f"Callback '{get_qualified_name(callback)}' is already registered.",
+            )
+
+    self.then_callbacks.extend([(callback, max_depth) for callback in callbacks])
+    return self
+```
+
+
+</Accordion>
+
+### until\_parsed\_as
+
+```python
+until_parsed_as(
+    *types: type[ModelT],
+    max_depth: int = DEFAULT_MAX_DEPTH,
+    attempt_recovery: bool | None = None,
+    drop_dialog: bool | None = None,
+    max_rounds: int | None = None,
+) -> ChatPipeline
+```
+
+Adds the specified types to the list of types which should successfully parse
+before the generation process completes.
+
+**Parameters:**
+
+* **`*types`**
+  (`type[ModelT]`, default:
+  `()`
+  )
+  –The type or types of models to wait for.
+* **`max_depth`**
+  (`int`, default:
+  `DEFAULT_MAX_DEPTH`
+  )
+  –The maximum depth to re-attempt parsing using recursive pipelines (this is shared between all types).
+* **`attempt_recovery`**
+  (`bool | None`, default:
+  `None`
+  )
+  –deprecated, recovery is always attempted.
+* **`drop_dialog`**
+  (`bool | None`, default:
+  `None`
+  )
+  –deprecated, the full dialog is always returned.
+* **`max_rounds`**
+  (`int | None`, default:
+  `None`
+  )
+  –deprecated, use `max_depth` instead.
+
+**Returns:**
+
+* `ChatPipeline`
+  –The updated pipeline.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def until_parsed_as(
+    self,
+    *types: type[ModelT],
+    max_depth: int = DEFAULT_MAX_DEPTH,
+    # deprecated
+    attempt_recovery: bool | None = None,
+    drop_dialog: bool | None = None,
+    max_rounds: int | None = None,
+) -> "ChatPipeline":
+    """
+    Adds the specified types to the list of types which should successfully parse
+    before the generation process completes.
+
+    Args:
+        *types: The type or types of models to wait for.
+        max_depth: The maximum depth to re-attempt parsing using recursive pipelines (this is shared between all types).
+        attempt_recovery: deprecated, recovery is always attempted.
+        drop_dialog: deprecated, the full dialog is always returned.
+        max_rounds: deprecated, use `max_depth` instead.
+
+    Returns:
+        The updated pipeline.
+    """
+    if attempt_recovery is not None:
+        warnings.warn(
+            "The 'attempt_recovery' argument is deprecated and has no effect.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    if drop_dialog is not None:
+        warnings.warn(
+            "The 'drop_dialog' argument is deprecated and has no effect.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    if max_rounds is not None:
+        warnings.warn(
+            "The 'max_rounds' argument is deprecated, use 'max_depth'.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+    self.until_types = list(types)
+
+    max_depth = max_rounds or max_depth
+    self.then_callbacks = [
+        (callback, max_depth)
+        for callback, max_depth in self.then_callbacks
+        if callback != self._then_parse
+    ]
+    self.then_callbacks.append((self._then_parse, max_depth))
+
+    return self
+```
+
+
+</Accordion>
+
+### using
+
+```python
+using(
+    *tools: Tool[..., Any]
+    | Callable[..., Any]
+    | Sequence[Tool[..., Any] | Callable[..., Any]],
+    mode: ToolMode | None = None,
+    choice: ApiToolChoice | None = None,
+    max_depth: int = DEFAULT_MAX_DEPTH,
+    add_stop_token: bool | None = None,
+) -> ChatPipeline
+```
+
+Adds a tool or a sequence of tools to participate in the generation process.
+
+<Note>
+By default, the tool mode is set to "auto" which will attempt to use
+api function calling if available, otherwise it will fallback to `xml`.
+</Note>
+
+**Parameters:**
+
+* **`*tools`**
+  (`Tool[..., Any] | Callable[..., Any] | Sequence[Tool[..., Any] | Callable[..., Any]]`, default:
+  `()`
+  )
+  –The tools to be added to the pipeline.
+* **`mode`**
+  (`ToolMode | None`, default:
+  `None`
+  )
+  –The tool calling mode to use (e.g., "xml", "json-in-xml", "api").
+* **`choice`**
+  (`ApiToolChoice | None`, default:
+  `None`
+  )
+  –The API tool choice to use. This is only relevant when using the "api" tool mode.
+* **`max_depth`**
+  (`int`, default:
+  `DEFAULT_MAX_DEPTH`
+  )
+  –The maximum depth for recursive tool calls (this is shared between all tools).
+* **`add_stop_token`**
+  (`bool | None`, default:
+  `None`
+  )
+  –When using natively parsed tools ("xml", "json-in-xml"), use stop tokens to
+  immediately process a tool call when observed.
+
+**Returns:**
+
+* `ChatPipeline`
+  –The updated pipeline.
+
+Example
+
+```python
+async def get_weather(city: Annotated[str, "The city name to get weather for"]) -> str:
+    "Get the weather"
+    city = city.replace(" ", "+")
+    return requests.get(f"http://wttr.in/{city}?format=2").text.strip()
+
+chat = (
+    await rg.get_generator("openai/gpt-4o-mini")
+    .chat("What's the weather in london?")
+    .using(get_weather)
+    .run()
+)
+```
+
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def using(
+    self,
+    *tools: Tool[..., t.Any]
+    | t.Callable[..., t.Any]
+    | t.Sequence[Tool[..., t.Any] | t.Callable[..., t.Any]],
+    mode: ToolMode | None = None,
+    choice: ApiToolChoice | None = None,
+    max_depth: int = DEFAULT_MAX_DEPTH,
+    add_stop_token: bool | None = None,
+) -> "ChatPipeline":
+    """
+    Adds a tool or a sequence of tools to participate in the generation process.
+
+    Note:
+        By default, the tool mode is set to "auto" which will attempt to use
+        api function calling if available, otherwise it will fallback to `xml`.
+
+    Args:
+        *tools: The tools to be added to the pipeline.
+        mode: The tool calling mode to use (e.g., "xml", "json-in-xml", "api").
+        choice: The API tool choice to use. This is only relevant when using the "api" tool mode.
+        max_depth: The maximum depth for recursive tool calls (this is shared between all tools).
+        add_stop_token: When using natively parsed tools ("xml", "json-in-xml"), use stop tokens to
+            immediately process a tool call when observed.
+
+    Returns:
+        The updated pipeline.
+
+    Example:
+        ~~~
+        async def get_weather(city: Annotated[str, "The city name to get weather for"]) -> str:
+            "Get the weather"
+            city = city.replace(" ", "+")
+            return requests.get(f"http://wttr.in/{city}?format=2").text.strip()
+
+        chat = (
+            await rg.get_generator("openai/gpt-4o-mini")
+            .chat("What's the weather in london?")
+            .using(get_weather)
+            .run()
+        )
+        ~~~
+    """
+    if len(tools) == 0:
+        return self
+
+    new_tools = [
+        tool if isinstance(tool, Tool) else Tool.from_callable(tool)
+        for tool in flatten_list(list(tools))  # in case the user gave us lists
+    ]
+
+    existing_names = {tool.name for tool in self.tools}
+    for tool in new_tools:
+        if tool.name in existing_names:
+            raise ValueError(
+                f"Tool with name '{tool.name}' already exists in the pipeline.",
+            )
+
+    self.tools += new_tools
+
+    self.then_callbacks = [
+        (callback, max_depth)
+        for callback, max_depth in self.then_callbacks
+        if callback != self._then_tools
+    ]
+    self.then_callbacks.insert(
+        0,
+        (self._then_tools, max_depth),
+    )  # make sure this is first
+
+    if mode is not None:
+        self.tool_mode = mode
+
+    if choice is not None:
+        self.api_tool_choice = choice
+
+    if add_stop_token is not None:
+        self.add_tool_stop_token = add_stop_token
+
+    return self
+```
+
+
+</Accordion>
+
+### watch
+
+```python
+watch(
+    *callbacks: WatchChatCallback,
+    allow_duplicates: bool = False,
+) -> ChatPipeline
+```
+
+Registers a callback to monitor any chats produced.
+
+**Parameters:**
+
+* **`*callbacks`**
+  (`WatchChatCallback`, default:
+  `()`
+  )
+  –The callback functions to be executed.
+* **`allow_duplicates`**
+  (`bool`, default:
+  `False`
+  )
+  –Whether to allow (seemingly) duplicate callbacks to be added.
+
+**Returns:**
+
+* `ChatPipeline`
+  –The updated pipeline.
+
+Example
+
+```python
+async def log(chats: list[Chat]) -> None:
+    ...
+
+await pipeline.watch(log).run()
+```
+
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def watch(
+    self,
+    *callbacks: WatchChatCallback,
+    allow_duplicates: bool = False,
+) -> "ChatPipeline":
+    """
+    Registers a callback to monitor any chats produced.
+
+    Args:
+        *callbacks: The callback functions to be executed.
+        allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
+
+    Returns:
+        The updated pipeline.
+
+    Example:
+        ~~~
+        async def log(chats: list[Chat]) -> None:
+            ...
+
+        await pipeline.watch(log).run()
+        ~~~
+    """
+    for callback in callbacks:
+        if not allow_duplicates and callback in self.watch_callbacks:
+            raise ValueError(
+                f"Callback '{get_qualified_name(callback)}' is already registered.",
+            )
+
+    self.watch_callbacks.extend(callbacks)
+    return self
+```
+
+
+</Accordion>
+
+### with\_
+
+```python
+with_(
+    params: GenerateParams | None = None, **kwargs: Any
+) -> ChatPipeline
+```
+
+Assign specific generation parameter overloads for this chat.
+
+<Note>
+This will trigger a `clone` if overload params have already been set.
+</Note>
+
+**Parameters:**
+
+* **`params`**
+  (`GenerateParams | None`, default:
+  `None`
+  )
+  –The parameters to set for the chat.
+* **`**kwargs`**
+  (`Any`, default:
+  `{}`
+  )
+  –An alternative way to pass parameters as keyword arguments.
+
+**Returns:**
+
+* `ChatPipeline`
+  –The updated pipeline.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def with_(
+    self,
+    params: GenerateParams | None = None,
+    **kwargs: t.Any,
+) -> "ChatPipeline":
+    """
+    Assign specific generation parameter overloads for this chat.
+
+    Note:
+        This will trigger a `clone` if overload params have already been set.
+
+    Args:
+        params: The parameters to set for the chat.
+        **kwargs: An alternative way to pass parameters as keyword arguments.
+
+    Returns:
+        The updated pipeline.
+    """
+    if params is None:
+        params = GenerateParams(**kwargs)
+
+    if self.params is not None:
+        new = self.clone()
+        new.params = self.params.merge_with(params)
+        return new
+
+    self.params = params
+    return self
+```
+
+
+</Accordion>
+
+### wrap
+
+```python
+wrap(
+    func: Callable[[CallableT], CallableT],
+) -> ChatPipeline
+```
+
+Helper for [rigging.generator.base.Generator.wrap][].
+
+**Parameters:**
+
+* **`func`**
+  (`Callable[[CallableT], CallableT]`)
+  –The function to wrap the calls with.
+
+**Returns:**
+
+* `ChatPipeline`
+  –The current pipeline.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def wrap(self, func: t.Callable[[CallableT], CallableT]) -> "ChatPipeline":
+    """
+    Helper for [rigging.generator.base.Generator.wrap][].
+
+    Args:
+        func: The function to wrap the calls with.
+
+    Returns:
+        The current pipeline.
+    """
+    self.generator = self.generator.wrap(func)
+    return self
+```
+
+
+</Accordion>
+
+PipelineStep
+------------
+
+```python
+PipelineStep(
+    state: PipelineState,
+    chats: ChatList,
+    pipeline: ChatPipeline,
+    parent: PipelineStep | None = None,
+    callback: ThenChatCallback
+    | MapChatCallback
+    | None = None,
+)
+```
+
+An intermediate step during pipeline generation.
+
+### callback
+
+```python
+callback: ThenChatCallback | MapChatCallback | None = None
+```
+
+The associated callback function if state is 'callback'.
+
+### chats
+
+```python
+chats: ChatList
+```
+
+The chats associated with this step.
+
+### depth
+
+```python
+depth: int
+```
+
+Returns the depth of this pipeline step in the pipeline tree.
+
+This is useful for setting constraints on recursion depth.
+
+### parent
+
+```python
+parent: PipelineStep | None = None
+```
+
+The parent step of pipelines which are running above this step.
+
+### pipeline
+
+```python
+pipeline: ChatPipeline
+```
+
+The pipeline associated with this step.
+
+### state
+
+```python
+state: PipelineState
+```
+
+The current state of the generation.
+
+### copy
+
+```python
+copy() -> PipelineStep
+```
+
+Clone the current step.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def copy(self) -> "PipelineStep":
+    """
+    Clone the current step.
+    """
+    return PipelineStep(
+        state=self.state,
+        chats=self.chats,
+        pipeline=self.pipeline,
+        parent=self.parent.copy() if self.parent else None,
+        callback=self.callback,
+    )
+```
+
+
+</Accordion>
+
+### with\_parent
+
+```python
+with_parent(parent: PipelineStep) -> PipelineStep
+```
+
+Clone the current step and append a parent to it's hierarchy.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def with_parent(self, parent: "PipelineStep") -> "PipelineStep":
+    """
+    Clone the current step and append a parent to it's hierarchy.
+    """
+    if self is parent:
+        raise RuntimeError("Cannot set parent to self")
+
+    copy = self.copy()
+
+    if copy.parent is None:
+        copy.parent = parent
+        return copy
+
+    next_parent = copy.parent
+    while next_parent is not None:
+        if next_parent is next_parent.parent:
+            raise RuntimeError("Parent is self-referential")
+        if next_parent.parent is None:
+            next_parent.parent = parent
+            return copy
+        next_parent = next_parent.parent
+
+    raise RuntimeError("Unable to set parent step")
+```
+
+
+</Accordion>
+
+WatchChatCallback
+-----------------
+
+### \_\_call\_\_
+
+```python
+__call__(chats: list[Chat]) -> t.Awaitable[None]
+```
+
+Passed any created chat objects for monitoring/logging.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def __call__(self, chats: list[Chat], /) -> t.Awaitable[None]:
+    """
+    Passed any created chat objects for monitoring/logging.
+    """
+    ...
+```
+
+
+</Accordion>

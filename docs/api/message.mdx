@@ -1,0 +1,1597 @@
+---
+title: rigging.message
+---
+
+{/*
+::: rigging.message
+*/}
+
+This module covers core message objects and handling.
+
+Content
+-------
+
+```python
+Content = ContentText | ContentImageUrl | ContentAudioInput
+```
+
+The types of content that can be included in a message.
+
+EPHERMAL\_CACHE\_CONTROL
+------------------------
+
+```python
+EPHERMAL_CACHE_CONTROL = {'type': 'ephemeral'}
+```
+
+Cache control entry for ephemeral messages.
+
+Role
+----
+
+```python
+Role = Literal['system', 'user', 'assistant', 'tool']
+```
+
+The role of a message. Can be 'system', 'user', 'assistant', or 'tool'.
+
+ContentAudioInput
+-----------------
+
+An audio content part of a message.
+
+### cache\_control
+
+```python
+cache_control: dict[str, str] | None = None
+```
+
+Cache control entry for prompt caching.
+
+### input\_audio
+
+```python
+input_audio: Audio
+```
+
+The audio URL content.
+
+### transcript
+
+```python
+transcript: str | None
+```
+
+Returns the transcript of the audio data.
+
+**Returns:**
+
+* `str | None`
+  –The transcript of the audio data.
+
+### type
+
+```python
+type: Literal['input_audio'] = 'input_audio'
+```
+
+The type of content (always `input_audio`).
+
+### Audio
+
+#### data
+
+```python
+data: str
+```
+
+The base64-encoded audio data.
+
+#### format
+
+```python
+format: str
+```
+
+The format of the audio data.
+
+#### transcript
+
+```python
+transcript: str | None = None
+```
+
+The transcript of the audio data (if available).
+
+### from\_bytes
+
+```python
+from_bytes(
+    data: bytes,
+    *,
+    format: ContentAudioFormat | None = None,
+    transcript: str | None = None,
+) -> ContentAudioInput
+```
+
+Creates a ContentAudioInput object from raw bytes.
+
+**Parameters:**
+
+* **`data`**
+  (`bytes`)
+  –The raw bytes of the audio.
+* **`format`**
+  (`ContentAudioFormat | None`, default:
+  `None`
+  )
+  –The format of the audio.
+
+**Returns:**
+
+* `ContentAudioInput`
+  –The created ContentAudioInput
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+@classmethod
+def from_bytes(
+    cls,
+    data: bytes,
+    *,
+    format: ContentAudioFormat | None = None,
+    transcript: str | None = None,
+) -> "ContentAudioInput":
+    """
+    Creates a ContentAudioInput object from raw bytes.
+
+    Args:
+        data: The raw bytes of the audio.
+        format: The format of the audio.
+
+    Returns:
+        The created ContentAudioInput
+    """
+    format = format or identify_audio_format(data) or "unknown"  # type: ignore [assignment] # noqa: A001
+    encoded = base64.b64encode(data).decode()
+    return cls(input_audio=cls.Audio(data=encoded, format=format, transcript=transcript))
+```
+
+
+</Accordion>
+
+### from\_file
+
+```python
+from_file(
+    file: Path | str,
+    *,
+    format: ContentAudioFormat | None = None,
+    transcript: str | None = None,
+) -> ContentAudioInput
+```
+
+Creates a ContentAudioInput object from a file.
+
+**Parameters:**
+
+* **`file`**
+  (`Path | str`)
+  –The file to create the content from.
+* **`format`**
+  (`ContentAudioFormat | None`, default:
+  `None`
+  )
+  –The format of the audio. If not provided, it will be guessed based on the file extension.
+* **`transcript`**
+  (`str | None`, default:
+  `None`
+  )
+  –The transcript of the audio data (if available).
+
+**Returns:**
+
+* `ContentAudioInput`
+  –The created ContentAudioInput object.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+@classmethod
+def from_file(
+    cls,
+    file: Path | str,
+    *,
+    format: ContentAudioFormat | None = None,
+    transcript: str | None = None,
+) -> "ContentAudioInput":
+    """
+    Creates a ContentAudioInput object from a file.
+
+    Args:
+        file: The file to create the content from.
+        format: The format of the audio. If not provided, it will be guessed based on the file extension.
+        transcript: The transcript of the audio data (if available).
+
+    Returns:
+        The created ContentAudioInput object.
+    """
+
+    file = Path(file)
+    if not file.exists():
+        raise FileNotFoundError(f"File '{file}' does not exist")
+
+    if format is None:
+        mimetype = mimetypes.guess_type(file)[0]
+        if mimetype is None:
+            raise ValueError(
+                f"Could not determine format for file '{file}', please provide one",
+            )
+        format = t.cast("ContentAudioFormat", mimetype.split("/")[-1])  # noqa: A001
+
+    encoded = base64.b64encode(file.read_bytes()).decode()
+    return cls(input_audio=cls.Audio(data=encoded, format=format, transcript=transcript))
+```
+
+
+</Accordion>
+
+### save
+
+```python
+save(path: Path | str) -> None
+```
+
+Saves the audio data to a file.
+
+**Parameters:**
+
+* **`path`**
+  (`Path | str`)
+  –The path to save the audio to.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def save(self, path: Path | str) -> None:
+    """
+    Saves the audio data to a file.
+
+    Args:
+        path: The path to save the audio to.
+    """
+    data = self.to_bytes()
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+```
+
+
+</Accordion>
+
+### to\_bytes
+
+```python
+to_bytes() -> bytes
+```
+
+Converts the audio data to bytes.
+
+**Returns:**
+
+* `bytes`
+  –The decoded audio data.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def to_bytes(self) -> bytes:
+    """
+    Converts the audio data to bytes.
+
+    Returns:
+        The decoded audio data.
+    """
+    return base64.b64decode(self.input_audio.data)
+```
+
+
+</Accordion>
+
+ContentImageUrl
+---------------
+
+An image URL content part of a message.
+
+### cache\_control
+
+```python
+cache_control: dict[str, str] | None = None
+```
+
+Cache control entry for prompt caching.
+
+### image\_url
+
+```python
+image_url: ImageUrl
+```
+
+The image URL content.
+
+### type
+
+```python
+type: Literal['image_url'] = 'image_url'
+```
+
+The type of content (always `image_url`).
+
+### ImageUrl
+
+#### detail
+
+```python
+detail: Literal['auto', 'low', 'high'] = 'auto'
+```
+
+The detail level of the image.
+
+#### url
+
+```python
+url: str
+```
+
+The URL of the image (supports base64-encoded).
+
+### from\_bytes
+
+```python
+from_bytes(
+    data: bytes,
+    mimetype: str,
+    *,
+    detail: Literal["auto", "low", "high"] = "auto",
+) -> ContentImageUrl
+```
+
+Creates a ContentImageUrl object from raw bytes.
+
+**Parameters:**
+
+* **`data`**
+  (`bytes`)
+  –The raw bytes of the image.
+* **`mimetype`**
+  (`str`)
+  –The mimetype of the image.
+* **`detail`**
+  (`Literal['auto', 'low', 'high']`, default:
+  `'auto'`
+  )
+  –The detail level of the image.
+
+**Returns:**
+
+* `ContentImageUrl`
+  –The created ContentImageUrl
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+@classmethod
+def from_bytes(
+    cls,
+    data: bytes,
+    mimetype: str,
+    *,
+    detail: t.Literal["auto", "low", "high"] = "auto",
+) -> "ContentImageUrl":
+    """
+    Creates a ContentImageUrl object from raw bytes.
+
+    Args:
+        data: The raw bytes of the image.
+        mimetype: The mimetype of the image.
+        detail: The detail level of the image.
+
+    Returns:
+        The created ContentImageUrl
+    """
+
+    encoded = base64.b64encode(data).decode()
+    url = f"data:{mimetype};base64,{encoded}"
+    return cls(image_url=cls.ImageUrl(url=url, detail=detail))
+```
+
+
+</Accordion>
+
+### from\_file
+
+```python
+from_file(
+    file: Path | str,
+    *,
+    mimetype: str | None = None,
+    detail: Literal["auto", "low", "high"] = "auto",
+) -> ContentImageUrl
+```
+
+Creates a ContentImageUrl object from a file.
+
+**Parameters:**
+
+* **`file`**
+  (`Path | str`)
+  –The file to create the content from.
+* **`mimetype`**
+  (`str | None`, default:
+  `None`
+  )
+  –The mimetype of the file. If not provided, it will be guessed.
+
+**Returns:**
+
+* `ContentImageUrl`
+  –The created ContentImageUrl object.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+@classmethod
+def from_file(
+    cls,
+    file: Path | str,
+    *,
+    mimetype: str | None = None,
+    detail: t.Literal["auto", "low", "high"] = "auto",
+) -> "ContentImageUrl":
+    """
+    Creates a ContentImageUrl object from a file.
+
+    Args:
+        file: The file to create the content from.
+        mimetype: The mimetype of the file. If not provided, it will be guessed.
+
+    Returns:
+        The created ContentImageUrl object.
+    """
+
+    file = Path(file)
+    if not file.exists():
+        raise FileNotFoundError(f"File '{file}' does not exist")
+
+    if mimetype is None:
+        mimetype = mimetypes.guess_type(file)[0]
+
+    if mimetype is None:
+        raise ValueError(f"Could not determine mimetype for file '{file}'")
+
+    encoded = base64.b64encode(file.read_bytes()).decode()
+    url = f"data:{mimetype};base64,{encoded}"
+
+    return cls(image_url=cls.ImageUrl(url=url, detail=detail))
+```
+
+
+</Accordion>
+
+### from\_url
+
+```python
+from_url(
+    url: str,
+    *,
+    detail: Literal["auto", "low", "high"] = "auto",
+) -> ContentImageUrl
+```
+
+Creates a ContentImageUrl object from a URL.
+
+**Parameters:**
+
+* **`url`**
+  (`str`)
+  –The URL of the image.
+* **`detail`**
+  (`Literal['auto', 'low', 'high']`, default:
+  `'auto'`
+  )
+  –The detail level of the image.
+
+**Returns:**
+
+* `ContentImageUrl`
+  –The created ContentImageUrl object.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+@classmethod
+def from_url(
+    cls,
+    url: str,
+    *,
+    detail: t.Literal["auto", "low", "high"] = "auto",
+) -> "ContentImageUrl":
+    """
+    Creates a ContentImageUrl object from a URL.
+
+    Args:
+        url: The URL of the image.
+        detail: The detail level of the image.
+
+    Returns:
+        The created ContentImageUrl object.
+    """
+    return cls(image_url=cls.ImageUrl(url=url, detail=detail))
+```
+
+
+</Accordion>
+
+### save
+
+```python
+save(path: Path | str) -> None
+```
+
+Saves the data to a file.
+
+**Parameters:**
+
+* **`path`**
+  (`Path | str`)
+  –The path to save the image to.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def save(self, path: Path | str) -> None:
+    """
+    Saves the data to a file.
+
+    Args:
+        path: The path to save the image to.
+    """
+    data = self.to_bytes()
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+```
+
+
+</Accordion>
+
+### to\_bytes
+
+```python
+to_bytes() -> bytes
+```
+
+Converts the data to bytes (if the URL is base64-encoded).
+
+**Returns:**
+
+* `bytes`
+  –The decoded image data.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def to_bytes(self) -> bytes:
+    """
+    Converts the data to bytes (if the URL is base64-encoded).
+
+    Returns:
+        The decoded image data.
+    """
+    if not self.image_url.url.startswith("data:"):
+        raise ValueError("Image URL is not base64-encoded")
+    return base64.b64decode(self.image_url.url.split(",")[1])
+```
+
+
+</Accordion>
+
+ContentText
+-----------
+
+A text content part of a message.
+
+### cache\_control
+
+```python
+cache_control: dict[str, str] | None = None
+```
+
+Cache control entry for prompt caching.
+
+### text
+
+```python
+text: str
+```
+
+The text content.
+
+### type
+
+```python
+type: Literal['text'] = 'text'
+```
+
+The type of content (always `text`).
+
+Message
+-------
+
+```python
+Message(
+    role: Role,
+    content: str | Sequence[str | Content] | None = None,
+    parts: Sequence[ParsedMessagePart] | None = None,
+    tool_calls: Sequence[ApiToolCall]
+    | Sequence[dict[str, Any]]
+    | None = None,
+    tool_call_id: str | None = None,
+    cache_control: Literal["ephemeral"]
+    | dict[str, str]
+    | None = None,
+    **kwargs: Any,
+)
+```
+
+Represents a message with role, content, and parsed message parts.
+
+<Note>
+Historically, `content` was a string, but multi-modal LLMs
+require us to have a more structured content representation.
+
+For interface stability, `content` will remain a property
+accessor for the text of a message, but the "real" content
+is available in `content_parts`. During serialization, we rename
+`content_parts` to `content` for compatibility.
+</Note>
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def __init__(
+    self,
+    role: Role,
+    content: str | t.Sequence[str | Content] | None = None,
+    parts: t.Sequence[ParsedMessagePart] | None = None,
+    tool_calls: t.Sequence[ApiToolCall] | t.Sequence[dict[str, t.Any]] | None = None,
+    tool_call_id: str | None = None,
+    cache_control: t.Literal["ephemeral"] | dict[str, str] | None = None,
+    **kwargs: t.Any,
+):
+    # TODO: We default to an empty string, but this technically isn't
+    # correct. APIs typically support the concept of a null-content msg
+    if content is None:
+        content = ""
+
+    content = [content] if isinstance(content, str) else content
+    content_parts = [
+        ContentText(text=dedent(part)) if isinstance(part, str) else part for part in content
+    ]
+
+    if tool_calls is not None and not all(isinstance(call, ApiToolCall) for call in tool_calls):
+        tool_calls = [
+            ApiToolCall.model_validate(call) if isinstance(call, dict) else call
+            for call in tool_calls
+        ]
+
+    if cache_control is not None and content_parts:
+        content_parts[-1].cache_control = (
+            cache_control if isinstance(cache_control, dict) else EPHERMAL_CACHE_CONTROL
+        )
+
+    super().__init__(
+        role=role,
+        content_parts=content_parts,
+        parts=parts or [],
+        tool_calls=tool_calls,
+        tool_call_id=tool_call_id,
+        **kwargs,
+    )
+```
+
+
+</Accordion>
+
+### all\_content
+
+```python
+all_content: str | list[Content]
+```
+
+Returns all content parts of the message or the single text content part as a string.
+
+Deprecated - Use `.content_parts` instead
+
+### content
+
+```python
+content: str
+```
+
+The content of the message as a string.
+
+If you need to access the structured content parts, use `.content_parts`.
+
+### content\_parts
+
+```python
+content_parts: list[Content] = Field([], repr=False)
+```
+
+Interior str content or structured content parts.
+
+### models
+
+```python
+models: list[Model]
+```
+
+Returns a list of models parsed from the message.
+
+### parts
+
+```python
+parts: list[ParsedMessagePart] = Field(default_factory=list)
+```
+
+The parsed message parts.
+
+### role
+
+```python
+role: Role
+```
+
+The role of the message.
+
+### tool\_call\_id
+
+```python
+tool_call_id: str | None = Field(None)
+```
+
+Associated call id if this message is a response to a tool call.
+
+### tool\_calls
+
+```python
+tool_calls: list[ApiToolCall] | None = Field(None)
+```
+
+The tool calls associated with the message.
+
+### uuid
+
+```python
+uuid: UUID = Field(default_factory=uuid4, repr=False)
+```
+
+The unique identifier for the message.
+
+### apply
+
+```python
+apply(**kwargs: str) -> Message
+```
+
+Applies the given keyword arguments with string templating to the content of the message.
+
+Uses [string.Template.safe\_substitute](https://docs.python.org/3/library/string.html#string.Template.safe_substitute) underneath.
+
+<Note>
+This call produces a clone of the message, leaving the original message unchanged.
+</Note>
+
+**Parameters:**
+
+* **`**kwargs`**
+  (`str`, default:
+  `{}`
+  )
+  –Keyword arguments to substitute in the message content.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def apply(self, **kwargs: str) -> "Message":
+    """
+    Applies the given keyword arguments with string templating to the content of the message.
+
+    Uses [string.Template.safe_substitute](https://docs.python.org/3/library/string.html#string.Template.safe_substitute) underneath.
+
+    Note:
+        This call produces a clone of the message, leaving the original message unchanged.
+
+    Args:
+        **kwargs: Keyword arguments to substitute in the message content.
+    """
+    new = self.clone()
+    template = string.Template(new.content)
+    new.content = template.safe_substitute(**kwargs)
+    return new
+```
+
+
+</Accordion>
+
+### apply\_to\_list
+
+```python
+apply_to_list(
+    messages: Sequence[Message], **kwargs: str
+) -> list[Message]
+```
+
+Helper function to apply keyword arguments to a list of Message objects.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+@classmethod
+def apply_to_list(cls, messages: t.Sequence["Message"], **kwargs: str) -> list["Message"]:
+    """Helper function to apply keyword arguments to a list of Message objects."""
+    return [message.apply(**kwargs) for message in messages]
+```
+
+
+</Accordion>
+
+### cache
+
+```python
+cache(
+    cache_control: dict[str, str] | bool = True,
+) -> Message
+```
+
+Update cache control settings for this message.
+
+**Parameters:**
+
+* **`cache_control`**
+  (`dict[str, str] | bool`, default:
+  `True`
+  )
+  –The cache control settings to
+  apply to the message. If `False`, all cache
+  control settings will be removed. If `True`,
+  the default ephemeral cache control will be applied.
+  If a dictionary, it will be applied as the cache control settings.
+
+**Returns:**
+
+* `Message`
+  –The updated message.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def cache(self, cache_control: dict[str, str] | bool = True) -> "Message":  # noqa: FBT002
+    """
+    Update cache control settings for this message.
+
+    Args:
+        cache_control: The cache control settings to
+            apply to the message. If `False`, all cache
+            control settings will be removed. If `True`,
+            the default ephemeral cache control will be applied.
+            If a dictionary, it will be applied as the cache control settings.
+
+    Returns:
+        The updated message.
+    """
+
+    for part in self.content_parts:
+        part.cache_control = None
+
+    if cache_control is False:
+        return self
+
+    if cache_control is True:
+        cache_control = EPHERMAL_CACHE_CONTROL
+
+    if not isinstance(cache_control, dict):
+        raise TypeError(f"Invalid cache control: {cache_control}")
+
+    self.content_parts[-1].cache_control = cache_control
+
+    return self
+```
+
+
+</Accordion>
+
+### clone
+
+```python
+clone() -> Message
+```
+
+Creates a copy of the message.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def clone(self) -> "Message":
+    """Creates a copy of the message."""
+    return Message(
+        self.role,
+        copy.deepcopy(self.content_parts),
+        parts=copy.deepcopy(self.parts),
+        tool_calls=copy.deepcopy(self.tool_calls),
+        tool_call_id=self.tool_call_id,
+    )
+```
+
+
+</Accordion>
+
+### fit
+
+```python
+fit(
+    message: Union[Message, MessageDict, Content, str],
+) -> Message
+```
+
+Helper function to convert various common types to a Message object.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+@classmethod
+def fit(cls, message: t.Union["Message", MessageDict, Content, str]) -> "Message":
+    """Helper function to convert various common types to a Message object."""
+    if isinstance(message, (str, *ContentTypes)):
+        return cls(role="user", content=[message])
+    return cls(**message) if isinstance(message, dict) else message.model_copy(deep=True)
+```
+
+
+</Accordion>
+
+### fit\_as\_list
+
+```python
+fit_as_list(
+    messages: Sequence[MessageDict]
+    | Sequence[Message]
+    | MessageDict
+    | Message
+    | Content
+    | str,
+) -> list[Message]
+```
+
+Helper function to convert various common types to a strict list of Message objects.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+@classmethod
+def fit_as_list(
+    cls,
+    messages: "t.Sequence[MessageDict] | t.Sequence[Message] | MessageDict | Message | Content | str",
+) -> list["Message"]:
+    """Helper function to convert various common types to a strict list of Message objects."""
+    if isinstance(messages, (Message, dict, str, *ContentTypes)):
+        return [cls.fit(messages)]
+    return [cls.fit(message) for message in messages]
+```
+
+
+</Accordion>
+
+### from\_model
+
+```python
+from_model(
+    models: Model | Sequence[Model],
+    role: Role = "user",
+    suffix: str | None = None,
+) -> Message
+```
+
+Create a Message object from one or more Model objects.
+
+**Parameters:**
+
+* **`models`**
+  (`Model | Sequence[Model]`)
+  –The Model object(s) to convert to a Message.
+* **`role`**
+  (`Role`, default:
+  `'user'`
+  )
+  –The role of the Message.
+* **`suffix`**
+  (`str | None`, default:
+  `None`
+  )
+  –A suffix to append to the content.
+
+**Returns:**
+
+* `Message`
+  –The created Message object.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+@classmethod
+def from_model(
+    cls: type["Message"],
+    models: Model | t.Sequence[Model],
+    role: Role = "user",
+    suffix: str | None = None,
+) -> "Message":
+    """
+    Create a Message object from one or more Model objects.
+
+    Args:
+        models: The Model object(s) to convert to a Message.
+        role: The role of the Message.
+        suffix: A suffix to append to the content.
+
+    Returns:
+        The created Message object.
+    """
+    parts: list[ParsedMessagePart] = []
+    content: str = ""
+    for model in models if isinstance(models, list) else [models]:
+        text_form = model.to_pretty_xml()
+        slice_ = slice(len(content), len(content) + len(text_form))
+        content += f"{text_form}\n"
+        parts.append(ParsedMessagePart(model=model, slice_=slice_))
+
+    if suffix is not None:
+        content += f"\n{suffix}"
+
+    return cls(role=role, content=content, parts=parts)
+```
+
+
+</Accordion>
+
+### parse
+
+```python
+parse(model_type: type[ModelT]) -> ModelT
+```
+
+Parses a model from the message content.
+
+**Parameters:**
+
+* **`model_type`**
+  (`type[ModelT]`)
+  –The type of model to parse.
+
+**Returns:**
+
+* `ModelT`
+  –The parsed model.
+
+**Raises:**
+
+* `ValueError`
+  –If no models of the given type are found and `fail_on_missing` is set to `True`.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def parse(self, model_type: type[ModelT]) -> ModelT:
+    """
+    Parses a model from the message content.
+
+    Args:
+        model_type: The type of model to parse.
+
+    Returns:
+        The parsed model.
+
+    Raises:
+        ValueError: If no models of the given type are found and `fail_on_missing` is set to `True`.
+    """
+    return self.try_parse_many(model_type, fail_on_missing=True)[0]
+```
+
+
+</Accordion>
+
+### parse\_many
+
+```python
+parse_many(*types: type[ModelT]) -> list[ModelT]
+```
+
+Parses multiple models of the specified non-identical types from the message content.
+
+**Parameters:**
+
+* **`*types`**
+  (`type[ModelT]`, default:
+  `()`
+  )
+  –The types of models to parse.
+
+**Returns:**
+
+* `list[ModelT]`
+  –A list of parsed models.
+
+**Raises:**
+
+* `MissingModelError`
+  –If any of the models are missing.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def parse_many(self, *types: type[ModelT]) -> list[ModelT]:
+    """
+    Parses multiple models of the specified non-identical types from the message content.
+
+    Args:
+        *types: The types of models to parse.
+
+    Returns:
+        A list of parsed models.
+
+    Raises:
+        MissingModelError: If any of the models are missing.
+    """
+    return self.try_parse_many(*types, fail_on_missing=True)
+```
+
+
+</Accordion>
+
+### parse\_set
+
+```python
+parse_set(
+    model_type: type[ModelT], minimum: int | None = None
+) -> list[ModelT]
+```
+
+Parses a set of models of the specified identical type from the message content.
+
+**Parameters:**
+
+* **`model_type`**
+  (`type[ModelT]`)
+  –The type of models to parse.
+* **`minimum`**
+  (`int | None`, default:
+  `None`
+  )
+  –The minimum number of models required.
+
+**Returns:**
+
+* `list[ModelT]`
+  –A list of parsed models.
+
+**Raises:**
+
+* `MissingModelError`
+  –If the minimum number of models is not met.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def parse_set(self, model_type: type[ModelT], minimum: int | None = None) -> list[ModelT]:
+    """
+    Parses a set of models of the specified identical type from the message content.
+
+    Args:
+        model_type: The type of models to parse.
+        minimum: The minimum number of models required.
+
+    Returns:
+        A list of parsed models.
+
+    Raises:
+        MissingModelError: If the minimum number of models is not met.
+    """
+    return self.try_parse_set(model_type, minimum=minimum, fail_on_missing=True)
+```
+
+
+</Accordion>
+
+### strip
+
+```python
+strip(
+    model_type: type[Model],
+    *,
+    fail_on_missing: bool = False,
+) -> list[ParsedMessagePart]
+```
+
+Removes and returns a list of ParsedMessagePart objects from the message that match the specified model type.
+
+**Parameters:**
+
+* **`model_type`**
+  (`type[Model]`)
+  –The type of model to match.
+* **`fail_on_missing`**
+  (`bool`, default:
+  `False`
+  )
+  –If True, raises a TypeError if no matching model is found.
+
+**Returns:**
+
+* `list[ParsedMessagePart]`
+  –A list of removed ParsedMessagePart objects.
+
+**Raises:**
+
+* `TypeError`
+  –If no matching model is found and fail\_on\_missing is True.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def strip(
+    self,
+    model_type: type[Model],
+    *,
+    fail_on_missing: bool = False,
+) -> list[ParsedMessagePart]:
+    """
+    Removes and returns a list of ParsedMessagePart objects from the message that match the specified model type.
+
+    Args:
+        model_type: The type of model to match.
+        fail_on_missing: If True, raises a TypeError if no matching model is found.
+
+    Returns:
+        A list of removed ParsedMessagePart objects.
+
+    Raises:
+        TypeError: If no matching model is found and fail_on_missing is True.
+    """
+    removed: list[ParsedMessagePart] = []
+    for part in self.parts[:]:
+        if isinstance(part.model, model_type):
+            self._remove_part(part)
+            removed.append(part)
+
+    if not removed and fail_on_missing:
+        raise TypeError(
+            f"Could not find <{model_type.__xml_tag__}> ({model_type.__name__}) in message",
+        )
+
+    return removed
+```
+
+
+</Accordion>
+
+### to\_openai\_spec
+
+```python
+to_openai_spec() -> dict[str, t.Any]
+```
+
+Converts the message to the OpenAI-compatible JSON format. This should
+be the primary way to serialize a message for use with APIs.
+
+**Returns:**
+
+* `dict[str, Any]`
+  –The serialized message.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def to_openai_spec(self) -> dict[str, t.Any]:
+    """
+    Converts the message to the OpenAI-compatible JSON format. This should
+    be the primary way to serialize a message for use with APIs.
+
+    Returns:
+        The serialized message.
+    """
+    # `content_parts` will be moved to `content`
+    obj = self.model_dump(
+        include={"role", "content_parts", "tool_calls", "tool_call_id"},
+        exclude_none=True,
+    )
+
+    # Walk content parts and add a `\n` to the end of any text parts
+    # which are followed by another text part (if not already present).
+    #
+    # This prevents model API behaviors from just concatenating the text
+    # parts together without any separation which confuses the model.
+
+    for i, current in enumerate(obj.get("content", [])):
+        if i == len(obj["content"]) - 1:
+            break
+
+        next_ = obj["content"][i + 1]
+
+        if (
+            isinstance(current, dict)
+            and current.get("type") == "text"
+            and next_.get("type") == "text"
+            and not str(current.get("text", "")).endswith("\n")
+        ):
+            current["text"] += "\n"
+
+    # Strip any transcript parts from audio input
+
+    for part in obj.get("content", []):
+        if isinstance(part, dict) and part.get("type") == "input_audio":
+            part.get("input_audio", {}).pop("transcript", None)
+
+    # If enabled, we need to convert our content to a flat
+    # string for API compatibility. Groq is an example of an API
+    # which will complain for some roles if we send a list of content parts.
+
+    if "content_as_str" in self._compability_flags:
+        obj["content"] = "".join(
+            part["text"]
+            for part in obj["content"]
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+
+    return obj
+```
+
+
+</Accordion>
+
+### truncate
+
+```python
+truncate(
+    max_length: int, suffix: str = "\n[truncated]"
+) -> Message
+```
+
+Truncates the message content to a maximum length.
+
+**Parameters:**
+
+* **`max_length`**
+  (`int`)
+  –The maximum length of the message content.
+
+**Returns:**
+
+* `Message`
+  –The truncated message.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def truncate(self, max_length: int, suffix: str = "\n[truncated]") -> "Message":
+    """
+    Truncates the message content to a maximum length.
+
+    Args:
+        max_length: The maximum length of the message content.
+
+    Returns:
+        The truncated message.
+    """
+    new = self.clone()
+    new.content = truncate_string(new.content, max_length, suf=suffix)
+    return new
+```
+
+
+</Accordion>
+
+### try\_parse
+
+```python
+try_parse(model_type: type[ModelT]) -> ModelT | None
+```
+
+Tries to parse a model from the message content.
+
+**Parameters:**
+
+* **`model_type`**
+  (`type[ModelT]`)
+  –The type of model to search for.
+
+**Returns:**
+
+* `ModelT | None`
+  –The first model that matches the given model type, or None if no match is found.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def try_parse(self, model_type: type[ModelT]) -> ModelT | None:
+    """
+    Tries to parse a model from the message content.
+
+    Args:
+        model_type: The type of model to search for.
+
+    Returns:
+        The first model that matches the given model type, or None if no match is found.
+    """
+    return next(iter(self.try_parse_many(model_type)), None)
+```
+
+
+</Accordion>
+
+### try\_parse\_many
+
+```python
+try_parse_many(
+    *types: type[ModelT], fail_on_missing: bool = False
+) -> list[ModelT]
+```
+
+Tries to parse multiple models from the content of the message.
+
+**Parameters:**
+
+* **`*types`**
+  (`type[ModelT]`, default:
+  `()`
+  )
+  –The types of models to parse.
+* **`fail_on_missing`**
+  (`bool`, default:
+  `False`
+  )
+  –Whether to raise an exception if a model type is missing.
+
+**Returns:**
+
+* `list[ModelT]`
+  –A list of parsed models.
+
+**Raises:**
+
+* `MissingModelError`
+  –If a model type is missing and `fail_on_missing` is True.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def try_parse_many(self, *types: type[ModelT], fail_on_missing: bool = False) -> list[ModelT]:
+    """
+    Tries to parse multiple models from the content of the message.
+
+    Args:
+        *types: The types of models to parse.
+        fail_on_missing: Whether to raise an exception if a model type is missing.
+
+    Returns:
+        A list of parsed models.
+
+    Raises:
+        MissingModelError: If a model type is missing and `fail_on_missing` is True.
+    """
+    model: ModelT
+    parsed: list[tuple[ModelT, slice]] = try_parse_many(
+        self.content,
+        *types,
+        fail_on_missing=fail_on_missing,
+    )
+    for model, slice_ in parsed:
+        self._add_part(ParsedMessagePart(model=model, slice_=slice_))
+    self._sync_parts()
+    return [p[0] for p in parsed]
+```
+
+
+</Accordion>
+
+### try\_parse\_set
+
+```python
+try_parse_set(
+    model_type: type[ModelT],
+    minimum: int | None = None,
+    fail_on_missing: bool = False,
+) -> list[ModelT]
+```
+
+Tries to parse a set of models from the message content.
+
+**Parameters:**
+
+* **`model_type`**
+  (`type[ModelT]`)
+  –The type of model to parse.
+* **`minimum`**
+  (`int | None`, default:
+  `None`
+  )
+  –The minimum number of models expected.
+* **`fail_on_missing`**
+  (`bool`, default:
+  `False`
+  )
+  –Whether to raise an exception if models are missing.
+
+**Returns:**
+
+* `list[ModelT]`
+  –The parsed models.
+
+**Raises:**
+
+* `MissingModelError`
+  –If the number of parsed models is less than the minimum required.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def try_parse_set(
+    self,
+    model_type: type[ModelT],
+    minimum: int | None = None,
+    fail_on_missing: bool = False,  # noqa: FBT001, FBT002 (historical)
+) -> list[ModelT]:
+    """
+    Tries to parse a set of models from the message content.
+
+    Args:
+        model_type: The type of model to parse.
+        minimum: The minimum number of models expected.
+        fail_on_missing: Whether to raise an exception if models are missing.
+
+    Returns:
+        The parsed models.
+
+    Raises:
+        MissingModelError: If the number of parsed models is less than the minimum required.
+    """
+    models = self.try_parse_many(model_type, fail_on_missing=fail_on_missing)
+    if minimum is not None and len(models) < minimum:
+        raise MissingModelError(f"Expected at least {minimum} {model_type.__name__} in message")
+    return models
+```
+
+
+</Accordion>
+
+MessageDict
+-----------
+
+Helper to represent a [rigging.message.Message][] as a dictionary.
+
+### content
+
+```python
+content: str | list[Any]
+```
+
+The content of the message.
+
+### role
+
+```python
+role: Role
+```
+
+The role of the message.
+
+ParsedMessagePart
+-----------------
+
+Represents a parsed message part.
+
+### model
+
+```python
+model: SerializeAsAny[Model]
+```
+
+The rigging/pydantic model associated with the message part.
+
+### slice\_
+
+```python
+slice_: Annotated[
+    slice,
+    PlainSerializer(
+        lambda x: [start, stop], return_type=list[int]
+    ),
+    WithJsonSchema({type: array, items: {type: integer}}),
+]
+```
+
+The slice representing the range into the message content.

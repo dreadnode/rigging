@@ -4,7 +4,7 @@ description: "Migrating from one version of Rigging to another"
 public: true
 ---
 
-As we continue to develop and improve Rigging, we may introduce changes that break backwards compatibility and/or signficantly
+As we continue to develop and improve Rigging, we may introduce changes that break backwards compatibility and/or significantly
 change mechanics of the library. In general we try to follow best practices for semantic versioning:
 
 - **Major version**: Significant and breaking changes (e.g. v1.X to v2.X)
@@ -35,7 +35,7 @@ The internal mechanics of `ChatPipeline` have been substantially rewritten to al
 
 #### Moving from `until()` to `then()`
 
-The `until()` mechanism inside pipelines and its parameters (`attempt_recovery`, `drop_dialog`, `max_rounds`) have been **removed**. In the early days of Rigging we used this interface to support iterative parsing, but it's been largely replaced by the new `then()` and `map()` callbacks since v2. We're commited to using this new structure and avoid internal complexities like calling a generator multiple times within a single pipeline step.
+The `until()` mechanism inside pipelines and its parameters (`attempt_recovery`, `drop_dialog`, `max_rounds`) have been **removed**. In the early days of Rigging we used this interface to support iterative parsing, but it's been largely replaced by the new `then()` and `map()` callbacks since v2. We're committed to using this new structure and avoid internal complexities like calling a generator multiple times within a single pipeline step.
 
 <Info>
 **Action Required**
@@ -49,7 +49,7 @@ Logic previously implemented with `until()` needs to be refactored.
 
 The `.until_parsed_as()` method still exists, but its internal implementation and parameters have changed as a function of migrating from `until()` to `then()`.
 - The `max_rounds` parameter is deprecated. Use the new `max_depth` parameter, which controls the maximum *depth* of recursive parsing attempts (defaulting to `DEFAULT_MAX_DEPTH`).
-- The `attempt_recovery` and `drop_dialog` parameters are deprecated and have no effect. Recovery is now implicit within the `max_depth` limit, and the full dialog history is 
+- The `attempt_recovery` and `drop_dialog` parameters are deprecated and have no effect. Recovery is now implicit within the `max_depth` limit, and the full dialog history is
 
 We've also found much more success leveraging tool calling as the primary mechanism to parse structured data out of models and it presents a strong alternative to lots of parsing logic. We cover additional changes to the tool system below.
 
@@ -70,7 +70,7 @@ from rigging.model import YesNoAnswer
 # max_depth controls parsing retry depth
 chat = (
     await pipeline
-    .until_parsed_as(YesNoAnswer, max_depth=5) 
+    .until_parsed_as(YesNoAnswer, max_depth=5)
     .run()
 )
 ```
@@ -105,7 +105,7 @@ except MessagesExhaustedMaxRoundsError:
 from rigging.error import MaxDepthError
 
 try:
-    chat = await pipeline.run() 
+    chat = await pipeline.run()
 except MaxDepthError:
     # Handle max depth error
     ...
@@ -127,7 +127,7 @@ We worked hard in v3 to bring together some of the early tool systems and unify 
 - The primary way to define tools is now via the **`@tool`** and **`@tool_method`** decorators applied to functions and class methods, respectively.
 - The `ChatPipeline.using()` method signature has changed significantly:
     - It now accepts `Tool` instances or callables directly: `using(*tools: Tool | Callable)`
-    - It uses a `mode: ToolMode` parameter (`"auto"`, `"api"`, `"xml"`, `"json-in-xml"`) to control calling convention.
+    - It uses a `mode: ToolMode` parameter (`auto`, `api`, `xml`, `json-in-xml`) to control calling convention.
     - It uses `max_depth: int` to limit recursive tool calls.
     - Parameters like `force`, `attempt_recovery`, `drop_dialog`, `max_rounds` are removed.
 - The `rigging.integrations` module is removed. Use `rigging.tool.robopages` and the new `rigging.tool.mcp` to use those integrations as tools.
@@ -185,15 +185,15 @@ class CalculatorV3:
 calc = CalculatorV3()
 
 # Robopages Tools
-robo_tools = rg.tool.robopages("http://localhost:8080")
+robo_tools = rg.robopages("http://localhost:8080")
 
 # MCP Tools
 async with rg.mcp("sse", url="http://localhost:8787/sse") as mcp:
-    
+
     # Pipeline usage
     chat = (
         await pipeline
-        .using(mcp.tools, robo_tools, get_weather_v3, calc.add) 
+        .using(mcp.tools, robo_tools, get_weather_v3, calc.add)
         .run()
     )
 
@@ -220,11 +220,11 @@ Handling of message content, especially multi-modal content, has been standardiz
 <CodeGroup>
 ```python v2.x
 # Accessing content
-text_content = message.content 
+text_content = message.content
 mixed_content = message.all_content # Could be str or list[Content]
 
 # Modifying content
-message.content = "New text" 
+message.content = "New text"
 # Handling mixed types required checking type of all_content
 ```
 
@@ -253,7 +253,7 @@ message.content_parts.append(ContentImageUrl.from_file("image.png"))
 
 ### Other Changes & Notes
 
-*   **`ChatPipeline.add` Default**: The `merge_strategy` default changed to `"none"`. Messages of the same role are *not* merged automatically anymore. Use `merge_strategy="all"` or `"only-user-role"` explicitly if merging is desired.
+*   **`ChatPipeline.add` Default**: The `merge_strategy` default changed to `none`. Messages of the same role are *not* merged automatically anymore. Use `merge_strategy="all` or `only-user-role` explicitly if merging is desired.
 *   **Caching**: New `ChatPipeline.cache()` method provides basic control over prompt caching hints.
 *   **Dependencies**: Check for updated versions of core dependencies (`litellm`, `openai`, etc.) and new additions (`mcp`, `httpx-sse`).
 
@@ -311,6 +311,6 @@ This shouldn't affect most users unless you were manually accessing these classe
 
 ### `on_failed` replaces `skip_failed`/`include_failed`
 
-Pipelines now provide better clarity for catching errors and translating them into failed outputs. We've replaced the `skip_failed` and `include_failed` arguments for a general string literal `on_failed` mapped to `FailMode`. 
+Pipelines now provide better clarity for catching errors and translating them into failed outputs. We've replaced the `skip_failed` and `include_failed` arguments for a general string literal `on_failed` mapped to `FailMode`.
 
 This should help us clarity behaviors and expand them in the future without causing argument bloat.

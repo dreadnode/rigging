@@ -1,0 +1,1577 @@
+---
+title: rigging.prompt
+---
+
+{/*
+::: rigging.prompt
+*/}
+
+Treat empty function signatures as prompts for structured chat interfaces.
+
+DEFAULT\_DOC
+------------
+
+```python
+DEFAULT_DOC = (
+    "Convert the following inputs to outputs ({func_name})."
+)
+```
+
+Default docstring if none is provided to a prompt function.
+
+DEFAULT\_MAX\_PARSE\_ROUNDS
+---------------------------
+
+```python
+DEFAULT_MAX_PARSE_ROUNDS = 3
+```
+
+Default maximum number of recursive output parsing attempts to allow.
+
+DEFAULT\_MAX\_TOOL\_ROUNDS
+--------------------------
+
+```python
+DEFAULT_MAX_TOOL_ROUNDS = 20
+```
+
+Default maximum number of recursive tool calls to allow.
+
+Ctx
+---
+
+```python
+Ctx(
+    tag: str | None = None,
+    prefix: str | None = None,
+    example: str | Model | None = None,
+)
+```
+
+Used in type annotations to provide additional context for the prompt construction.
+
+You can use this annotation on inputs and outputs to prompt functions.
+
+Example
+
+```python
+tag_override = Annotated[str, Ctx(tag="custom_tag", ...)]
+```
+
+Prompt
+------
+
+```python
+Prompt(
+    func: Callable[P, Coroutine[Any, Any, R]] | None = None,
+    max_parsing_rounds: int = DEFAULT_MAX_PARSE_ROUNDS,
+    max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS,
+    inputs: list[Input] = list(),
+    output: Output = lambda: ChatOutput(
+        id="chat", context=Ctx()
+    )(),
+    watch_callbacks: list[WatchChatCallback] = list(),
+    then_callbacks: list[ThenChatCallback] = list(),
+    map_callbacks: list[MapChatCallback] = list(),
+    params: GenerateParams | None = None,
+    tools: list[Tool[..., Any]] = list(),
+    system_prompt: str | None = None,
+    _generator_id: str | None = None,
+    _generator: Generator | None = None,
+    _pipeline: ChatPipeline | None = None,
+    _docstring: str | None = None,
+)
+```
+
+Prompts wrap hollow functions and create structured chat interfaces for
+passing inputs into a ChatPipeline and parsing outputs.
+
+### docstring
+
+```python
+docstring: str
+```
+
+The docstring for the prompt function.
+
+### func
+
+```python
+func: Callable[P, Coroutine[Any, Any, R]] | None = None
+```
+
+The function that the prompt was derived from.
+
+### inputs
+
+```python
+inputs: list[Input] = field(default_factory=list)
+```
+
+The structured input handlers for the prompt.
+
+### map\_callbacks
+
+```python
+map_callbacks: list[MapChatCallback] = field(
+    default_factory=list
+)
+```
+
+Callbacks to be executed for every generated chat (see ChatPipeline.map).
+
+### max\_parsing\_rounds
+
+```python
+max_parsing_rounds: int = DEFAULT_MAX_PARSE_ROUNDS
+```
+
+The maximum number of recursive output parsing attempts to allow.
+
+### max\_tool\_rounds
+
+```python
+max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS
+```
+
+The maximum number of recursive tool calls to allow.
+
+### output
+
+```python
+output: Output = field(
+    default_factory=lambda: ChatOutput(
+        id="chat", context=Ctx()
+    )
+)
+```
+
+The structured output handler for the prompt.
+
+### params
+
+```python
+params: GenerateParams | None = None
+```
+
+The parameters to be used when generating chats for this prompt.
+
+### pipeline
+
+```python
+pipeline: ChatPipeline | None
+```
+
+If available, the resolved Chat Pipeline for the prompt.
+
+### system\_prompt
+
+```python
+system_prompt: str | None = None
+```
+
+A system prompt fragment to be injected into the messages before generation.
+
+### template
+
+```python
+template: str
+```
+
+The dynamic jinja2 template for the prompt function.
+
+### then\_callbacks
+
+```python
+then_callbacks: list[ThenChatCallback] = field(
+    default_factory=list
+)
+```
+
+Callbacks to be executed for every generated chat (see ChatPipeline.then).
+
+### tools
+
+```python
+tools: list[Tool[..., Any]] = field(default_factory=list)
+```
+
+The API tools to be made available when generating chats for this prompt.
+
+### watch\_callbacks
+
+```python
+watch_callbacks: list[WatchChatCallback] = field(
+    default_factory=list
+)
+```
+
+Callbacks to be passed any chats produced while executing this prompt.
+
+### bind
+
+```python
+bind(
+    other: ChatPipeline | Generator | Chat | str,
+) -> t.Callable[P, t.Coroutine[t.Any, t.Any, R]]
+```
+
+Binds the prompt to a pipeline, generator, or chat and returns a scoped run callable.
+
+**Parameters:**
+
+* **`other`**
+  (`ChatPipeline | Generator | Chat | str`)
+  –The pipeline, generator, generator id, or chat to bind to.
+
+**Returns:**
+
+* `Callable[P, Coroutine[Any, Any, R]]`
+  –A callable for executing this prompt
+
+Example
+
+```python
+@rg.prompt
+def say_hello(name: str) -> str:
+    """Say hello to {{ name }}"""
+
+await say_hello.bind("gpt-3.5-turbo")("the world")
+```
+
+
+<Accordion title="Source code in rigging/prompt.py" icon="code">
+```python
+def bind(
+    self,
+    other: ChatPipeline | Generator | Chat | str,
+) -> t.Callable[P, t.Coroutine[t.Any, t.Any, R]]:
+    """
+    Binds the prompt to a pipeline, generator, or chat and returns a scoped run callable.
+
+    Args:
+        other: The pipeline, generator, generator id, or chat to bind to.
+
+    Returns:
+        A callable for executing this prompt
+
+    Example:
+        ~~~
+        @rg.prompt
+        def say_hello(name: str) -> str:
+            \"""Say hello to {{ name }}\"""
+
+        await say_hello.bind("gpt-3.5-turbo")("the world")
+        ~~~
+    """
+    pipeline = self._resolve_to_pipeline(other)
+    if pipeline.on_failed == "skip":
+        raise NotImplementedError(
+            "pipeline.on_failed='skip' cannot be used for prompt methods that return one object",
+        )
+
+    async def run(*args: P.args, **kwargs: P.kwargs) -> R:
+        results = await self.bind_many(pipeline)(1, *args, **kwargs)
+        return results[0]
+
+    run.__signature__ = self.__signature__  # type: ignore [attr-defined]
+    run.__name__ = self.__name__
+    run.__doc__ = self.__doc__
+    run.__rg_prompt__ = self  # type: ignore [attr-defined]
+
+    return run
+```
+
+
+</Accordion>
+
+### bind\_many
+
+```python
+bind_many(
+    other: ChatPipeline | Generator | Chat | str,
+) -> t.Callable[
+    Concatenate[int, P], t.Coroutine[t.Any, t.Any, list[R]]
+]
+```
+
+Binds the prompt to a pipeline, generator, or chat and returns a scoped run\_many callable.
+
+**Parameters:**
+
+* **`other`**
+  (`ChatPipeline | Generator | Chat | str`)
+  –The pipeline, generator, generator id, or chat to bind to.
+
+**Returns:**
+
+* `Callable[Concatenate[int, P], Coroutine[Any, Any, list[R]]]`
+  –A callable for executing this prompt.
+
+Example
+
+```python
+@rg.prompt
+def say_hello(name: str) -> str:
+    """Say hello to {{ name }}"""
+
+await say_hello.bind("gpt-3.5-turbo")(5, "the world")
+```
+
+
+<Accordion title="Source code in rigging/prompt.py" icon="code">
+```python
+def bind_many(
+    self,
+    other: ChatPipeline | Generator | Chat | str,
+) -> t.Callable[Concatenate[int, P], t.Coroutine[t.Any, t.Any, list[R]]]:
+    """
+    Binds the prompt to a pipeline, generator, or chat and returns a scoped run_many callable.
+
+    Args:
+        other: The pipeline, generator, generator id, or chat to bind to.
+
+    Returns:
+        A callable for executing this prompt.
+
+    Example:
+        ~~~
+        @rg.prompt
+        def say_hello(name: str) -> str:
+            \"""Say hello to {{ name }}\"""
+
+        await say_hello.bind("gpt-3.5-turbo")(5, "the world")
+        ~~~
+    """
+    pipeline = self._resolve_to_pipeline(other)
+    if pipeline.on_failed == "include" and not isinstance(self.output, ChatOutput):
+        raise NotImplementedError(
+            "pipeline.on_failed='include' cannot be used with prompts that process outputs",
+        )
+
+    async def run_many(count: int, /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
+        name = get_qualified_name(self.func) if self.func else "<generated>"
+        with tracer.span(
+            f"Prompt {name}()" if count == 1 else f"Prompt {name}() (x{count})",
+            count=count,
+            name=name,
+            arguments=self._bind_args(*args, **kwargs),
+        ) as span:
+            content = self.render(*args, **kwargs)
+            _pipeline = (
+                pipeline.fork(content)
+                .using(*self.tools, max_depth=self.max_tool_rounds)
+                .then(self._then_parse, max_depth=self.max_parsing_rounds)
+                .then(*self.then_callbacks)
+                .map(*self.map_callbacks)
+                .watch(*self.watch_callbacks)
+                .with_(self.params)
+            )
+
+            if self.system_prompt:
+                _pipeline.chat.inject_system_content(self.system_prompt)
+
+            chats = await _pipeline.run_many(count)
+
+            # TODO: I can't remember why we don't just pass the watch_callbacks to the pipeline
+            # Maybe it has something to do with uniqueness and merging?
+
+            def wrap_watch_callback(callback: "WatchChatCallback") -> "WatchChatCallback":
+                async def traced_watch_callback(chats: list[Chat]) -> None:
+                    callback_name = get_qualified_name(callback)
+                    with tracer.span(
+                        f"Watch with {callback_name}()",
+                        callback=callback_name,
+                        chat_count=len(chats),
+                        chat_ids=[str(c.uuid) for c in chats],
+                    ):
+                        await callback(chats)
+
+                return traced_watch_callback
+
+            coros = [
+                wrap_watch_callback(watch)(chats)
+                for watch in self.watch_callbacks
+                if watch not in pipeline.watch_callbacks
+            ]
+            await asyncio.gather(*coros)
+
+            results = [self.process(chat) for chat in chats]
+            span.set_attribute("results", results)
+            return results
+
+    run_many.__rg_prompt__ = self  # type: ignore [attr-defined]
+
+    return run_many
+```
+
+
+</Accordion>
+
+### bind\_over
+
+```python
+bind_over(
+    other: ChatPipeline
+    | Generator
+    | Chat
+    | str
+    | None = None,
+) -> t.Callable[
+    Concatenate[t.Sequence[Generator | str], P],
+    t.Coroutine[t.Any, t.Any, list[R]],
+]
+```
+
+Binds the prompt to a pipeline, generator, or chat and returns a scoped run\_over callable.
+
+**Parameters:**
+
+* **`other`**
+  (`ChatPipeline | Generator | Chat | str | None`, default:
+  `None`
+  )
+  –The pipeline, generator, generator id, or chat to bind to.
+
+**Returns:**
+
+* `Callable[Concatenate[Sequence[Generator | str], P], Coroutine[Any, Any, list[R]]]`
+  –A callable for executing this prompt.
+
+Example
+
+```python
+@rg.prompt
+def say_hello(name: str) -> str:
+    """Say hello to {{ name }}"""
+
+await say_hello.bind("gpt-3.5-turbo")(["gpt-4o", "gpt-4"], "the world")
+```
+
+
+<Accordion title="Source code in rigging/prompt.py" icon="code">
+```python
+def bind_over(
+    self,
+    other: ChatPipeline | Generator | Chat | str | None = None,
+) -> t.Callable[
+    Concatenate[t.Sequence[Generator | str], P],
+    t.Coroutine[t.Any, t.Any, list[R]],
+]:
+    """
+    Binds the prompt to a pipeline, generator, or chat and returns a scoped run_over callable.
+
+    Args:
+        other: The pipeline, generator, generator id, or chat to bind to.
+
+    Returns:
+        A callable for executing this prompt.
+
+    Example:
+        ~~~
+        @rg.prompt
+        def say_hello(name: str) -> str:
+            \"""Say hello to {{ name }}\"""
+
+        await say_hello.bind("gpt-3.5-turbo")(["gpt-4o", "gpt-4"], "the world")
+        ~~~
+    """
+    include_original = other is not None
+
+    if other is None:
+        pipeline = (
+            get_generator("base!base").chat().catch(on_failed="skip")
+        )  # TODO: Clean this up
+    else:
+        pipeline = self._resolve_to_pipeline(other)
+
+    if pipeline.on_failed == "include" and not isinstance(self.output, ChatOutput):
+        raise NotImplementedError(
+            "pipeline.on_failed='include' cannot be used with prompts that process outputs",
+        )
+
+    async def run_over(
+        generators: t.Sequence[Generator | str],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> list[R]:
+        content = self.render(*args, **kwargs)
+        _pipeline = (
+            pipeline.fork(content)
+            .using(*self.tools, max_depth=self.max_tool_rounds)
+            .then(self._then_parse, max_depth=self.max_parsing_rounds)
+            .then(*self.then_callbacks)
+            .map(*self.map_callbacks)
+            .watch(*self.watch_callbacks)
+            .with_(self.params)
+        )
+
+        if self.system_prompt:
+            _pipeline.chat.inject_system_content(self.system_prompt)
+
+        chats = await _pipeline.run_over(*generators, include_original=include_original)
+
+        coros = [
+            watch(chats)
+            for watch in self.watch_callbacks
+            if watch not in pipeline.watch_callbacks
+        ]
+        await asyncio.gather(*coros)
+
+        return [self.process(chat) for chat in chats]
+
+    run_over.__rg_prompt__ = self  # type: ignore [attr-defined]
+
+    return run_over
+```
+
+
+</Accordion>
+
+### clone
+
+```python
+clone(*, include_callbacks: bool = True) -> Prompt[P, R]
+```
+
+Creates a deep copy of this prompt.
+
+**Parameters:**
+
+* **`include_callbacks`**
+  (`bool`, default:
+  `True`
+  )
+  –Whether to skip copying the watch callbacks.
+
+**Returns:**
+
+* `Prompt[P, R]`
+  –A new instance of the prompt.
+
+<Accordion title="Source code in rigging/prompt.py" icon="code">
+```python
+def clone(self, *, include_callbacks: bool = True) -> "Prompt[P, R]":
+    """
+    Creates a deep copy of this prompt.
+
+    Args:
+        include_callbacks: Whether to skip copying the watch callbacks.
+
+    Returns:
+        A new instance of the prompt.
+    """
+    new = Prompt(
+        func=self.func,
+        _pipeline=self.pipeline,
+        params=self.params.model_copy() if self.params is not None else None,
+        max_parsing_rounds=self.max_parsing_rounds,
+        max_tool_rounds=self.max_tool_rounds,
+        system_prompt=self.system_prompt,
+    )
+    if not include_callbacks:
+        new.watch_callbacks = self.watch_callbacks.copy()
+        new.then_callbacks = self.then_callbacks.copy()
+    return new
+```
+
+
+</Accordion>
+
+### map
+
+```python
+map(
+    *callbacks: MapChatCallback,
+    allow_duplicates: bool = False,
+) -> Prompt[P, R]
+```
+
+Registers a callback to be executed for each chat produced during the prompt run.
+
+See ChatPipeline.map for more details.
+
+**Parameters:**
+
+* **`callbacks`**
+  (`MapChatCallback`, default:
+  `()`
+  )
+  –The callback function to be executed.
+* **`allow_duplicates`**
+  (`bool`, default:
+  `False`
+  )
+  –Whether to allow duplicate callbacks.
+
+**Returns:**
+
+* `Prompt[P, R]`
+  –The updated pipeline.
+
+Example
+
+```python
+async def summarize_chats(chats: list[Chat]) -> list[Chat]:
+    ...
+
+@rg.prompt()
+async def summarize(text: str) -> str:
+    ...
+
+summarize.map(summarize_chats).bind_many()(10, ...)
+```
+
+
+<Accordion title="Source code in rigging/prompt.py" icon="code">
+```python
+def map(
+    self,
+    *callbacks: MapChatCallback,
+    allow_duplicates: bool = False,
+) -> "Prompt[P, R]":
+    """
+    Registers a callback to be executed for each chat produced during the prompt run.
+
+    See ChatPipeline.map for more details.
+
+    Args:
+        callbacks: The callback function to be executed.
+        allow_duplicates: Whether to allow duplicate callbacks.
+
+    Returns:
+        The updated pipeline.
+
+    Example:
+        ~~~
+        async def summarize_chats(chats: list[Chat]) -> list[Chat]:
+            ...
+
+        @rg.prompt()
+        async def summarize(text: str) -> str:
+            ...
+
+        summarize.map(summarize_chats).bind_many()(10, ...)
+        ~~~
+    """
+    for callback in callbacks:
+        if not asyncio.iscoroutinefunction(callback):
+            raise TypeError(
+                f"Callback '{get_qualified_name(callback)}' must be an async function",
+            )
+
+        if allow_duplicates:
+            continue
+
+        if callback in self.map_callbacks:
+            raise ValueError(
+                f"Callback '{get_qualified_name(callback)}' is already registered.",
+            )
+
+    self.map_callbacks.extend(callbacks)
+    return self
+```
+
+
+</Accordion>
+
+### process
+
+```python
+process(chat: Chat) -> R
+```
+
+Attempt to parse the output from a chat into the expected return type.
+
+<Accordion title="Source code in rigging/prompt.py" icon="code">
+```python
+def process(self, chat: Chat) -> R:
+    """
+    Attempt to parse the output from a chat into the expected return type.
+    """
+    return self.output.from_chat(chat)  # type: ignore [no-any-return]
+```
+
+
+</Accordion>
+
+### render
+
+```python
+render(*args: args, **kwargs: kwargs) -> str
+```
+
+Pass the arguments to the jinja2 template and render the full prompt.
+
+<Accordion title="Source code in rigging/prompt.py" icon="code">
+```python
+def render(self, *args: P.args, **kwargs: P.kwargs) -> str:
+    """
+    Pass the arguments to the jinja2 template and render the full prompt.
+    """
+
+    env = Environment(  # noqa: S701 # nosec
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=True,
+        undefined=StrictUndefined,
+    )
+    jinja_template = env.from_string(self.template)
+
+    if self.func is None:
+        return jinja_template.render()
+
+    bound_args = self._bind_args(*args, **kwargs)
+
+    for input_ in self.inputs:
+        bound_args[to_snake(input_.tag)] = input_.to_xml(bound_args[input_.name])
+
+    return jinja_template.render(**bound_args)
+```
+
+
+</Accordion>
+
+### run
+
+```python
+run(*args: args, **kwargs: kwargs) -> R
+```
+
+Use the prompt to run the function with the provided arguments and return the output.
+
+**Parameters:**
+
+* **`*args`**
+  (`args`, default:
+  `()`
+  )
+  –The positional arguments for the prompt function.
+* **`**kwargs`**
+  (`kwargs`, default:
+  `{}`
+  )
+  –The keyword arguments for the prompt function.
+
+**Returns:**
+
+* `R`
+  –The output of the prompt function.
+
+<Accordion title="Source code in rigging/prompt.py" icon="code">
+```python
+async def run(self, *args: P.args, **kwargs: P.kwargs) -> R:
+    """
+    Use the prompt to run the function with the provided arguments and return the output.
+
+    Args:
+        *args: The positional arguments for the prompt function.
+        **kwargs: The keyword arguments for the prompt function.
+
+    Returns:
+        The output of the prompt function.
+    """
+    if self.pipeline is None:
+        raise RuntimeError(
+            "Prompt cannot be executed as a standalone function without being assigned a pipeline or generator",
+        )
+    return await self.bind(self.pipeline)(*args, **kwargs)
+```
+
+
+</Accordion>
+
+### run\_many
+
+```python
+run_many(
+    count: int, /, *args: args, **kwargs: kwargs
+) -> list[R]
+```
+
+Use the prompt to run the function multiple times with the provided arguments and return the output.
+
+**Parameters:**
+
+* **`count`**
+  (`int`)
+  –The number of times to run the prompt.
+* **`*args`**
+  (`args`, default:
+  `()`
+  )
+  –The positional arguments for the prompt function.
+* **`**kwargs`**
+  (`kwargs`, default:
+  `{}`
+  )
+  –The keyword arguments for the prompt function.
+
+**Returns:**
+
+* `list[R]`
+  –The outputs of the prompt function.
+
+<Accordion title="Source code in rigging/prompt.py" icon="code">
+```python
+async def run_many(self, count: int, /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
+    """
+    Use the prompt to run the function multiple times with the provided arguments and return the output.
+
+    Args:
+        count: The number of times to run the prompt.
+        *args: The positional arguments for the prompt function.
+        **kwargs: The keyword arguments for the prompt function.
+
+    Returns:
+        The outputs of the prompt function.
+    """
+    if self.pipeline is None:
+        raise RuntimeError(
+            "Prompt cannot be executed as a standalone function without being assigned a pipeline or generator",
+        )
+    return await self.bind_many(self.pipeline)(count, *args, **kwargs)
+```
+
+
+</Accordion>
+
+### run\_over
+
+```python
+run_over(
+    generators: Sequence[Generator | str],
+    /,
+    *args: args,
+    **kwargs: kwargs,
+) -> list[R]
+```
+
+Executes the prompt process across multiple generators.
+
+For each generator, a pipeline is created and the generator is replaced
+before the run call. All callbacks and parameters are preserved.
+
+If this prompt has a pipeline assigned, it will be included in the run.
+
+<Warning>
+The implementation currently skips any failed chats and only
+processes successful chats. This may change in the future.
+</Warning>
+
+**Parameters:**
+
+* **`generators`**
+  (`Sequence[Generator | str]`)
+  –A sequence of generators to be used for the generation process.
+
+**Returns:**
+
+* `list[R]`
+  –A list of generatated Chats.
+
+<Accordion title="Source code in rigging/prompt.py" icon="code">
+```python
+async def run_over(
+    self,
+    generators: t.Sequence[Generator | str],
+    /,
+    *args: P.args,
+    **kwargs: P.kwargs,
+) -> list[R]:
+    """
+    Executes the prompt process across multiple generators.
+
+    For each generator, a pipeline is created and the generator is replaced
+    before the run call. All callbacks and parameters are preserved.
+
+    If this prompt has a pipeline assigned, it will be included in the run.
+
+    Warning:
+        The implementation currently skips any failed chats and only
+        processes successful chats. This may change in the future.
+
+    Args:
+        generators: A sequence of generators to be used for the generation process.
+
+    Returns:
+        A list of generatated Chats.
+    """
+    return await self.bind_over(self.pipeline)(generators, *args, **kwargs)
+```
+
+
+</Accordion>
+
+### set\_
+
+```python
+set_(
+    max_parsing_rounds: int | None = None,
+    max_tool_rounds: int | None = None,
+) -> Prompt[P, R]
+```
+
+Helper to allow updates to the parsing configuration.
+
+**Parameters:**
+
+* **`max_parsing_rounds`**
+  (`int | None`, default:
+  `None`
+  )
+  –The maximum number of recursive output parsing attempts to allow.
+* **`max_tool_rounds`**
+  (`int | None`, default:
+  `None`
+  )
+  –The maximum number of recursive tool calls to allow.
+
+**Returns:**
+
+* `Prompt[P, R]`
+  –Self
+
+<Accordion title="Source code in rigging/prompt.py" icon="code">
+```python
+def set_(
+    self,
+    max_parsing_rounds: int | None = None,
+    max_tool_rounds: int | None = None,
+) -> "Prompt[P, R]":
+    """
+    Helper to allow updates to the parsing configuration.
+
+    Args:
+        max_parsing_rounds: The maximum number of recursive output parsing attempts to allow.
+        max_tool_rounds: The maximum number of recursive tool calls to allow.
+
+    Returns:
+        Self
+    """
+    self.max_parsing_rounds = max_parsing_rounds or self.max_parsing_rounds
+    self.max_tool_rounds = max_tool_rounds or self.max_tool_rounds
+    return self
+```
+
+
+</Accordion>
+
+### then
+
+```python
+then(
+    *callbacks: ThenChatCallback,
+    allow_duplicates: bool = False,
+) -> Prompt[P, R]
+```
+
+Registers one or many callbacks to be executed during the prompt run
+
+See ChatPipeline.then for more details.
+
+**Parameters:**
+
+* **`callbacks`**
+  (`ThenChatCallback`, default:
+  `()`
+  )
+  –The callback functions to be added.
+* **`allow_duplicates`**
+  (`bool`, default:
+  `False`
+  )
+  –Whether to allow duplicate callbacks.
+
+**Returns:**
+
+* `Prompt[P, R]`
+  –The updated prompt.
+
+Example
+
+```python
+async def score_summary(chat: Chat) -> Chat:
+    ...
+
+@rg.prompt()
+async def summarize(text: str) -> str:
+    ...
+
+summarize.then(score_summary)(...)
+```
+
+
+<Accordion title="Source code in rigging/prompt.py" icon="code">
+```python
+def then(
+    self,
+    *callbacks: ThenChatCallback,
+    allow_duplicates: bool = False,
+) -> "Prompt[P, R]":
+    """
+    Registers one or many callbacks to be executed during the prompt run
+
+    See ChatPipeline.then for more details.
+
+    Args:
+        callbacks: The callback functions to be added.
+        allow_duplicates: Whether to allow duplicate callbacks.
+
+    Returns:
+        The updated prompt.
+
+    Example:
+        ~~~
+        async def score_summary(chat: Chat) -> Chat:
+            ...
+
+        @rg.prompt()
+        async def summarize(text: str) -> str:
+            ...
+
+        summarize.then(score_summary)(...)
+        ~~~
+    """
+    for callback in callbacks:
+        if not asyncio.iscoroutinefunction(callback):
+            raise TypeError(
+                f"Callback '{get_qualified_name(callback)}' must be an async function",
+            )
+
+        if allow_duplicates:
+            continue
+
+        if callback in self.then_callbacks:
+            raise ValueError(
+                f"Callback '{get_qualified_name(callback)}' is already registered.",
+            )
+
+    self.then_callbacks.extend(callbacks)
+    return self
+```
+
+
+</Accordion>
+
+### watch
+
+```python
+watch(
+    *callbacks: WatchChatCallback,
+    allow_duplicates: bool = False,
+) -> Prompt[P, R]
+```
+
+Registers a callback to monitor any chats produced for this prompt
+
+See ChatPipeline.watch for more details.
+
+**Parameters:**
+
+* **`*callbacks`**
+  (`WatchChatCallback`, default:
+  `()`
+  )
+  –The callback functions to be executed.
+* **`allow_duplicates`**
+  (`bool`, default:
+  `False`
+  )
+  –Whether to allow duplicate callbacks.
+
+**Returns:**
+
+* `Prompt[P, R]`
+  –The updated prompt instance.
+
+Example
+
+```python
+async def log(chats: list[Chat]) -> None:
+    ...
+
+@rg.prompt()
+async def summarize(text: str) -> str:
+    ...
+
+summarize.watch(log)(...)
+```
+
+
+<Accordion title="Source code in rigging/prompt.py" icon="code">
+```python
+def watch(
+    self,
+    *callbacks: WatchChatCallback,
+    allow_duplicates: bool = False,
+) -> "Prompt[P, R]":
+    """
+    Registers a callback to monitor any chats produced for this prompt
+
+    See ChatPipeline.watch for more details.
+
+    Args:
+        *callbacks: The callback functions to be executed.
+        allow_duplicates: Whether to allow duplicate callbacks.
+
+    Returns:
+        The updated prompt instance.
+
+    Example:
+        ~~~
+        async def log(chats: list[Chat]) -> None:
+            ...
+
+        @rg.prompt()
+        async def summarize(text: str) -> str:
+            ...
+
+        summarize.watch(log)(...)
+        ~~~
+    """
+    for callback in callbacks:
+        if not allow_duplicates and callback in self.watch_callbacks:
+            raise ValueError(
+                f"Callback '{get_qualified_name(callback)}' is already registered.",
+            )
+
+    self.watch_callbacks.extend(callbacks)
+    return self
+```
+
+
+</Accordion>
+
+### with\_
+
+```python
+with_(
+    params: GenerateParams | None = None, **kwargs: Any
+) -> Prompt[P, R]
+```
+
+Assign specific generation parameter overloads for this prompt.
+
+**Parameters:**
+
+* **`params`**
+  (`GenerateParams | None`, default:
+  `None`
+  )
+  –The parameters to set for the underlying chat pipeline.
+* **`**kwargs`**
+  (`Any`, default:
+  `{}`
+  )
+  –An alternative way to pass parameters as keyword arguments.
+
+**Returns:**
+
+* `Prompt[P, R]`
+  –Self
+
+<Accordion title="Source code in rigging/prompt.py" icon="code">
+```python
+def with_(self, params: GenerateParams | None = None, **kwargs: t.Any) -> "Prompt[P, R]":
+    """
+    Assign specific generation parameter overloads for this prompt.
+
+    Args:
+        params: The parameters to set for the underlying chat pipeline.
+        **kwargs: An alternative way to pass parameters as keyword arguments.
+
+    Returns:
+        Self
+    """
+    self.params = params if params is not None else GenerateParams(**kwargs)
+    return self
+```
+
+
+</Accordion>
+
+make\_prompt
+------------
+
+```python
+make_prompt(
+    content: str,
+    return_type: type[R],
+    *,
+    ctx: Ctx | None = None,
+) -> Prompt[..., R]
+```
+
+```python
+make_prompt(
+    content: str,
+    return_type: None = None,
+    *,
+    ctx: Ctx | None = None,
+) -> Prompt[..., str]
+```
+
+```python
+make_prompt(
+    content: str,
+    return_type: type[R] | None = None,
+    *,
+    ctx: Ctx | None = None,
+) -> Prompt[..., R] | Prompt[..., str]
+```
+
+Create a prompt at runtime from a basic string and return type (experimental).
+
+<Note>
+Adding input parameters is not currently supported. Instead use
+the [rigging.prompt.prompt][] decorator.
+</Note>
+
+**Parameters:**
+
+* **`content`**
+  (`str`)
+  –The docstring content for the prompt.
+* **`return_type`**
+  (`type[R] | None`, default:
+  `None`
+  )
+  –The return type of the prompt function.
+* **`ctx`**
+  (`Ctx | None`, default:
+  `None`
+  )
+  –Context for the return type (Use this instead of Annotated for better type hints).
+
+**Returns:**
+
+* `Prompt[..., R] | Prompt[..., str]`
+  –The constructed Prompt
+
+Example
+
+```python
+import rigging as rg
+
+write_joke = rg.make_prompt("Write a joke.", ctx=rg.Ctx(tag="joke"))
+
+await write_joke.bind("gpt-4o-mini")()
+```
+
+
+<Accordion title="Source code in rigging/prompt.py" icon="code">
+```python
+def make_prompt(
+    content: str,
+    return_type: type[R] | None = None,
+    *,
+    ctx: Ctx | None = None,
+) -> Prompt[..., R] | Prompt[..., str]:
+    """
+    Create a prompt at runtime from a basic string and return type (experimental).
+
+    Note:
+        Adding input parameters is not currently supported. Instead use
+        the [rigging.prompt.prompt][] decorator.
+
+    Args:
+        content: The docstring content for the prompt.
+        return_type: The return type of the prompt function.
+        ctx: Context for the return type (Use this instead of Annotated for better type hints).
+
+    Returns:
+        The constructed Prompt
+
+    Example:
+        ~~~
+        import rigging as rg
+
+        write_joke = rg.make_prompt("Write a joke.", ctx=rg.Ctx(tag="joke"))
+
+        await write_joke.bind("gpt-4o-mini")()
+        ~~~
+    """
+    return_type = return_type or str  # type: ignore [assignment]
+    output = parse_output(
+        t.Annotated[return_type, ctx] if ctx is not None else return_type,
+        "make_prompt(<return>)",
+    )
+    return Prompt(output=output, _docstring=content)
+```
+
+
+</Accordion>
+
+prompt
+------
+
+```python
+prompt(
+    func: None = None,
+    /,
+    *,
+    pipeline: ChatPipeline | None = None,
+    generator: Generator | None = None,
+    generator_id: str | None = None,
+    tools: list[Tool[..., Any] | Callable[..., Any]]
+    | None = None,
+    system_prompt: str | None = None,
+) -> t.Callable[
+    [
+        t.Callable[P, t.Coroutine[t.Any, t.Any, R]]
+        | t.Callable[P, R]
+    ],
+    Prompt[P, R],
+]
+```
+
+```python
+prompt(
+    func: Callable[P, Coroutine[Any, Any, R]],
+    /,
+    *,
+    pipeline: ChatPipeline | None = None,
+    generator: Generator | None = None,
+    generator_id: str | None = None,
+    tools: list[Tool[..., Any] | Callable[..., Any]]
+    | None = None,
+    system_prompt: str | None = None,
+) -> Prompt[P, R]
+```
+
+```python
+prompt(
+    func: Callable[P, R],
+    /,
+    *,
+    pipeline: ChatPipeline | None = None,
+    generator: Generator | None = None,
+    generator_id: str | None = None,
+    tools: list[Tool[..., Any] | Callable[..., Any]]
+    | None = None,
+    system_prompt: str | None = None,
+) -> Prompt[P, R]
+```
+
+```python
+prompt(
+    func: Callable[P, Coroutine[Any, Any, R]]
+    | Callable[P, R]
+    | None = None,
+    /,
+    *,
+    pipeline: ChatPipeline | None = None,
+    generator: Generator | None = None,
+    generator_id: str | None = None,
+    tools: list[Tool[..., Any] | Callable[..., Any]]
+    | None = None,
+    system_prompt: str | None = None,
+) -> (
+    t.Callable[
+        [
+            t.Callable[P, t.Coroutine[t.Any, t.Any, R]]
+            | t.Callable[P, R]
+        ],
+        Prompt[P, R],
+    ]
+    | Prompt[P, R]
+)
+```
+
+Convert a hollow function into a Prompt, which can be called directly or passed a
+chat pipeline to execute the function and parse the outputs.
+
+<Note>
+A docstring is not required, but this can be used to provide guidance to the model, or
+even handle any number of input transformations. Any input parameter which is not
+handled inside the docstring will be automatically added and formatted internally.
+</Note>
+
+<Note>
+Output parameters can be basic types, dataclasses, rigging models, lists, or tuples.
+Internal inspection will attempt to ensure your output types are valid, but there is
+no guarantee of complete coverage/safety. It's recommended to check
+[rigging.prompt.Prompt.template][] to inspect the generated jinja2 template.
+</Note>
+
+<Note>
+If you annotate the return value of the function as a [rigging.chat.Chat][] object,
+then no output parsing will take place and you can parse objects out manually.
+
+You can also use Chat in any number of type annotation inside tuples or dataclasses.
+All instances will be filled with the final chat object transparently.
+</Note>
+
+<Note>
+All input parameters and output types can be annotated with the [rigging.prompt.Ctx][] annotation
+to provide additional context for the prompt. This can be used to override the xml tag, provide
+a prefix string, or example content which will be placed inside output xml tags.
+
+In the case of output parameters, especially in tuples, you might have xml tag collisions
+between the same basic types. Manually annotating xml tags with [rigging.prompt.Ctx][] is
+recommended.
+</Note>
+
+**Parameters:**
+
+* **`func`**
+  (`Callable[P, Coroutine[Any, Any, R]] | Callable[P, R] | None`, default:
+  `None`
+  )
+  –The function to convert into a prompt.
+* **`pipeline`**
+  (`ChatPipeline | None`, default:
+  `None`
+  )
+  –An optional pipeline to use for the prompt.
+* **`generator`**
+  (`Generator | None`, default:
+  `None`
+  )
+  –An optional generator to use for the prompt.
+* **`generator_id`**
+  (`str | None`, default:
+  `None`
+  )
+  –An optional generator id to use for the prompt.
+* **`tools`**
+  (`list[Tool[..., Any] | Callable[..., Any]] | None`, default:
+  `None`
+  )
+  –An optional list of tools to make available during generation (can be other prompts).
+* **`system_prompt`**
+  (`str | None`, default:
+  `None`
+  )
+  –An optional system prompt fragment to inject into the messages before generation.
+
+**Returns:**
+
+* `Callable[[Callable[P, Coroutine[Any, Any, R]] | Callable[P, R]], Prompt[P, R]] | Prompt[P, R]`
+  –A prompt instance or a function that can be used to create a prompt.
+
+Example
+
+```python
+from dataclasses import dataclass
+import rigging as rg
+
+@dataclass
+class ExplainedJoke:
+    chat: rg.Chat
+    setup: str
+    punchline: str
+    explanation: str
+
+@rg.prompt(generator_id="gpt-3.5-turbo")
+async def write_joke(topic: str) -> ExplainedJoke:
+    """Write a joke."""
+    ...
+
+await write_joke("programming")
+```
+
+
+<Accordion title="Source code in rigging/prompt.py" icon="code">
+```python
+def prompt(
+    func: t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R] | None = None,
+    /,
+    *,
+    pipeline: ChatPipeline | None = None,
+    generator: Generator | None = None,
+    generator_id: str | None = None,
+    tools: list[Tool[..., t.Any] | t.Callable[..., t.Any]] | None = None,
+    system_prompt: str | None = None,
+) -> (
+    t.Callable[[t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R]], Prompt[P, R]]
+    | Prompt[P, R]
+):
+    """
+    Convert a hollow function into a Prompt, which can be called directly or passed a
+    chat pipeline to execute the function and parse the outputs.
+
+    Note:
+        A docstring is not required, but this can be used to provide guidance to the model, or
+        even handle any number of input transformations. Any input parameter which is not
+        handled inside the docstring will be automatically added and formatted internally.
+
+    Note:
+        Output parameters can be basic types, dataclasses, rigging models, lists, or tuples.
+        Internal inspection will attempt to ensure your output types are valid, but there is
+        no guarantee of complete coverage/safety. It's recommended to check
+        [rigging.prompt.Prompt.template][] to inspect the generated jinja2 template.
+
+    Note:
+        If you annotate the return value of the function as a [rigging.chat.Chat][] object,
+        then no output parsing will take place and you can parse objects out manually.
+
+        You can also use Chat in any number of type annotation inside tuples or dataclasses.
+        All instances will be filled with the final chat object transparently.
+
+    Note:
+        All input parameters and output types can be annotated with the [rigging.prompt.Ctx][] annotation
+        to provide additional context for the prompt. This can be used to override the xml tag, provide
+        a prefix string, or example content which will be placed inside output xml tags.
+
+        In the case of output parameters, especially in tuples, you might have xml tag collisions
+        between the same basic types. Manually annotating xml tags with [rigging.prompt.Ctx][] is
+        recommended.
+
+    Args:
+        func: The function to convert into a prompt.
+        pipeline: An optional pipeline to use for the prompt.
+        generator: An optional generator to use for the prompt.
+        generator_id: An optional generator id to use for the prompt.
+        tools: An optional list of tools to make available during generation (can be other prompts).
+        system_prompt: An optional system prompt fragment to inject into the messages before generation.
+
+    Returns:
+        A prompt instance or a function that can be used to create a prompt.
+
+    Example:
+        ~~~
+        from dataclasses import dataclass
+        import rigging as rg
+
+        @dataclass
+        class ExplainedJoke:
+            chat: rg.Chat
+            setup: str
+            punchline: str
+            explanation: str
+
+        @rg.prompt(generator_id="gpt-3.5-turbo")
+        async def write_joke(topic: str) -> ExplainedJoke:
+            \"""Write a joke.\"""
+            ...
+
+        await write_joke("programming")
+        ~~~
+    """
+    if sum(arg is not None for arg in (pipeline, generator, generator_id)) > 1:
+        raise ValueError("Only one of pipeline, generator, or generator_id can be provided")
+
+    def make_prompt(
+        func: t.Callable[P, t.Coroutine[t.Any, t.Any, R]] | t.Callable[P, R],
+    ) -> Prompt[P, R]:
+        return Prompt[P, R](
+            func=func,  # type: ignore [arg-type]
+            _generator_id=generator_id,
+            _pipeline=pipeline,
+            _generator=generator,
+            system_prompt=system_prompt,
+            tools=[tool if isinstance(tool, Tool) else Tool.from_callable(tool) for tool in tools]
+            if tools
+            else [],
+        )
+
+    if func is not None:
+        return make_prompt(func)
+    return make_prompt
+```
+
+
+</Accordion>

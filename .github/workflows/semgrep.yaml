@@ -1,0 +1,62 @@
+---
+name: Semgrep Analysis
+on:
+  merge_group:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "0 0 * * *" # Run daily at midnight UTC
+
+concurrency:
+  group: pre-commit-${{ github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  checks: write
+  contents: read
+  pull-requests: write # Allows merge queue updates
+  security-events: write # Required for GitHub Security tab
+
+jobs:
+  semgrep:
+    name: Semgrep Analysis
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep
+
+    # Skip any PR created by dependabot to avoid permission issues:
+    if: (github.actor != 'dependabot[bot]')
+
+    steps:
+      - name: Set up git repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git Safe Directory
+        run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+
+      - name: Semgrep Analysis
+        env:
+          SEMGREP_RULES: >-
+            p/python
+            p/security-audit
+            p/secrets
+            p/owasp-top-ten
+            p/supply-chain
+          SEMGREP_TIMEOUT: 300 # 5-minute timeout per rule
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          semgrep ci \
+            --config="${SEMGREP_RULES}" \
+            --timeout="${SEMGREP_TIMEOUT}" \
+            --sarif --output=semgrep-results.sarif

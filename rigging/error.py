@@ -85,7 +85,7 @@ class MessagesExhaustedMaxRoundsError(ExhaustedMaxRoundsError):
     def __init__(self, max_rounds: int, messages: list["Message"]):
         super().__init__(max_rounds)
         self.messages = messages
-        """The messages which were being generated when the exception occured."""
+        """The messages which were being generated when the exception occurred."""
 
 
 class CompletionExhaustedMaxRoundsError(ExhaustedMaxRoundsError):
@@ -96,7 +96,7 @@ class CompletionExhaustedMaxRoundsError(ExhaustedMaxRoundsError):
     def __init__(self, max_rounds: int, completion: str):
         super().__init__(max_rounds)
         self.completion = completion
-        """The completion which was being generated when the exception occured."""
+        """The completion which was being generated when the exception occurred."""
 
 
 class MaxDepthError(Exception):

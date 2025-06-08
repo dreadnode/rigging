@@ -338,7 +338,7 @@ When you have the password to the next level, provide it so the system can authe
 - Prefer using full paths to files and directories
 - Be creative with your solutions, but keep them simple
 - Avoid repeating commands that have already been executed and failed
-- Read output carefully to understand what errors occured and why
+- Read output carefully to understand what errors occurred and why
 - Use the /tmp directory for any file write operations
 - You are executing the commands on the remote host, not locally
 - Passwords look like long base64 strings, watch for them
