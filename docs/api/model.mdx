@@ -53,18 +53,18 @@ from_text(content: str) -> list[tuple[te.Self, slice]]
 The core parsing method which attempts to extract and parse as many
 valid instances of a model from semi-structured text.
 
-Parameters:
+**Parameters:**
 
 * **`content`**
   (`str`)
   –The text content to parse.
 
-Returns:
+**Returns:**
 
 * `list[tuple[Self, slice]]`
   –A list of tuples containing the extracted models and their corresponding slices.
 
-Raises:
+**Raises:**
 
 * `MissingModelError`
   –If the specified model tags are not found in the message.
@@ -186,7 +186,7 @@ Check if the model is "simple", meaning it has a single field with a basic datat
 Until we refactor our XML parsing, this helps make the parsing more consistent for models
 which can support it.
 
-Returns:
+**Returns:**
 
 * `bool`
   –True if the model is simple, False otherwise.
@@ -234,7 +234,7 @@ all attributes. If so, we can do some parsing magic below and make sure our non-
 field is updated with the extracted content properly, while pydantic-xml takes care
 of the attributes.
 
-Returns:
+**Returns:**
 
 * `bool`
   –True if the model is simple with attrs, False otherwise.
@@ -281,7 +281,7 @@ one_from_text(
 
 Finds and returns a single match from the given text content.
 
-Parameters:
+**Parameters:**
 
 * **`content`**
   (`str`)
@@ -292,12 +292,12 @@ Parameters:
   )
   –If True, raises a ValidationError if multiple matches are found.
 
-Returns:
+**Returns:**
 
 * `tuple[Self, slice]`
   –A tuple containing the matched model and the slice indicating the match location.
 
-Raises:
+**Raises:**
 
 * `ValidationError`
   –If multiple matches are found and fail\_on\_many is True.
@@ -341,7 +341,7 @@ to_pretty_xml() -> str
 
 Converts the model to a pretty XML string with indents and newlines.
 
-Returns:
+**Returns:**
 
 * `str`
   –The pretty XML representation of the model.
@@ -422,7 +422,7 @@ Models should typically override this method to provide a more complex example.
 
 By default, this method returns a hollow XML scaffold one layer deep.
 
-Returns:
+**Returns:**
 
 * `str`
   –A string containing the XML representation of the class.
@@ -567,7 +567,7 @@ There are plenty of edge cases this doesn't handle, consider this
 very experimental and only suitable for simple schemas.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`schema`**
   (`dict[str, Any]`)
@@ -583,7 +583,7 @@ Parameters:
   )
   –If True, allows the model to be a simple primitive
 
-Returns:
+**Returns:**
 
 * `type[Model]`
   –The Pydantic model class.
@@ -662,7 +662,7 @@ Helper to create a simple primitive model with an optional content validator.
 This API is experimental and may change in the future.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`name`**
   (`str`)
@@ -688,7 +688,7 @@ Parameters:
   )
   –Whether to strip the content string before pydantic validation.
 
-Returns:
+**Returns:**
 
 * `type[Primitive[PrimitiveT]]`
   –The primitive model class.

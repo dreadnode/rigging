@@ -19,6 +19,12 @@ class CustomMarkdownConverter(MarkdownConverter):  # type: ignore[misc]
     def convert_pre(self, el: t.Any, text: str, parent_tags: t.Any) -> t.Any:
         return super().convert_pre(el, text.strip(), parent_tags)
 
+    # bold items with doc-section-title in a span class
+    def convert_span(self, el: t.Any, text: str, parent_tags: t.Any) -> t.Any:  # noqa: ARG002
+        if "doc-section-title" in el.get("class", []):
+            return f"**{text.strip()}**"
+        return text
+
     # Remove the div wrapper for inline descriptions
     def convert_div(self, el: t.Any, text: str, parent_tags: t.Any) -> t.Any:
         if "doc-md-description" in el.get("class", []):
@@ -73,10 +79,11 @@ class CustomMarkdownConverter(MarkdownConverter):  # type: ignore[misc]
 
 
 class AutoDocGenerator:
-    def __init__(self, source_paths: list[str], theme: str = "material"):
+    def __init__(self, source_paths: list[str], theme: str = "material", **options: t.Any) -> None:
         self.source_paths = source_paths
         self.theme = theme
         self.handler = PythonHandler(PythonConfig.from_data(), base_dir=Path.cwd())
+        self.options = options
 
         self.handler._update_env(  # noqa: SLF001
             Markdown(),
@@ -87,9 +94,9 @@ class AutoDocGenerator:
 
         def simple_convert_markdown(
             text: str,
-            heading_level: int,  # noqa: ARG001
-            html_id: str = "",  # noqa: ARG001
-            **kwargs: t.Any,  # noqa: ARG001
+            heading_level: int,
+            html_id: str = "",
+            **kwargs: t.Any,
         ) -> t.Any:
             return Markup(md.convert(text) if text else "")  # noqa: S704 # nosec
 
@@ -108,6 +115,7 @@ class AutoDocGenerator:
                 "show_source": True,
                 "show_labels": False,
                 "show_bases": False,
+                **self.options,
             },
         )
 
@@ -183,8 +191,14 @@ def main() -> None:
     parser.add_argument(
         "--source-paths",
         nargs="+",
-        default=["rigging"],
+        default=["dreadnode"],
         help="Python source paths for module discovery",
+    )
+    parser.add_argument(
+        "--show-if-no-docstring",
+        type=bool,
+        default=False,
+        help="Show module/class/function even if no docstring is present",
     )
     parser.add_argument("--theme", default="material", help="Theme to use for rendering")
 
@@ -194,6 +208,7 @@ def main() -> None:
     generator = AutoDocGenerator(
         source_paths=args.source_paths,
         theme=args.theme,
+        show_if_no_docstring=args.show_if_no_docstring,
     )
 
     # Process directory

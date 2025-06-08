@@ -218,13 +218,13 @@ bind(
 
 Binds the prompt to a pipeline, generator, or chat and returns a scoped run callable.
 
-Parameters:
+**Parameters:**
 
 * **`other`**
   (`ChatPipeline | Generator | Chat | str`)
   –The pipeline, generator, generator id, or chat to bind to.
 
-Returns:
+**Returns:**
 
 * `Callable[P, Coroutine[Any, Any, R]]`
   –A callable for executing this prompt
@@ -297,13 +297,13 @@ bind_many(
 
 Binds the prompt to a pipeline, generator, or chat and returns a scoped run\_many callable.
 
-Parameters:
+**Parameters:**
 
 * **`other`**
   (`ChatPipeline | Generator | Chat | str`)
   –The pipeline, generator, generator id, or chat to bind to.
 
-Returns:
+**Returns:**
 
 * `Callable[Concatenate[int, P], Coroutine[Any, Any, list[R]]]`
   –A callable for executing this prompt.
@@ -425,7 +425,7 @@ bind_over(
 
 Binds the prompt to a pipeline, generator, or chat and returns a scoped run\_over callable.
 
-Parameters:
+**Parameters:**
 
 * **`other`**
   (`ChatPipeline | Generator | Chat | str | None`, default:
@@ -433,7 +433,7 @@ Parameters:
   )
   –The pipeline, generator, generator id, or chat to bind to.
 
-Returns:
+**Returns:**
 
 * `Callable[Concatenate[Sequence[Generator | str], P], Coroutine[Any, Any, list[R]]]`
   –A callable for executing this prompt.
@@ -537,7 +537,7 @@ clone(*, include_callbacks: bool = True) -> Prompt[P, R]
 
 Creates a deep copy of this prompt.
 
-Parameters:
+**Parameters:**
 
 * **`include_callbacks`**
   (`bool`, default:
@@ -545,7 +545,7 @@ Parameters:
   )
   –Whether to skip copying the watch callbacks.
 
-Returns:
+**Returns:**
 
 * `Prompt[P, R]`
   –A new instance of the prompt.
@@ -592,7 +592,7 @@ Registers a callback to be executed for each chat produced during the prompt run
 
 See ChatPipeline.map for more details.
 
-Parameters:
+**Parameters:**
 
 * **`callbacks`**
   (`MapChatCallback`, default:
@@ -605,7 +605,7 @@ Parameters:
   )
   –Whether to allow duplicate callbacks.
 
-Returns:
+**Returns:**
 
 * `Prompt[P, R]`
   –The updated pipeline.
@@ -741,7 +741,7 @@ run(*args: args, **kwargs: kwargs) -> R
 
 Use the prompt to run the function with the provided arguments and return the output.
 
-Parameters:
+**Parameters:**
 
 * **`*args`**
   (`args`, default:
@@ -754,7 +754,7 @@ Parameters:
   )
   –The keyword arguments for the prompt function.
 
-Returns:
+**Returns:**
 
 * `R`
   –The output of the prompt function.
@@ -792,7 +792,7 @@ run_many(
 
 Use the prompt to run the function multiple times with the provided arguments and return the output.
 
-Parameters:
+**Parameters:**
 
 * **`count`**
   (`int`)
@@ -808,7 +808,7 @@ Parameters:
   )
   –The keyword arguments for the prompt function.
 
-Returns:
+**Returns:**
 
 * `list[R]`
   –The outputs of the prompt function.
@@ -860,13 +860,13 @@ The implementation currently skips any failed chats and only
 processes successful chats. This may change in the future.
 </Warning>
 
-Parameters:
+**Parameters:**
 
 * **`generators`**
   (`Sequence[Generator | str]`)
   –A sequence of generators to be used for the generation process.
 
-Returns:
+**Returns:**
 
 * `list[R]`
   –A list of generatated Chats.
@@ -915,7 +915,7 @@ set_(
 
 Helper to allow updates to the parsing configuration.
 
-Parameters:
+**Parameters:**
 
 * **`max_parsing_rounds`**
   (`int | None`, default:
@@ -928,7 +928,7 @@ Parameters:
   )
   –The maximum number of recursive tool calls to allow.
 
-Returns:
+**Returns:**
 
 * `Prompt[P, R]`
   –Self
@@ -971,7 +971,7 @@ Registers one or many callbacks to be executed during the prompt run
 
 See ChatPipeline.then for more details.
 
-Parameters:
+**Parameters:**
 
 * **`callbacks`**
   (`ThenChatCallback`, default:
@@ -984,7 +984,7 @@ Parameters:
   )
   –Whether to allow duplicate callbacks.
 
-Returns:
+**Returns:**
 
 * `Prompt[P, R]`
   –The updated prompt.
@@ -1068,7 +1068,7 @@ Registers a callback to monitor any chats produced for this prompt
 
 See ChatPipeline.watch for more details.
 
-Parameters:
+**Parameters:**
 
 * **`*callbacks`**
   (`WatchChatCallback`, default:
@@ -1081,7 +1081,7 @@ Parameters:
   )
   –Whether to allow duplicate callbacks.
 
-Returns:
+**Returns:**
 
 * `Prompt[P, R]`
   –The updated prompt instance.
@@ -1154,7 +1154,7 @@ with_(
 
 Assign specific generation parameter overloads for this prompt.
 
-Parameters:
+**Parameters:**
 
 * **`params`**
   (`GenerateParams | None`, default:
@@ -1167,7 +1167,7 @@ Parameters:
   )
   –An alternative way to pass parameters as keyword arguments.
 
-Returns:
+**Returns:**
 
 * `Prompt[P, R]`
   –Self
@@ -1229,7 +1229,7 @@ Adding input parameters is not currently supported. Instead use
 the [rigging.prompt.prompt][] decorator.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`content`**
   (`str`)
@@ -1245,7 +1245,7 @@ Parameters:
   )
   –Context for the return type (Use this instead of Annotated for better type hints).
 
-Returns:
+**Returns:**
 
 * `Prompt[..., R] | Prompt[..., str]`
   –The constructed Prompt
@@ -1414,7 +1414,7 @@ between the same basic types. Manually annotating xml tags with [rigging.prompt.
 recommended.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`func`**
   (`Callable[P, Coroutine[Any, Any, R]] | Callable[P, R] | None`, default:
@@ -1447,7 +1447,7 @@ Parameters:
   )
   –An optional system prompt fragment to inject into the messages before generation.
 
-Returns:
+**Returns:**
 
 * `Callable[[Callable[P, Coroutine[Any, Any, R]] | Callable[P, R]], Prompt[P, R]] | Prompt[P, R]`
   –A prompt instance or a function that can be used to create a prompt.

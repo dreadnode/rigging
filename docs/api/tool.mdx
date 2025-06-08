@@ -92,13 +92,13 @@ handle_tool_call(
 
 Handle an incoming tool call from a generator.
 
-Parameters:
+**Parameters:**
 
 * **`tool_call`**
   (`ApiToolCall | XmlToolCall | JsonInXmlToolCall`)
   –The tool call to handle.
 
-Returns:
+**Returns:**
 
 * `Message`
   –A tuple containing the message to send back to the generator and a
@@ -287,7 +287,7 @@ tool(
 
 Decorator for creating a Tool, useful for overriding a name or description.
 
-Parameters:
+**Parameters:**
 
 * **`func`**
   (`Callable[P, R] | None`, default:
@@ -318,7 +318,7 @@ Parameters:
   )
   –If set, the maximum number of characters to truncate any tool output to.
 
-Returns:
+**Returns:**
 
 * `Callable[[Callable[P, R]], Tool[P, R]] | Tool[P, R]`
   –The decorated Tool object.
@@ -632,13 +632,13 @@ handle_tool_call(
 
 Handle an incoming tool call from a generator.
 
-Parameters:
+**Parameters:**
 
 * **`tool_call`**
   (`ApiToolCall | XmlToolCall | JsonInXmlToolCall`)
   –The tool call to handle.
 
-Returns:
+**Returns:**
 
 * `Message`
   –A tuple containing the message to send back to the generator and a
@@ -843,7 +843,7 @@ tool(
 
 Decorator for creating a Tool, useful for overriding a name or description.
 
-Parameters:
+**Parameters:**
 
 * **`func`**
   (`Callable[P, R] | None`, default:
@@ -874,7 +874,7 @@ Parameters:
   )
   –If set, the maximum number of characters to truncate any tool output to.
 
-Returns:
+**Returns:**
 
 * `Callable[[Callable[P, R]], Tool[P, R]] | Tool[P, R]`
   –The decorated Tool object.
@@ -1156,7 +1156,7 @@ robopages(
 
 Create a list of tools from a Robopages server.
 
-Parameters:
+**Parameters:**
 
 * **`url`**
   (`str`)
@@ -1167,7 +1167,7 @@ Parameters:
   )
   –A regular expression to filter the tools by name.
 
-Returns:
+**Returns:**
 
 * `list[Tool[..., Any]]`
   –A list of integrated tools which leverage the Robopages server.

@@ -45,7 +45,7 @@ async def get_authors(count: int = 3) -> tuple[list[str], rg.Chat]:
 
 This will return a tuple with the parsed output as the first element and the raw `Chat` object as the second element.
 
-You can learn more about the `@prompt` decorator in the [Prompt Functions](/open-source/rigging/topics/prompt-functions) section.
+You can learn more about the `@prompt` decorator in the [Prompt Functions](/topics/prompt-functions) section.
 
 ## Using Pipelines
 
@@ -58,7 +58,7 @@ You can learn more about the `@prompt` decorator in the [Prompt Functions](/open
 You should think of `ChatPipeline` objects like the configurable pre-generation step with calls like `.with_()`, `.apply()`, `.until()`, `.using()`, etc. Once you call one of the many `.run()`functions, the generator is used to produce the next message (or many messages) based on the prior context and any constraints you have in place. Once you have a `Chat` object, the interaction is complete and you can inspect and operate on the messages.
 
 <Tip>
-Rigging supports both Chat objects (messages with roles in a conversation format), as well as raw text completions. While we use Chat objects in most of our examples, you can check out the [Completions](/open-source/rigging/topics/completions) section to learn more about their feature parity.
+Rigging supports both Chat objects (messages with roles in a conversation format), as well as raw text completions. While we use Chat objects in most of our examples, you can check out the [Completions](/topics/completions) section to learn more about their feature parity.
 </Tip>
 
 We often use functional styling chaining as most of our utility functions return the object back to you.
@@ -74,4 +74,4 @@ chat = (
 )
 ```
 
-Learn more about the `ChatPipeline` object in the [Pipelines](/open-source/rigging/topics/pipelines) section.
+Learn more about the `ChatPipeline` object in the [Pipelines](/topics/pipelines) section.

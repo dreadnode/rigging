@@ -175,7 +175,7 @@ merge_with(
 
 Apply a series of parameter overrides to the current instance and return a copy.
 
-Parameters:
+**Parameters:**
 
 * **`*others`**
   (`GenerateParams | None`, default:
@@ -184,7 +184,7 @@ Parameters:
   –The parameters to be merged with the current instance's parameters.
   Can be multiple and overrides will be applied in order.
 
-Returns:
+**Returns:**
 
 * `GenerateParams`
   –The merged parameters instance.
@@ -225,7 +225,7 @@ to_dict() -> dict[str, t.Any]
 
 Convert the parameters to a dictionary.
 
-Returns:
+**Returns:**
 
 * `dict[str, Any]`
   –The parameters as a dictionary.
@@ -396,7 +396,7 @@ chat(
 
 Build a chat pipeline with the given messages and optional params overloads.
 
-Parameters:
+**Parameters:**
 
 * **`messages`**
   (`Sequence[MessageDict] | Sequence[Message] | MessageDict | Message | str | None`, default:
@@ -409,7 +409,7 @@ Parameters:
   )
   –Optional parameters for generating responses.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –The chat pipeline to run.
@@ -463,7 +463,7 @@ complete(
 
 Build a completion pipeline of the given text with optional param overloads.
 
-Parameters:
+**Parameters:**
 
 * **`text`**
   (`str`)
@@ -474,7 +474,7 @@ Parameters:
   )
   –The parameters to be used for completion.
 
-Returns:
+**Returns:**
 
 * `CompletionPipeline`
   –The completed text.
@@ -524,7 +524,7 @@ Generate a batch of messages using the specified parameters.
 The length of `params` must be the same as the length of `many`.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`messages`**
   (`Sequence[Sequence[Message]]`)
@@ -533,12 +533,12 @@ Parameters:
   (`Sequence[GenerateParams]`)
   –A sequence of GenerateParams objects.
 
-Returns:
+**Returns:**
 
 * `Sequence[GeneratedMessage | BaseException]`
   –A sequence of generated messages.
 
-Raises:
+**Raises:**
 
 * `NotImplementedError`
   –This method is not supported by this generator.
@@ -590,7 +590,7 @@ This method falls back to looping over the inputs and calling `generate_text` fo
 If supplied, the length of `params` must be the same as the length of `many`.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`texts`**
   (`Sequence[str]`)
@@ -599,12 +599,12 @@ Parameters:
   (`Sequence[GenerateParams]`)
   –Additional parameters for generating each text in the batch.
 
-Returns:
+**Returns:**
 
 * `Sequence[GeneratedText | BaseException]`
   –The generated texts.
 
-Raises:
+**Raises:**
 
 * `NotImplementedError`
   –This method is not supported by this generator.
@@ -649,7 +649,7 @@ load() -> Self
 
 If supported, trigger underlying loading and preparation of the model.
 
-Returns:
+**Returns:**
 
 * `Self`
   –The generator.
@@ -681,13 +681,13 @@ Decorator to convert a function into a prompt bound to this generator.
 
 See [rigging.prompt.prompt][] for more information.
 
-Parameters:
+**Parameters:**
 
 * **`func`**
   (`Callable[P, Coroutine[None, None, R]]`)
   –The function to be converted into a prompt.
 
-Returns:
+**Returns:**
 
 * `Prompt[P, R]`
   –The prompt.
@@ -722,7 +722,7 @@ supports_function_calling() -> bool | None
 
 Check if the generator supports calling functions explicitly or is unknown.
 
-Returns:
+**Returns:**
 
 * `bool | None`
   –True/False if the generator supports function calling, None if unknown.
@@ -752,7 +752,7 @@ Converts the generator instance back into a rigging identifier string.
 
 This calls [rigging.generator.get\_identifier][] with the current instance.
 
-Parameters:
+**Parameters:**
 
 * **`params`**
   (`GenerateParams | None`, default:
@@ -760,7 +760,7 @@ Parameters:
   )
   –The generation parameters.
 
-Returns:
+**Returns:**
 
 * `str`
   –The identifier string.
@@ -793,7 +793,7 @@ unload() -> Self
 
 If supported, clean up resources used by the underlying model.
 
-Returns:
+**Returns:**
 
 * `Self`
   –The generator.
@@ -825,7 +825,7 @@ watch(
 Registers watch callbacks to be passed to any created
 [rigging.chat.ChatPipeline][] or [rigging.completion.CompletionPipeline][].
 
-Parameters:
+**Parameters:**
 
 * **`*callbacks`**
   (`WatchChatCallback | WatchCompletionCallback`, default:
@@ -838,7 +838,7 @@ Parameters:
   )
   –Whether to allow (seemingly) duplicate callbacks to be added.
 
-Returns:
+**Returns:**
 
 * `Generator`
   –The current instance of the chat.
@@ -898,13 +898,13 @@ If supported, wrap any underlying interior framework calls with this function.
 
 This is useful for adding things like backoff or rate limiting.
 
-Parameters:
+**Parameters:**
 
 * **`func`**
   (`Callable[[CallableT], CallableT] | None`)
   –The function to wrap the calls with.
 
-Returns:
+**Returns:**
 
 * `Self`
   –The generator.
@@ -1094,7 +1094,7 @@ chat(
 
 Creates a chat pipeline using the given generator, messages, and params.
 
-Parameters:
+**Parameters:**
 
 * **`generator`**
   (`Generator`)
@@ -1110,7 +1110,7 @@ Parameters:
   )
   –Additional parameters for generating the chat.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –chat pipeline to run.
@@ -1173,7 +1173,7 @@ You can also specify arguments to the generator by comma-separating them:
 
 (These get parsed as [rigging.generator.GenerateParams][])
 
-Parameters:
+**Parameters:**
 
 * **`identifier`**
   (`str`)
@@ -1185,12 +1185,12 @@ Parameters:
   –The generation parameters to use for the generator.
   These will override any parameters specified in the identifier string.
 
-Returns:
+**Returns:**
 
 * `Generator`
   –The generator object.
 
-Raises:
+**Raises:**
 
 * `InvalidModelSpecified`
   –If the identifier is invalid.
@@ -1313,7 +1313,7 @@ Converts the generator instance back into a rigging identifier string.
 The `extra` parameter field is not currently supported in identifiers.
 </Warning>
 
-Parameters:
+**Parameters:**
 
 * **`generator`**
   (`Generator`)
@@ -1324,7 +1324,7 @@ Parameters:
   )
   –The generation parameters.
 
-Returns:
+**Returns:**
 
 * `str`
   –The identifier string for the generator.
@@ -1391,7 +1391,7 @@ Register a generator class for a provider id.
 
 This let's you use [rigging.generator.get\_generator][] with a custom generator class.
 
-Parameters:
+**Parameters:**
 
 * **`provider`**
   (`str`)
@@ -1400,7 +1400,7 @@ Parameters:
   (`type[Generator] | LazyGenerator`)
   –The generator class to register.
 
-Returns:
+**Returns:**
 
 * `None`
   –None
@@ -1511,13 +1511,13 @@ from_obj(
 
 Create a generator from an existing vLLM instance.
 
-Parameters:
+**Parameters:**
 
 * **`llm`**
   (`LLM`)
   –The vLLM instance to create the generator from.
 
-Returns:
+**Returns:**
 
 * `VLLMGenerator`
   –The VLLMGenerator instance.
@@ -1663,7 +1663,7 @@ from_obj(
 
 Create a new instance of TransformersGenerator from an already loaded model and tokenizer.
 
-Parameters:
+**Parameters:**
 
 * **`model`**
   (`Any`)
@@ -1676,7 +1676,7 @@ Parameters:
   )
   –The text generation pipeline. Defaults to None.
 
-Returns:
+**Returns:**
 
 * `TransformersGenerator`
   –The TransformersGenerator instance.

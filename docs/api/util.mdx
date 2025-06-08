@@ -25,7 +25,7 @@ await_(*coros: Coroutine[Any, Any, R]) -> R | list[R]
 
 A utility function that allows awaiting coroutines in a managed thread.
 
-Parameters:
+**Parameters:**
 
 * **`*coros`**
   (`Coroutine[Any, Any, R]`, default:
@@ -33,7 +33,7 @@ Parameters:
   )
   –Variable number of coroutines to await.
 
-Returns:
+**Returns:**
 
 * `R | list[R]`
   –A single result if one coroutine is passed or a list of results if multiple coroutines are passed.

@@ -88,7 +88,7 @@ A completed chat interaction.
 
 Initialize a Chat object.
 
-Parameters:
+**Parameters:**
 
 * **`messages`**
   (`Messages`)
@@ -250,7 +250,7 @@ message_dicts: list[MessageDict]
 
 Returns the chat as a minimal message dictionaries.
 
-Returns:
+**Returns:**
 
 * `list[MessageDict]`
   –The MessageDict list
@@ -337,7 +337,7 @@ apply(**kwargs: str) -> Chat
 
 Calls [rigging.message.Message.apply][] on the last message in the chat with the given keyword arguments.
 
-Parameters:
+**Parameters:**
 
 * **`**kwargs`**
   (`str`, default:
@@ -345,7 +345,7 @@ Parameters:
   )
   –The string mapping of replacements.
 
-Returns:
+**Returns:**
 
 * `Chat`
   –The updated chat.
@@ -380,7 +380,7 @@ apply_to_all(**kwargs: str) -> Chat
 
 Calls [rigging.message.Message.apply][] on all messages in the chat with the given keyword arguments.
 
-Parameters:
+**Parameters:**
 
 * **`**kwargs`**
   (`str`, default:
@@ -388,7 +388,7 @@ Parameters:
   )
   –The string mapping of replacements.
 
-Returns:
+**Returns:**
 
 * `Chat`
   –The updated chat.
@@ -421,7 +421,7 @@ clone(*, only_messages: bool = False) -> Chat
 
 Creates a deep copy of the chat.
 
-Parameters:
+**Parameters:**
 
 * **`only_messages`**
   (`bool`, default:
@@ -430,7 +430,7 @@ Parameters:
   –If True, only the messages will be cloned.
   If False (default), the entire chat object will be cloned.
 
-Returns:
+**Returns:**
 
 * `Chat`
   –A cloned chat.
@@ -509,7 +509,7 @@ fork(
 
 Forks the chat by creating calling [rigging.chat.Chat.restart][] and appending the specified messages.
 
-Parameters:
+**Parameters:**
 
 * **`messages`**
   (`Sequence[Message] | Sequence[MessageDict] | Message | MessageDict | str`)
@@ -520,7 +520,7 @@ Parameters:
   )
   –Whether to include the next messages in the restarted chat.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –A new pipeline with specified messages added.
@@ -564,13 +564,13 @@ a new system message with the given content is inserted at the beginning of the 
 If the first message is a system message, the content is appended to it.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`content`**
   (`str`)
   –The content to be injected.
 
-Returns:
+**Returns:**
 
 * `Chat`
   –The updated chat.
@@ -612,13 +612,13 @@ inject_tool_prompt(
 
 Injects a default tool use prompt into the system prompt.
 
-Parameters:
+**Parameters:**
 
 * **`tools`**
   (`Sequence[Tool[..., Any]]`)
   –A sequence of Tool objects.
 
-Returns:
+**Returns:**
 
 * `Chat`
   –The updated chat.
@@ -666,7 +666,7 @@ meta(**kwargs: Any) -> Chat
 
 Updates the metadata of the chat with the provided key-value pairs.
 
-Parameters:
+**Parameters:**
 
 * **`**kwargs`**
   (`Any`, default:
@@ -674,7 +674,7 @@ Parameters:
   )
   –Key-value pairs representing the metadata to be updated.
 
-Returns:
+**Returns:**
 
 * `Chat`
   –The updated chat.
@@ -710,7 +710,7 @@ restart(
 
 Attempt to convert back to a ChatPipeline for further generation.
 
-Parameters:
+**Parameters:**
 
 * **`generator`**
   (`Generator | None`, default:
@@ -724,12 +724,12 @@ Parameters:
   )
   –Whether to include the next messages in the restarted chat.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –The restarted chat.
 
-Raises:
+**Raises:**
 
 * `ValueError`
   –If the chat was not created with a ChatPipeline and no generator is provided.
@@ -779,7 +779,7 @@ strip(
 
 Strips all parsed parts of a particular type from the message content.
 
-Parameters:
+**Parameters:**
 
 * **`model_type`**
   (`type[Model]`)
@@ -790,7 +790,7 @@ Parameters:
   )
   –Whether to raise an exception if a message of the specified model type is not found.
 
-Returns:
+**Returns:**
 
 * `Chat`
   –A new chat with only the messages of the specified model type.
@@ -827,7 +827,7 @@ Converts the chat to a Pandas DataFrame.
 
 See [rigging.data.chats\_to\_df][] for more information.
 
-Returns:
+**Returns:**
 
 * `Any`
   –The chat as a DataFrame.
@@ -869,7 +869,7 @@ Converts the chat data to Elasticsearch format and indexes it.
 
 See [rigging.data.chats\_to\_elastic][] for more information.
 
-Returns:
+**Returns:**
 
 * `int`
   –The number of chats indexed.
@@ -925,7 +925,7 @@ Converts the chat list to a Pandas DataFrame.
 
 See [rigging.data.chats\_to\_df][] for more information.
 
-Returns:
+**Returns:**
 
 * `Any`
   –The chat list as a DataFrame.
@@ -967,7 +967,7 @@ Converts the chat list to Elasticsearch format and indexes it.
 
 See [rigging.data.chats\_to\_elastic][] for more information.
 
-Returns:
+**Returns:**
 
 * `int`
   –The number of chats indexed.
@@ -1176,7 +1176,7 @@ some inference models. In version >=3.0, the default has been set to `none` to a
 unexpected behavior.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`messages`**
   (`Sequence[MessageDict] | Sequence[Message] | MessageDict | Message | Content | str`)
@@ -1190,7 +1190,7 @@ Parameters:
   - "all": Merge content of the last existing message and the first incoming message if their roles match.
   - "none": Keep messages independent and do not merge any content.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –The updated pipeline.
@@ -1257,7 +1257,7 @@ apply(**kwargs: str) -> ChatPipeline
 
 Clones this chat pipeline and calls [rigging.chat.Chat.apply][] with the given keyword arguments.
 
-Parameters:
+**Parameters:**
 
 * **`**kwargs`**
   (`str`, default:
@@ -1265,7 +1265,7 @@ Parameters:
   )
   –Keyword arguments to be applied to the chat.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –A new pipeline with updated chat.
@@ -1298,7 +1298,7 @@ apply_to_all(**kwargs: str) -> ChatPipeline
 
 Clones this chat pipeline and calls [rigging.chat.Chat.apply\_to\_all][] with the given keyword arguments.
 
-Parameters:
+**Parameters:**
 
 * **`**kwargs`**
   (`str`, default:
@@ -1306,7 +1306,7 @@ Parameters:
   )
   –Keyword arguments to be applied to the chat.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –A new pipeline with updated chat.
@@ -1341,7 +1341,7 @@ cache(
 
 Sets the caching mode for the pipeline.
 
-Parameters:
+**Parameters:**
 
 * **`mode`**
   (`CacheMode | None | Literal[False]`, default:
@@ -1349,7 +1349,7 @@ Parameters:
   )
   –The caching mode to use. Defaults to "latest".
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –The updated pipeline.
@@ -1390,7 +1390,7 @@ catch(
 
 Adds exceptions to catch during generation when including or skipping failures.
 
-Parameters:
+**Parameters:**
 
 * **`*errors`**
   (`type[Exception]`, default:
@@ -1403,7 +1403,7 @@ Parameters:
   )
   –How to handle failures in the pipeline unless overridden in calls.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –The updated pipeline.
@@ -1449,7 +1449,7 @@ clone(
 
 Creates a clone of the current `ChatPipeline` instance.
 
-Parameters:
+**Parameters:**
 
 * **`only_messages`**
   (`bool`, default:
@@ -1471,7 +1471,7 @@ Parameters:
   –If True (default), all callbacks will be cloned. If False, no callbacks will be cloned.
   Otherwise provide a sequence of callbacks which should be maintained in the new pipeline.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –The cloned ChatPipeline.
@@ -1575,13 +1575,13 @@ Creates a new instance of `ChatPipeline` by forking the current chat and adding 
 
 This is a convenience method for calling `clone().add(messages)`.
 
-Parameters:
+**Parameters:**
 
 * **`messages`**
   (`Sequence[MessageDict] | Sequence[Message] | MessageDict | Message | str`)
   –A sequence of messages or a single message to be added to the new chat.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –The cloned pipeline with messages added.
@@ -1627,7 +1627,7 @@ represent the state of chats for the remainder of the callbacks and
 the final return value from the pipeline.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`callbacks`**
   (`MapChatCallback`, default:
@@ -1640,7 +1640,7 @@ Parameters:
   )
   –The maximum depth to allow recursive pipeline calls during this callback.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –The updated pipeline.
@@ -1715,7 +1715,7 @@ meta(**kwargs: Any) -> ChatPipeline
 
 Updates the metadata of the chat with the provided key-value pairs.
 
-Parameters:
+**Parameters:**
 
 * **`**kwargs`**
   (`Any`, default:
@@ -1723,7 +1723,7 @@ Parameters:
   )
   –Key-value pairs representing the metadata to be updated.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –The updated pipeline.
@@ -1759,13 +1759,13 @@ Decorator to convert a function into a prompt bound to this pipeline.
 
 See [rigging.prompt.prompt][] for more information.
 
-Parameters:
+**Parameters:**
 
 * **`func`**
   (`Callable[P, Coroutine[None, None, R]]`)
   –The function to be converted into a prompt.
 
-Returns:
+**Returns:**
 
 * `Prompt[P, R]`
   –The prompt.
@@ -1804,7 +1804,7 @@ run(
 
 Execute the generation process for a single message.
 
-Parameters:
+**Parameters:**
 
 * **`on_failed`**
   (`FailMode | None`, default:
@@ -1817,7 +1817,7 @@ Parameters:
   )
   –Deprecated, use `on_failed="include"`.
 
-Returns:
+**Returns:**
 
 * `Chat`
   –The generated Chat.
@@ -1889,7 +1889,7 @@ Executes the generation process over multiple input messages.
 Anything already in this chat pipeline will be prepended to the input messages.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`many`**
   (`Sequence[Sequence[Message]] | Sequence[Message] | Sequence[MessageDict] | Sequence[str] | MessageDict | str`)
@@ -1905,7 +1905,7 @@ Parameters:
   )
   –The behavior when a message fails to generate.
 
-Returns:
+**Returns:**
 
 * `ChatList`
   –A list of generatated Chats.
@@ -1966,7 +1966,7 @@ run_many(
 
 Executes the generation process in parallel over the same input.
 
-Parameters:
+**Parameters:**
 
 * **`count`**
   (`int`)
@@ -1982,7 +1982,7 @@ Parameters:
   )
   –The behavior when a message fails to generate.
 
-Returns:
+**Returns:**
 
 * `ChatList`
   –A list of generatated Chats.
@@ -2037,7 +2037,7 @@ Executes the generation process across multiple generators.
 For each generator, this pipeline is cloned and the generator is replaced
 before the run call. All callbacks and parameters are preserved.
 
-Parameters:
+**Parameters:**
 
 * **`*generators`**
   (`Generator | str`, default:
@@ -2055,7 +2055,7 @@ Parameters:
   )
   –The behavior when a message fails to generate.
 
-Returns:
+**Returns:**
 
 * `ChatList`
   –A list of generatated Chats.
@@ -2115,7 +2115,7 @@ step(
 
 Step through the generation process for a single message.
 
-Parameters:
+**Parameters:**
 
 * **`on_failed`**
   (`FailMode | None`, default:
@@ -2124,7 +2124,7 @@ Parameters:
   –The behavior when a message fails to generate.
   (this is used as an alternative to allow\_failed)
 
-Yields:
+**Yields:**
 
 * `AsyncIterator[PipelineStepGenerator]`
   –Pipeline steps.
@@ -2196,7 +2196,7 @@ Step through the generation process over multiple inputs.
 Anything already in this chat pipeline will be prepended to the input messages.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`many`**
   (`Sequence[Sequence[Message]] | Sequence[Message] | Sequence[MessageDict] | Sequence[str] | MessageDict | str`)
@@ -2212,7 +2212,7 @@ Parameters:
   )
   –The behavior when a message fails to generate.
 
-Yields:
+**Yields:**
 
 * `AsyncIterator[PipelineStepGenerator]`
   –Pipeline steps.
@@ -2298,7 +2298,7 @@ step_many(
 
 Step through the generation process in parallel over the same input.
 
-Parameters:
+**Parameters:**
 
 * **`count`**
   (`int`)
@@ -2314,7 +2314,7 @@ Parameters:
   )
   –The behavior when a message fails to generate.
 
-Yields:
+**Yields:**
 
 * `AsyncIterator[PipelineStepGenerator]`
   –Pipeline steps.
@@ -2380,7 +2380,7 @@ for the remainder of the callbacks and the final return value
 from the pipeline.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`callbacks`**
   (`ThenChatCallback`, default:
@@ -2393,7 +2393,7 @@ Parameters:
   )
   –The maximum depth to allow recursive pipeline calls during this callback.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –The updated pipeline.
@@ -2475,7 +2475,7 @@ until_parsed_as(
 Adds the specified types to the list of types which should successfully parse
 before the generation process completes.
 
-Parameters:
+**Parameters:**
 
 * **`*types`**
   (`type[ModelT]`, default:
@@ -2503,7 +2503,7 @@ Parameters:
   )
   –deprecated, use `max_depth` instead.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –The updated pipeline.
@@ -2589,7 +2589,7 @@ By default, the tool mode is set to "auto" which will attempt to use
 api function calling if available, otherwise it will fallback to `xml`.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`*tools`**
   (`Tool[..., Any] | Callable[..., Any] | Sequence[Tool[..., Any] | Callable[..., Any]]`, default:
@@ -2618,7 +2618,7 @@ Parameters:
   –When using natively parsed tools ("xml", "json-in-xml"), use stop tokens to
   immediately process a tool call when observed.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –The updated pipeline.
@@ -2738,7 +2738,7 @@ watch(
 
 Registers a callback to monitor any chats produced.
 
-Parameters:
+**Parameters:**
 
 * **`*callbacks`**
   (`WatchChatCallback`, default:
@@ -2751,7 +2751,7 @@ Parameters:
   )
   –Whether to allow (seemingly) duplicate callbacks to be added.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –The updated pipeline.
@@ -2818,7 +2818,7 @@ Assign specific generation parameter overloads for this chat.
 This will trigger a `clone` if overload params have already been set.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`params`**
   (`GenerateParams | None`, default:
@@ -2831,7 +2831,7 @@ Parameters:
   )
   –An alternative way to pass parameters as keyword arguments.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –The updated pipeline.
@@ -2881,13 +2881,13 @@ wrap(
 
 Helper for [rigging.generator.base.Generator.wrap][].
 
-Parameters:
+**Parameters:**
 
 * **`func`**
   (`Callable[[CallableT], CallableT]`)
   –The function to wrap the calls with.
 
-Returns:
+**Returns:**
 
 * `ChatPipeline`
   –The current pipeline.

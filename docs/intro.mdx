@@ -6,14 +6,14 @@ public: true
 
 Rigging is a lightweight LLM framework to make using language models in production code as simple and effective as possible. Here are the highlights:
 
-- [**Structured Pydantic models**](/open-source/rigging/topics/data-models) can be used interchangeably with unstructured text output.
-- LiteLLM as the default generator giving you [**instant access to a huge array of models**](/open-source/rigging/topics/generators).
-- Define prompts as python functions with [**type hints and docstrings**](/open-source/rigging/topics/prompt-functions).
-- Simple [**tool use**](/open-source/rigging/topics/tools), even for models which don't support them at the API.
-- Store different models and configs as [**simple connection strings**](/open-source/rigging/topics/generators#identifiers) just like databases.
-- Integrated [**tracing**](/open-source/rigging/topics/tracing) support with [Logfire](https://logfire.pydantic.dev/docs/) to track activity.
+- [**Structured Pydantic models**](/topics/data-models) can be used interchangeably with unstructured text output.
+- LiteLLM as the default generator giving you [**instant access to a huge array of models**](/topics/generators).
+- Define prompts as python functions with [**type hints and docstrings**](/topics/prompt-functions).
+- Simple [**tool use**](/topics/tools), even for models which don't support them at the API.
+- Store different models and configs as [**simple connection strings**](/topics/generators#identifiers) just like databases.
+- Integrated [**tracing**](/topics/tracing) support with [Logfire](https://logfire.pydantic.dev/docs/) to track activity.
 - Chat templating, forking, continuations, generation parameter overloads, stripping segments, etc.
-- Async batching and fast iterations for [**large scale generation**](/open-source/rigging/topics/iterating-and-batching).
+- Async batching and fast iterations for [**large scale generation**](/topics/iterating-and-batching).
 - Metadata, callbacks, and data format conversions.
 - Modern python with type hints, async support, pydantic validation, serialization, etc.
 
@@ -58,7 +58,7 @@ The default Rigging generator is LiteLLM, which wraps a large number of provider
 </Note>
 
 1. You'll see us use this shorthand import syntax throughout our code, it's totally optional but makes things look nice.
-2. This is actually shorthand for `litellm!anthropic/claude-3-sonnet-20240229`, where `litellm` is the provider. We just default to that generator and you don't have to be explicit. You can find more information about this in the [generators](/open-source/rigging/topics/generators) docs.
+2. This is actually shorthand for `litellm!anthropic/claude-3-sonnet-20240229`, where `litellm` is the provider. We just default to that generator and you don't have to be explicit. You can find more information about this in the [generators](/topics/generators) docs.
 3. From version 2 onwards, Rigging is fully async. You can use `await` to trigger generation and get your results, or use `await_`.
 
 Generators have an easy `chat()` method which you'll use to initiate the conversations. You can supply messages in many different forms from dictionary objects, full `Message`rigging.message.Message] classes, or a simple `str` which will be converted to a user message.
@@ -174,7 +174,7 @@ chat = await say_hello("Harry")
 Prompts are very powerful. You can take control over any of the inputs in your docstring, gather
 outputs as structured objects, lists, dataclasses, and collect the underlying Chat object.
 
-Check out [Prompt Functions](/open-source/rigging/topics/prompt-functions) for more information.
+Check out [Prompt Functions](/topics/prompt-functions) for more information.
 
 ## Conversations
 
@@ -192,17 +192,38 @@ In other words, the abstraction of going back and forth in a "conversation" woul
 ```python
 import rigging as rg
 
-generator = rg.get_generator("gpt-3.5-turbo")
-chat = generator.chat("Hello, how are you?")
+pipeline = (
+    rg.get_generator("gpt-4o-mini")
+    .chat("Hello, how are you?")
+)
 
-# We can fork before generation has occurred
-specific = await chat.fork("Be specific please.").run()
-poetic = await chat.fork("Be as poetic as possible").with_(temperature=1.5).run() # (1)!
+# We can fork before generation has occured
+specific = await pipeline.fork("Be specific please.").run()
+poetic = await pipeline.fork("Be as poetic as possible").with_(temperature=1.5).run() # (1)!
+
+print(specific.conversation)
+
+# [user]: Hello, how are you?
+# [user]: Be specific please.
+# [assistant]: I'm just a computer program, so I don't have feelings ...
+
+print(poetic.conversation)
+
+# [user]: Hello, how are you?
+# [user]: Be as poetic as possible
+# [assistant]: In the gentle embrace of sun-drenched morn, I find myself a ...
 
 # We can also continue after generation
-next_chat = poetic.continue_("That's good, tell me a joke") # (2)!
+next_pipeline_chat = poetic.continue_("That's good, tell me a joke") # (2)!
+update = await next_pipeline_chat.run()
 
-update = await next_chat.run()
+print(update.conversation)
+
+# [user]: Hello, how are you?
+# [user]: Be as poetic as possible
+# [assistant]: In the gentle embrace of sun-drenched morn, I find myself ...
+# [user]: That's good, tell me a joke
+# [assistant]: Sure! Here’s a light-hearted joke for you:
 ```
 
 1. In this case the temperature change will only be applied to the poetic path because `fork` has created a clone of our chat pipeline.
@@ -210,12 +231,12 @@ update = await next_chat.run()
 
 ## Basic Parsing
 
-Now let's assume we want to ask the model for a piece of information, and we want to make sure this item conforms to a pre-defined structure. Underneath rigging uses [Pydantic XML](https://pydantic-xml.readthedocs.io/) which itself is built on [Pydantic](https://docs.pydantic.dev/). We'll cover more about constructing models in a [later section](/open-source/rigging/topics/data-models), but don't stress the details for now.
+Now let's assume we want to ask the model for a piece of information, and we want to make sure this item conforms to a pre-defined structure. Underneath rigging uses [Pydantic XML](https://pydantic-xml.readthedocs.io/) which itself is built on [Pydantic](https://docs.pydantic.dev/). We'll cover more about constructing models in a [later section](/topics/data-models), but don't stress the details for now.
 
 <Note>
 **XML vs JSON**
 
-Rigging is opinionated with regard to using XML to weave unstructured data with structured contents as the underlying LLM generates text responses, at least when it comes to raw text content. If you want to take advantage of structured JSON parsing provided by model providers or inference tools, [**Tools**](/open-source/rigging/topics/tools) are a great way to do that.
+Rigging is opinionated with regard to using XML to weave unstructured data with structured contents as the underlying LLM generates text responses, at least when it comes to raw text content. If you want to take advantage of structured JSON parsing provided by model providers or inference tools, [**Tools**](/topics/tools) are a great way to do that.
 
 You can read more about XML tag use from [Anthropic](https://docs.anthropic.com/claude/docs/use-xml-tags) who have done extensive research with their models.
 </Note>
@@ -418,7 +439,7 @@ print(chat.conversation)
 
 You can add as many tools as you'd like, document them and their parameters, and we support complex argument types like pydantic models and dataclasses. Your function can return standard objects to cast into strings, `Message` objects, or even content parts for multi-modal generation (`ContentImageUrl`)
 
-Check out [Tools](/open-source/rigging/topics/tools) for more information.
+Check out [Tools](/topics/tools) for more information.
 
 ## Tools + Prompts
 
@@ -449,4 +470,4 @@ Underneath the `generate_jokes` prompt will be presented as an available tool wh
 
 ## Keep Going
 
-Check out the **[topics section](/open-source/rigging/topics/workflow)** for more in-depth explanations and examples.
+Check out the **[topics section](/topics/workflow)** for more in-depth explanations and examples.

@@ -19,7 +19,7 @@ parse(
 
 Parses a single model from text.
 
-Parameters:
+**Parameters:**
 
 * **`text`**
   (`str`)
@@ -28,12 +28,12 @@ Parameters:
   (`type[ModelT]`)
   –The type of model to parse.
 
-Returns:
+**Returns:**
 
 * `tuple[ModelT, slice]`
   –The parsed model.
 
-Raises:
+**Raises:**
 
 * `ValueError`
   –If no models of the given type are found and `fail_on_missing` is set to `True`.
@@ -71,7 +71,7 @@ parse_many(
 
 Parses multiple models of the specified non-identical types from text.
 
-Parameters:
+**Parameters:**
 
 * **`text`**
   (`str`)
@@ -82,12 +82,12 @@ Parameters:
   )
   –The types of models to parse.
 
-Returns:
+**Returns:**
 
 * `list[tuple[ModelT, slice]]`
   –A list of parsed models.
 
-Raises:
+**Raises:**
 
 * `MissingModelError`
   –If any of the models are missing.
@@ -128,7 +128,7 @@ parse_set(
 
 Parses a set of models with the specified identical type from text.
 
-Parameters:
+**Parameters:**
 
 * **`text`**
   (`str`)
@@ -142,12 +142,12 @@ Parameters:
   )
   –The minimum number of models required.
 
-Returns:
+**Returns:**
 
 * `list[tuple[ModelT, slice]]`
   –A list of parsed models.
 
-Raises:
+**Raises:**
 
 * `MissingModelError`
   –If the minimum number of models is not met.
@@ -191,7 +191,7 @@ try_parse(
 
 Tries to parse a model from text.
 
-Parameters:
+**Parameters:**
 
 * **`text`**
   (`str`)
@@ -200,7 +200,7 @@ Parameters:
   (`type[ModelT]`)
   –The type of model to search for.
 
-Returns:
+**Returns:**
 
 * `tuple[ModelT, slice] | None`
   –The first model that matches the given model type, or None if no match is found.
@@ -237,7 +237,7 @@ try_parse_many(
 
 Tries to parses multiple models of the specified non-identical types from text.
 
-Parameters:
+**Parameters:**
 
 * **`text`**
   (`str`)
@@ -253,12 +253,12 @@ Parameters:
   )
   –Whether to raise an exception if a model type is missing.
 
-Returns:
+**Returns:**
 
 * `list[tuple[ModelT, slice]]`
   –A list of parsed models.
 
-Raises:
+**Raises:**
 
 * `MissingModelError`
   –If a model type is missing and `fail_on_missing` is True.
@@ -319,7 +319,7 @@ try_parse_set(
 
 Tries to parse a set of models with the specified identical type from text.
 
-Parameters:
+**Parameters:**
 
 * **`text`**
   (`str`)
@@ -338,12 +338,12 @@ Parameters:
   )
   –Whether to raise an exception if models are missing.
 
-Returns:
+**Returns:**
 
 * `list[tuple[ModelT, slice]]`
   –The parsed models.
 
-Raises:
+**Raises:**
 
 * `MissingModelError`
   –If the number of parsed models is less than the minimum required.

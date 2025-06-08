@@ -64,7 +64,7 @@ transcript: str | None
 
 Returns the transcript of the audio data.
 
-Returns:
+**Returns:**
 
 * `str | None`
   –The transcript of the audio data.
@@ -116,7 +116,7 @@ from_bytes(
 
 Creates a ContentAudioInput object from raw bytes.
 
-Parameters:
+**Parameters:**
 
 * **`data`**
   (`bytes`)
@@ -127,7 +127,7 @@ Parameters:
   )
   –The format of the audio.
 
-Returns:
+**Returns:**
 
 * `ContentAudioInput`
   –The created ContentAudioInput
@@ -173,7 +173,7 @@ from_file(
 
 Creates a ContentAudioInput object from a file.
 
-Parameters:
+**Parameters:**
 
 * **`file`**
   (`Path | str`)
@@ -189,7 +189,7 @@ Parameters:
   )
   –The transcript of the audio data (if available).
 
-Returns:
+**Returns:**
 
 * `ContentAudioInput`
   –The created ContentAudioInput object.
@@ -243,7 +243,7 @@ save(path: Path | str) -> None
 
 Saves the audio data to a file.
 
-Parameters:
+**Parameters:**
 
 * **`path`**
   (`Path | str`)
@@ -275,7 +275,7 @@ to_bytes() -> bytes
 
 Converts the audio data to bytes.
 
-Returns:
+**Returns:**
 
 * `bytes`
   –The decoded audio data.
@@ -355,7 +355,7 @@ from_bytes(
 
 Creates a ContentImageUrl object from raw bytes.
 
-Parameters:
+**Parameters:**
 
 * **`data`**
   (`bytes`)
@@ -369,7 +369,7 @@ Parameters:
   )
   –The detail level of the image.
 
-Returns:
+**Returns:**
 
 * `ContentImageUrl`
   –The created ContentImageUrl
@@ -417,7 +417,7 @@ from_file(
 
 Creates a ContentImageUrl object from a file.
 
-Parameters:
+**Parameters:**
 
 * **`file`**
   (`Path | str`)
@@ -428,7 +428,7 @@ Parameters:
   )
   –The mimetype of the file. If not provided, it will be guessed.
 
-Returns:
+**Returns:**
 
 * `ContentImageUrl`
   –The created ContentImageUrl object.
@@ -485,7 +485,7 @@ from_url(
 
 Creates a ContentImageUrl object from a URL.
 
-Parameters:
+**Parameters:**
 
 * **`url`**
   (`str`)
@@ -496,7 +496,7 @@ Parameters:
   )
   –The detail level of the image.
 
-Returns:
+**Returns:**
 
 * `ContentImageUrl`
   –The created ContentImageUrl object.
@@ -534,7 +534,7 @@ save(path: Path | str) -> None
 
 Saves the data to a file.
 
-Parameters:
+**Parameters:**
 
 * **`path`**
   (`Path | str`)
@@ -566,7 +566,7 @@ to_bytes() -> bytes
 
 Converts the data to bytes (if the URL is base64-encoded).
 
-Returns:
+**Returns:**
 
 * `bytes`
   –The decoded image data.
@@ -784,7 +784,7 @@ Uses [string.Template.safe\_substitute](https://docs.python.org/3/library/string
 This call produces a clone of the message, leaving the original message unchanged.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`**kwargs`**
   (`str`, default:
@@ -846,7 +846,7 @@ cache(
 
 Update cache control settings for this message.
 
-Parameters:
+**Parameters:**
 
 * **`cache_control`**
   (`dict[str, str] | bool`, default:
@@ -858,7 +858,7 @@ Parameters:
   the default ephemeral cache control will be applied.
   If a dictionary, it will be applied as the cache control settings.
 
-Returns:
+**Returns:**
 
 * `Message`
   –The updated message.
@@ -990,7 +990,7 @@ from_model(
 
 Create a Message object from one or more Model objects.
 
-Parameters:
+**Parameters:**
 
 * **`models`**
   (`Model | Sequence[Model]`)
@@ -1006,7 +1006,7 @@ Parameters:
   )
   –A suffix to append to the content.
 
-Returns:
+**Returns:**
 
 * `Message`
   –The created Message object.
@@ -1056,18 +1056,18 @@ parse(model_type: type[ModelT]) -> ModelT
 
 Parses a model from the message content.
 
-Parameters:
+**Parameters:**
 
 * **`model_type`**
   (`type[ModelT]`)
   –The type of model to parse.
 
-Returns:
+**Returns:**
 
 * `ModelT`
   –The parsed model.
 
-Raises:
+**Raises:**
 
 * `ValueError`
   –If no models of the given type are found and `fail_on_missing` is set to `True`.
@@ -1101,7 +1101,7 @@ parse_many(*types: type[ModelT]) -> list[ModelT]
 
 Parses multiple models of the specified non-identical types from the message content.
 
-Parameters:
+**Parameters:**
 
 * **`*types`**
   (`type[ModelT]`, default:
@@ -1109,12 +1109,12 @@ Parameters:
   )
   –The types of models to parse.
 
-Returns:
+**Returns:**
 
 * `list[ModelT]`
   –A list of parsed models.
 
-Raises:
+**Raises:**
 
 * `MissingModelError`
   –If any of the models are missing.
@@ -1150,7 +1150,7 @@ parse_set(
 
 Parses a set of models of the specified identical type from the message content.
 
-Parameters:
+**Parameters:**
 
 * **`model_type`**
   (`type[ModelT]`)
@@ -1161,12 +1161,12 @@ Parameters:
   )
   –The minimum number of models required.
 
-Returns:
+**Returns:**
 
 * `list[ModelT]`
   –A list of parsed models.
 
-Raises:
+**Raises:**
 
 * `MissingModelError`
   –If the minimum number of models is not met.
@@ -1205,7 +1205,7 @@ strip(
 
 Removes and returns a list of ParsedMessagePart objects from the message that match the specified model type.
 
-Parameters:
+**Parameters:**
 
 * **`model_type`**
   (`type[Model]`)
@@ -1216,12 +1216,12 @@ Parameters:
   )
   –If True, raises a TypeError if no matching model is found.
 
-Returns:
+**Returns:**
 
 * `list[ParsedMessagePart]`
   –A list of removed ParsedMessagePart objects.
 
-Raises:
+**Raises:**
 
 * `TypeError`
   –If no matching model is found and fail\_on\_missing is True.
@@ -1273,7 +1273,7 @@ to_openai_spec() -> dict[str, t.Any]
 Converts the message to the OpenAI-compatible JSON format. This should
 be the primary way to serialize a message for use with APIs.
 
-Returns:
+**Returns:**
 
 * `dict[str, Any]`
   –The serialized message.
@@ -1347,13 +1347,13 @@ truncate(
 
 Truncates the message content to a maximum length.
 
-Parameters:
+**Parameters:**
 
 * **`max_length`**
   (`int`)
   –The maximum length of the message content.
 
-Returns:
+**Returns:**
 
 * `Message`
   –The truncated message.
@@ -1386,13 +1386,13 @@ try_parse(model_type: type[ModelT]) -> ModelT | None
 
 Tries to parse a model from the message content.
 
-Parameters:
+**Parameters:**
 
 * **`model_type`**
   (`type[ModelT]`)
   –The type of model to search for.
 
-Returns:
+**Returns:**
 
 * `ModelT | None`
   –The first model that matches the given model type, or None if no match is found.
@@ -1425,7 +1425,7 @@ try_parse_many(
 
 Tries to parse multiple models from the content of the message.
 
-Parameters:
+**Parameters:**
 
 * **`*types`**
   (`type[ModelT]`, default:
@@ -1438,12 +1438,12 @@ Parameters:
   )
   –Whether to raise an exception if a model type is missing.
 
-Returns:
+**Returns:**
 
 * `list[ModelT]`
   –A list of parsed models.
 
-Raises:
+**Raises:**
 
 * `MissingModelError`
   –If a model type is missing and `fail_on_missing` is True.
@@ -1491,7 +1491,7 @@ try_parse_set(
 
 Tries to parse a set of models from the message content.
 
-Parameters:
+**Parameters:**
 
 * **`model_type`**
   (`type[ModelT]`)
@@ -1507,12 +1507,12 @@ Parameters:
   )
   –Whether to raise an exception if models are missing.
 
-Returns:
+**Returns:**
 
 * `list[ModelT]`
   –The parsed models.
 
-Raises:
+**Raises:**
 
 * `MissingModelError`
   –If the number of parsed models is less than the minimum required.

@@ -1,14 +1,11 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
-  "name": "Dreadnode Documentation",
+  "name": "Docs",
   "colors": {
     "primary": "#ea580c",
     "light": "#F47150",
     "dark": "#333333"
-  },
-  "banner": {
-    "content": "Docs are in beta testing. If you experience any issues, contact us at support@dreadnode.io."
   },
   "background": {
     "color": {
@@ -19,11 +16,11 @@
   "navigation": {
     "groups": [
       {
-        "group": "Basics",
+        "group": "Getting Started",
         "pages": ["intro", "install"]
       },
       {
-        "group": "Topics",
+        "group": "Usage",
         "pages": [
           "topics/workflow",
           "topics/pipelines",

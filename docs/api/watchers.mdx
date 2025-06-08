@@ -23,7 +23,7 @@ write_chats_to_elastic(
 
 Create a watcher to write each chat to an ElasticSearch index.
 
-Parameters:
+**Parameters:**
 
 * **`client`**
   (`AsyncElasticsearch`)
@@ -42,7 +42,7 @@ Parameters:
   )
   –Additional keyword arguments to be passed to the Elasticsearch client.
 
-Returns:
+**Returns:**
 
 * `WatchChatCallback`
   –A callback to use in [rigging.chat.ChatPipeline.watch][]
@@ -92,7 +92,7 @@ write_chats_to_jsonl(
 
 Create a watcher to write each chat as a single JSON line appended to a file.
 
-Parameters:
+**Parameters:**
 
 * **`file`**
   (`str | Path`)
@@ -103,7 +103,7 @@ Parameters:
   )
   –If the file should be replaced if it already exists.
 
-Returns:
+**Returns:**
 
 * `WatchChatCallback`
   –A callback to use in [rigging.chat.ChatPipeline.watch][]
@@ -164,7 +164,7 @@ write_chats_to_s3(
 
 Create a watcher to write each chat to an Amazon S3 bucket.
 
-Parameters:
+**Parameters:**
 
 * **`client`**
   (`S3Client`)
@@ -181,7 +181,7 @@ Parameters:
   )
   –If the file should be replaced if it already exists.
 
-Returns:
+**Returns:**
 
 * `WatchChatCallback`
   –A callback to use in [rigging.chat.ChatPipeline.watch][]
@@ -253,7 +253,7 @@ write_messages_to_jsonl(
 
 Create a watcher to flatten chats to individual messages (like Dataframes) and append to a file.
 
-Parameters:
+**Parameters:**
 
 * **`file`**
   (`str | Path`)
@@ -264,7 +264,7 @@ Parameters:
   )
   –If the file should be replaced if it already exists.
 
-Returns:
+**Returns:**
 
 * `WatchChatCallback`
   –A callback to use in [rigging.chat.ChatPipeline.watch][]

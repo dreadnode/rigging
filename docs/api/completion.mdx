@@ -24,7 +24,7 @@ Represents a completed text generation.
 
 Initialize a Completion object.
 
-Parameters:
+**Parameters:**
 
 * **`text`**
   (`str`)
@@ -251,13 +251,13 @@ fork(
 
 Forks the completion by creating calling [rigging.completion.Completion.restart][] and appends the specified text.
 
-Parameters:
+**Parameters:**
 
 * **`text`**
   (`str`)
   –The text to append.
 
-Returns:
+**Returns:**
 
 * `CompletionPipeline`
   –A new instance of the pipeline with the specified messages added.
@@ -288,7 +288,7 @@ meta(**kwargs: Any) -> Completion
 
 Updates the metadata of the completion with the provided key-value pairs.
 
-Parameters:
+**Parameters:**
 
 * **`**kwargs`**
   (`Any`, default:
@@ -296,7 +296,7 @@ Parameters:
   )
   –Key-value pairs representing the metadata to be updated.
 
-Returns:
+**Returns:**
 
 * `Completion`
   –The updated completion object.
@@ -333,7 +333,7 @@ restart(
 
 Attempt to convert back to a CompletionPipeline for further generation.
 
-Parameters:
+**Parameters:**
 
 * **`generator`**
   (`Generator | None`, default:
@@ -350,7 +350,7 @@ Parameters:
 Returns:
 The restarted completion.
 
-Raises:
+**Raises:**
 
 * `ValueError`
   –If the completion was not created with a CompletionPipeline and no generator is provided.
@@ -500,13 +500,13 @@ add(text: str) -> CompletionPipeline
 
 Appends new text to the internal text before generation.
 
-Parameters:
+**Parameters:**
 
 * **`text`**
   (`str`)
   –The text to be added to the completion.
 
-Returns:
+**Returns:**
 
 * `CompletionPipeline`
   –The updated CompletionPipeline object.
@@ -542,7 +542,7 @@ Applies keyword arguments to the text using string template substitution.
 This produces a clone of the CompletionPipeline, leaving the original unchanged.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`**kwargs`**
   (`str`, default:
@@ -550,7 +550,7 @@ Parameters:
   )
   –Keyword arguments to be applied to the text.
 
-Returns:
+**Returns:**
 
 * `CompletionPipeline`
   –A new instance of CompletionPipeline with the applied arguments.
@@ -590,7 +590,7 @@ catch(
 
 Adds exceptions to catch during generation when including or skipping failures.
 
-Parameters:
+**Parameters:**
 
 * **`*errors`**
   (`type[Exception]`, default:
@@ -603,7 +603,7 @@ Parameters:
   )
   –How to handle failures in the pipeline unless overridden in calls.
 
-Returns:
+**Returns:**
 
 * `CompletionPipeline`
   –The updated CompletionPipeline object.
@@ -641,7 +641,7 @@ clone(*, only_text: bool = False) -> CompletionPipeline
 
 Creates a clone of the current `CompletionPipeline` instance.
 
-Parameters:
+**Parameters:**
 
 * **`only_text`**
   (`bool`, default:
@@ -651,7 +651,7 @@ Parameters:
   If False (default), the entire `CompletionPipeline` instance will be cloned
   including until callbacks, types, and metadata.
 
-Returns:
+**Returns:**
 
 * `CompletionPipeline`
   –A new instance of `CompletionPipeline` that is a clone of the current instance.
@@ -698,13 +698,13 @@ Creates a new instance of `CompletionPipeline` by forking the current completion
 
 This is a convenience method for calling `clone().add(text)`.
 
-Parameters:
+**Parameters:**
 
 * **`text`**
   (`str`)
   –The text to be added to the new completion.
 
-Returns:
+**Returns:**
 
 * `CompletionPipeline`
   –A new instance of `CompletionPipeline` with the specified text added.
@@ -742,13 +742,13 @@ You must return a list of completion objects from the callback which will
 represent the state of completions for the remainder of the callbacks and return.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`callback`**
   (`MapCompletionCallback`)
   –The callback function to be executed.
 
-Returns:
+**Returns:**
 
 * `CompletionPipeline`
   –The current instance of the completion.
@@ -802,7 +802,7 @@ meta(**kwargs: Any) -> CompletionPipeline
 
 Updates the metadata of the completion with the provided key-value pairs.
 
-Parameters:
+**Parameters:**
 
 * **`**kwargs`**
   (`Any`, default:
@@ -810,7 +810,7 @@ Parameters:
   )
   –Key-value pairs representing the metadata to be updated.
 
-Returns:
+**Returns:**
 
 * `CompletionPipeline`
   –The updated completion object.
@@ -846,7 +846,7 @@ run(
 
 Execute the generation process to produce the final chat.
 
-Parameters:
+**Parameters:**
 
 * **`allow_failed`**
   (`bool`, default:
@@ -861,7 +861,7 @@ Parameters:
   –The behavior when a message fails to generate.
   (this is used as an alternative to allow\_failed)
 
-Returns:
+**Returns:**
 
 * `Completion`
   –The generated Completion.
@@ -925,7 +925,7 @@ Executes the generation process across multiple input messages.
 Anything already in this pending completion will be prepended to the text.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`many`**
   (`Sequence[str]`)
@@ -941,7 +941,7 @@ Parameters:
   )
   –How to handle failures in the pipeline unless overridden in calls.
 
-Returns:
+**Returns:**
 
 * `list[Completion]`
   –A list of generatated Completions.
@@ -1003,7 +1003,7 @@ run_many(
 
 Executes the generation process multiple times with the same inputs.
 
-Parameters:
+**Parameters:**
 
 * **`count`**
   (`int`)
@@ -1019,7 +1019,7 @@ Parameters:
   )
   –How to handle failures in the pipeline unless overridden in calls.
 
-Returns:
+**Returns:**
 
 * `list[Completion]`
   –A list of generatated Completions.
@@ -1074,7 +1074,7 @@ Executes the generation process across multiple generators.
 For each generator, this pipeline is cloned and the generator is replaced
 before the run call. All callbacks and parameters are preserved.
 
-Parameters:
+**Parameters:**
 
 * **`*generators`**
   (`Generator | str`, default:
@@ -1092,7 +1092,7 @@ Parameters:
   )
   –The behavior when a message fails to generate.
 
-Returns:
+**Returns:**
 
 * `list[Completion]`
   –A list of generatated Completions.
@@ -1156,13 +1156,13 @@ Returning a Completion object from the callback will replace the current complet
 for the remainder of the callbacks + return value of `run()`.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`callback`**
   (`ThenCompletionCallback`)
   –The callback function to be executed.
 
-Returns:
+**Returns:**
 
 * `CompletionPipeline`
   –The current instance of the pipeline.
@@ -1221,7 +1221,7 @@ until(
 
 Registers a callback to participate in validating the generation process.
 
-Parameters:
+**Parameters:**
 
 * **`callback`**
   (`UntilCompletionCallback`)
@@ -1238,7 +1238,7 @@ Parameters:
   –The maximum number of rounds to attempt generation + callbacks
   before giving up.
 
-Returns:
+**Returns:**
 
 * `CompletionPipeline`
   –The current instance of the completion.
@@ -1313,7 +1313,7 @@ until_parsed_as(
 Adds the specified types to the list of types which should successfully parse
 before the generation process completes.
 
-Parameters:
+**Parameters:**
 
 * **`*types`**
   (`type[ModelT]`, default:
@@ -1331,7 +1331,7 @@ Parameters:
   )
   –The maximum number of rounds to try to parse successfully.
 
-Returns:
+**Returns:**
 
 * `CompletionPipeline`
   –The updated CompletionPipeline object.
@@ -1380,7 +1380,7 @@ watch(
 
 Registers a callback to monitor any completions produced.
 
-Parameters:
+**Parameters:**
 
 * **`*callbacks`**
   (`WatchCompletionCallback`, default:
@@ -1393,7 +1393,7 @@ Parameters:
   )
   –Whether to allow (seemingly) duplicate callbacks to be added.
 
-Returns:
+**Returns:**
 
 * `CompletionPipeline`
   –The current instance.
@@ -1456,7 +1456,7 @@ Assign specific generation parameter overloads for this completion.
 This will trigger a `clone` if overload params have already been set.
 </Note>
 
-Parameters:
+**Parameters:**
 
 * **`params`**
   (`GenerateParams | None`, default:
@@ -1469,7 +1469,7 @@ Parameters:
   )
   –An alternative way to pass parameters as keyword arguments.
 
-Returns:
+**Returns:**
 
 * `CompletionPipeline`
   –The current (or cloned) instance of the completion.
@@ -1519,13 +1519,13 @@ wrap(
 
 Helper for [rigging.generator.base.Generator.wrap][].
 
-Parameters:
+**Parameters:**
 
 * **`func`**
   (`Callable[[CallableT], CallableT]`)
   –The function to wrap the calls with.
 
-Returns:
+**Returns:**
 
 * `CompletionPipeline`
   –The current instance of the pipeline.
