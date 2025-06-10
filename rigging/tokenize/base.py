@@ -3,10 +3,10 @@ import warnings
 from dataclasses import dataclass
 
 from rigging.error import TokenizeWarning
-from rigging.transform.base import Transform
 
 if t.TYPE_CHECKING:
     from rigging.chat import Chat
+    from rigging.transform.base import Transform
 
 
 SliceType = t.Literal["message", "tool_call", "tool_response", "model"]
