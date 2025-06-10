@@ -55,7 +55,7 @@ class PipelineWarning(Warning):
     """
 
 
-class ToolWarning(PipelineWarning):
+class ToolWarning(Warning):
     """
     Base class for all tool warnings.
 
@@ -64,11 +64,20 @@ class ToolWarning(PipelineWarning):
     """
 
 
-class MessageWarning(PipelineWarning):
+class MessageWarning(Warning):
     """
     Base class for all message warnings.
 
     This is used to indicate that something unexpected happened during the message processing,
+    but it is not critical enough to stop the execution.
+    """
+
+
+class TokenizeWarning(Warning):
+    """
+    Base class for all tokenization warnings.
+
+    This is used to indicate that something unexpected happened during the tokenization process,
     but it is not critical enough to stop the execution.
     """
 

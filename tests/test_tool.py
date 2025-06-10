@@ -7,10 +7,8 @@ import pytest
 from pydantic import BaseModel
 
 import rigging as rg
-from rigging.error import ToolDefinitionError
 from rigging.model import Model, make_from_schema, make_from_signature
 from rigging.tools.base import FunctionCall, FunctionDefinition, Tool, ToolCall, ToolDefinition
-from rigging.tools.native import XmlToolDefinition
 
 # ruff: noqa: S101, PLR2004, ARG001, PT011, SLF001, FBT001, FBT002
 
@@ -96,51 +94,6 @@ def test_api_definition_generation() -> None:
     assert "active" not in params["required"]
 
 
-def test_xml_definition_generation() -> None:
-    """Test that tools correctly generate XML definitions."""
-
-    def profile_function(user_id: str, include_details: bool = False) -> dict[str, t.Any]:
-        """Get user profile information."""
-        return {"id": user_id, "details": include_details}
-
-    tool = Tool.from_callable(profile_function)
-    xml_def = tool.xml_definition
-
-    assert isinstance(xml_def, XmlToolDefinition)
-    assert xml_def.name == "profile_function"
-    assert "Get user profile information." in xml_def.description
-
-    # XML parameters should contain both params
-    assert '<param name="user_id"' in xml_def.parameters
-    assert '<param name="include_details"' in xml_def.parameters
-
-    # Required param should be marked as such
-    assert 'required="true"' in xml_def.parameters
-    # Optional param should not be marked as required
-    assert 'required="false"' in xml_def.parameters
-
-
-def test_json_definition_generation() -> None:
-    """Test that tools correctly generate JSON-in-XML definitions."""
-
-    def data_function(query: str, max_results: int = 10) -> list[str]:
-        """Query data with pagination."""
-        return [f"result-{i}" for i in range(max_results)]
-
-    tool = Tool.from_callable(data_function)
-    json_def = tool.json_definition
-
-    assert json_def.name == "data_function"
-    assert "Query data with pagination." in json_def.description
-
-    # Parameters should be JSON schema
-    params = json.loads(json_def.parameters)
-    assert params["type"] == "object"
-    assert "query" in params["properties"]
-    assert "max_results" in params["properties"]
-    assert "query" in params["required"]
-
-
 def test_annotated_parameter_descriptions() -> None:
     """Test that Annotated types with descriptions are properly handled."""
 
@@ -164,11 +117,6 @@ def test_annotated_parameter_descriptions() -> None:
     api_def = tool.api_definition
     api_params = api_def.function.parameters
     assert api_params["properties"]["described"]["description"] == "Number of items to process"  # type: ignore [index]
-
-    # Check XML definition
-    xml_def = tool.xml_definition
-    assert "Number of items to process" in xml_def.parameters
-    assert "Enable feature flag" in xml_def.parameters
 
 
 def test_tool_model_creation() -> None:
@@ -307,13 +255,7 @@ def test_complex_model_parameters() -> None:
         """Process user settings."""
         return {"settings": settings}
 
-    # This should raise an error since pydantic models should be BaseXmlModel
-    with pytest.raises(ToolDefinitionError):
-        Tool.from_callable(process_user).xml_definition  # noqa: B018
-
-    # This should raise an error since dataclasses aren't supported
-    with pytest.raises(ToolDefinitionError):
-        Tool.from_callable(process_settings).xml_definition  # noqa: B018
+    assert Tool.from_callable(process_user).api_definition is not None
 
 
 @pytest.mark.asyncio

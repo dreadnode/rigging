@@ -1,80 +1,66 @@
 import typing as t
+import warnings
 from dataclasses import dataclass
 
-from rigging.message import (
-    Message,
-    ParsedMessagePart,
-)
-from rigging.tools.base import ToolCall
-from rigging.tools.native import NativeToolCall, NativeToolResponse
+from rigging.error import TokenizeWarning
+from rigging.transform.base import Transform
 
 if t.TYPE_CHECKING:
     from rigging.chat import Chat
 
 
-# Common
-
-SliceMessage = t.Literal["message", "tool_call", "tool_response", "parsed_part"]
-SliceOriginal = Message | ParsedMessagePart | ToolCall | NativeToolCall | NativeToolResponse
+SliceType = t.Literal["message", "tool_call", "tool_response", "model"]
+SliceObj = t.Any
 
 
 @dataclass
-class Slice:
+class TokenSlice:
+    """
+    Represents a slice of tokens within a tokenized chat.
+    """
+
     start: int
+    """The starting index of the slice in the token list."""
     end: int
-    type: SliceMessage
-    original: SliceOriginal | None = None
+    """The ending index of the slice in the token list."""
+    type: SliceType
+    """The type of the slice (e.g. message, tool_call, etc.)."""
+    obj: SliceObj | None = None
+    """The original object this slice corresponds to, if any."""
     metadata: dict[str, t.Any] | None = None
-
-
-# Formatting
-
-
-@dataclass
-class FormattedChat:
-    text: str
-    slices: list[Slice]
-    original: "Chat | None" = None
-    metadata: dict[str, t.Any] | None = None
-
-
-@t.runtime_checkable
-class ChatParser(t.Protocol):
-    def __call__(
-        self,
-        chat: "FormattedChat",
-        /,
-    ) -> "Chat": ...
-
-
-@t.runtime_checkable
-class ChatFormatter(t.Protocol):
-    def __call__(
-        self,
-        chat: "Chat",
-        /,
-    ) -> FormattedChat: ...
-
-
-# Tokenizing
+    """Additional metadata associated with this slice, if any."""
 
 
 @dataclass
 class TokenizedChat:
+    """
+    A tokenized representation of a chat, containing the full text,
+    token list, and structured slices of tokens.
+    """
+
     text: str
+    """The full text of the chat, formatted as a single string."""
     tokens: list[int]
-    slices: list[Slice]
-    original: "Chat | None" = None
+    """The list of tokens representing the chat text."""
+    slices: list[TokenSlice]
+    """Structured slices of tokens, each representing a part of the chat."""
+    obj: "Chat | None" = None
+    """The original chat object, if available."""
 
 
 @t.runtime_checkable
 class Tokenizer(t.Protocol):
-    def __call__(self, chat: FormattedChat) -> "TokenizedChat": ...
+    def __call__(self, chat: "Chat") -> "TokenizedChat": ...
+
+
+@t.runtime_checkable
+class ChatFormatter(t.Protocol):
+    def __call__(self, chat: "Chat") -> str: ...
 
 
 @t.runtime_checkable
 class Encoder(t.Protocol):
-    def __call__(self, text: str, /) -> list[int]: ...
+    def __call__(self, text: str) -> list[int]: ...
 
 
 @t.runtime_checkable
@@ -108,64 +94,106 @@ def find_in_tokens(
     return None
 
 
-# # Get full tokenization
-# messages = [m.to_openai_spec() for m in chat.all]
-# full_tokens = tokenizer.apply_chat_template(messages)
+async def tokenize_chat(
+    chat: "Chat",
+    formatter: ChatFormatter,
+    encoder: Encoder,
+    decoder: Decoder,
+    *,
+    transform: "Transform | None" = None,
+) -> TokenizedChat:
+    """
+    Transform a chat into a tokenized format with structured slices.
 
-# slices: list[TokenSlice] = []
-# search_start = 0
+    Args:
+        chat: The chat object to tokenize.
+        formatter: Function to format the chat into a string.
+        encoder: Function to encode strings into tokens.
+        decoder: Function to decode tokens back into strings.
+        transform: Optional transformation to apply to the chat before tokenization.
 
-# # Process messages in order
-# for message in chat.all:
-#     # Find this message
-#     match = find_in_tokens(message.content, full_tokens, tokenizer, 0, search_start)
-#     if not match:
-#         print("Warning: Could not find message content in tokens")
-#         continue
+    Returns:
+        A TokenizedChat object containing the tokenized chat data.
+    """
+    if transform:
+        chat = await chat.transform(transform)
 
-#     msg_start, msg_end = match
+    chat_text = formatter(chat)
+    chat_tokens = encoder(chat_text)
 
-#     # Add message slice
-#     slices.append(
-#         MessageTokenSlice(
-#             message=message,
-#             start=msg_start,
-#             end=msg_end,
-#         ),
-#     )
+    slices: list[TokenSlice] = []
+    search_start = 0
 
-#     # Find parts within this message
-#     if message.parts:
-#         message_tokens = full_tokens[msg_start:msg_end]
-#         part_search_start = 0
+    # Process messages in order
+    for message in chat.all:
+        # Find this message
+        if not (match := find_in_tokens(message.content, chat_tokens, decoder, 0, search_start)):
+            warnings.warn(
+                f"Warning: Could not find message '{message.content[:50]}...' in chat tokens",
+                TokenizeWarning,
+                stacklevel=2,
+            )
+            continue
 
-#         # Process parts in order
-#         for part in message.parts:
-#             part_text = message.content[part.slice_]
-#             part_match = find_in_tokens(
-#                 part_text,
-#                 message_tokens,
-#                 tokenizer,
-#                 msg_start,
-#                 part_search_start,
-#             )
+        msg_start, msg_end = match
+        msg_metadata = message.metadata or {}
+        msg_metadata["role"] = message.role
+        if message.tool_call_id:
+            msg_metadata["tool_call_id"] = message.tool_call_id
 
-#             if part_match:
-#                 part_start, part_end = part_match
-#                 slices.append(
-#                     ParsedMessagePartTokenSlice(
-#                         message=message,
-#                         part=part,
-#                         start=part_start,
-#                         end=part_end,
-#                     ),
-#                 )
-#                 # Continue searching after this part
-#                 part_search_start = part_end - msg_start
-#             else:
-#                 print(f"Warning: Could not find part text '{part_text[:50]}...' in message tokens")
+        # Add message slice
+        slices.append(
+            TokenSlice(
+                start=msg_start,
+                end=msg_end,
+                type="message",
+                obj=message,
+                metadata=msg_metadata,
+            ),
+        )
 
-#     # Continue searching after this message
-#     search_start = msg_end
+        # Find parts within this message
+        message_tokens = chat_tokens[msg_start:msg_end]
+        part_search_start = 0
 
-# print(slices)
+        # Process message slices in order
+        for slice_ in message.slices:
+            part_text = message.content[slice_.slice_]
+            part_match = find_in_tokens(
+                part_text,
+                message_tokens,
+                decoder,
+                msg_start,
+                part_search_start,
+            )
+            if not part_match:
+                warnings.warn(
+                    f"Warning: Could not find part '{part_text[:50]}...' in message tokens",
+                    TokenizeWarning,
+                    stacklevel=2,
+                )
+                continue
+
+            part_start, part_end = part_match
+            slices.append(
+                TokenSlice(
+                    start=part_start,
+                    end=part_end,
+                    type=slice_.type,
+                    obj=slice_.obj,
+                    metadata=slice_.metadata,
+                ),
+            )
+
+            # Continue searching after this part
+            part_search_start = part_end - msg_start
+
+        # Continue searching after this message
+        search_start = msg_end
+
+    return TokenizedChat(
+        text=chat_text,
+        tokens=chat_tokens,
+        slices=slices,
+        obj=chat,
+    )

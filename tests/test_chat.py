@@ -28,7 +28,7 @@ def test_message_initialization() -> None:
     msg = Message("user", "Hello, world!")
     assert msg.role == "user"
     assert msg.content == "Hello, world!"
-    assert len(msg.parts) == 0
+    assert len(msg.slices) == 0
 
 
 def test_message_from_dict() -> None:
@@ -49,13 +49,13 @@ def test_message_str_representation() -> None:
     assert str(msg) == "[assistant]: I am an AI assistant."
 
 
-def test_message_content_update_strips_parts() -> None:
+def test_message_content_update_strips_slices() -> None:
     msg = Message("user", "<example>test</example>")
     msg.parse(Example)
-    assert len(msg.parts) == 1
+    assert len(msg.slices) == 1
 
     msg.content = "new content"
-    assert len(msg.parts) == 0
+    assert len(msg.slices) == 0
     assert msg.content == "new content"
 
 
@@ -70,10 +70,10 @@ def test_message_apply_template() -> None:
 def test_message_strip_model() -> None:
     msg = Message("user", "Some early content.<example>test</example><example>test2</example>")
     msg.parse_set(Example)
-    assert len(msg.parts) == 2
+    assert len(msg.slices) == 2
 
-    msg.strip(Example, fail_on_missing=True)
-    assert len(msg.parts) == 0
+    msg.strip(Example)
+    assert len(msg.slices) == 0
     assert msg.content == "Some early content."
 
 
@@ -87,8 +87,8 @@ def test_message_parse_model() -> None:
 def test_message_restructure() -> None:
     msg = Message("user", "<example   >test</example>")
     msg.parse(Example)
-    assert len(msg.parts) == 1
-    assert msg.content == "<example>test</example>"
+    assert len(msg.slices) == 1
+    assert msg.content == "<example   >test</example>"
 
 
 def test_message_parse_set_min() -> None:
@@ -110,7 +110,7 @@ def test_message_from_model() -> None:
     assert msg.role == "assistant"
     assert "<example>test</example>" in msg.content
     assert "Additional text" in msg.content
-    assert len(msg.parts) == 1
+    assert len(msg.slices) == 1
 
 
 def test_messages_fit_list() -> None:
@@ -316,9 +316,9 @@ def test_chat_continue_maintains_parsed_models() -> None:
 
     continued = chat.continue_([Message("user", "Additional message")]).chat
 
-    assert len(continued.all[0].parts) == 1
-    assert len(continued.all[1].parts) == 1
-    assert len(continued.all[2].parts) == 0
+    assert len(continued.all[0].slices) == 1
+    assert len(continued.all[1].slices) == 1
+    assert len(continued.all[2].slices) == 0
 
 
 def test_chat_pipeline_meta() -> None:
@@ -340,28 +340,6 @@ def test_chat_pipeline_with() -> None:
     assert with_pipeline_2.params is not None
     assert with_pipeline_2.params.max_tokens == 123
     assert with_pipeline_2.params.top_p == 0.5
-
-
-def test_chat_strip() -> None:
-    chat = Chat(
-        [
-            Message("user", "<person name='John'>30</person>"),
-            Message(
-                "assistant",
-                "<address><street>123 Main St</street><city>Anytown</city></address>",
-            ),
-        ],
-    )
-
-    assert len(chat) == 2
-
-    chat.all[0].parse(Person)
-    chat.all[1].parse(Address)
-
-    stripped = chat.strip(Address)
-
-    assert len(stripped.all[0].parts) == 1
-    assert len(stripped.all[1].parts) == 0
 
 
 def test_chat_serialize() -> None:
@@ -391,7 +369,7 @@ def test_double_parse() -> None:
     msg.parse(Person)
     msg.parse(Person)
 
-    assert len(msg.parts) == 1
+    assert len(msg.slices) == 1
 
 
 def test_double_parse_set() -> None:
@@ -403,8 +381,8 @@ def test_double_parse_set() -> None:
     msg.parse_set(Person)
     msg.parse_set(Person)
 
-    assert len(msg.content) != existing_len
-    assert len(msg.parts) == 3
+    assert len(msg.content) == existing_len
+    assert len(msg.slices) == 3
 
 
 def test_message_dedent() -> None:

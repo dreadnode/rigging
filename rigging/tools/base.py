@@ -13,6 +13,7 @@ from functools import cached_property
 
 import typing_extensions as te
 from pydantic import BaseModel, TypeAdapter, ValidationError, field_validator
+from pydantic_xml import attr
 
 from rigging.error import Stop, ToolDefinitionError, ToolWarning
 from rigging.model import (
@@ -21,10 +22,6 @@ from rigging.model import (
     SystemErrorModel,
     make_from_schema,
     make_from_signature,
-)
-from rigging.tools.native import (
-    JsonInXmlToolDefinition,
-    XmlToolDefinition,
 )
 from rigging.tracing import tracer
 from rigging.util import deref_json
@@ -37,14 +34,16 @@ TOOL_STOP_TAG = "rg-stop"
 P = t.ParamSpec("P")
 R = t.TypeVar("R")
 
-ToolMode = t.Literal["auto", "api", "xml", "json-in-xml"]
+ToolMode = t.Literal["auto", "api", "xml", "json", "json-in-xml", "json-with-tag"]
 """
 How tool calls are handled.
 
-- `auto`: The method is chosed based on support (api w/ fallback to json-in-xml).
+- `auto`: The method is chosen based on support (api w/ fallback to json-in-xml).
 - `api`: Tool calls are delegated to api-provided function calling.
-- `xml`: Tool calls are parsed in nested XML format.
-- `json-in-xml`: Tool calls are parsed as raw JSON inside XML tags.
+- `xml`: Tool calls are parsed in a nested XML format which is native to Rigging.
+- `json`: Tool calls are parsed as raw name/arg JSON anywhere in assistant message content.
+- `json-in-xml`: Tool calls are parsed using JSON for arguments, and XML for everything else.
+- `json-with-tag`: Tool calls are parsed as name/arg JSON structures inside an XML tag to identify it.
 """
 
 
@@ -118,6 +117,11 @@ class ToolCall(BaseModel):
     @property
     def arguments(self) -> str:
         return self.function.arguments
+
+
+class ToolResponse(Model):
+    id: str = attr(default="")
+    result: str
 
 
 def _is_unbound_method(func: t.Any) -> bool:
@@ -289,7 +293,12 @@ class Tool(t.Generic[P, R]):
         return self
 
     @cached_property
-    def api_definition(self) -> ToolDefinition:
+    def definition(self) -> ToolDefinition:
+        """
+        Returns the tool definition for this tool.
+        This is used for API calls and should be used
+        to construct the tool call in the generator.
+        """
         return ToolDefinition(
             function=FunctionDefinition(
                 name=self.name,
@@ -297,6 +306,10 @@ class Tool(t.Generic[P, R]):
                 parameters=self.parameters_schema,
             ),
         )
+
+    @cached_property
+    def api_definition(self) -> ToolDefinition:
+        return self.definition
 
     @property
     def model(self) -> type[Model]:
@@ -320,22 +333,6 @@ class Tool(t.Generic[P, R]):
                     "This is likely due to constraints on arguments when the `xml` tool mode is used.",
                 ) from e
         return self._model
-
-    @cached_property
-    def xml_definition(self) -> XmlToolDefinition:
-        return XmlToolDefinition.from_parameter_model(
-            self.model,
-            self.name,
-            self.description,
-        )
-
-    @cached_property
-    def json_definition(self) -> JsonInXmlToolDefinition:
-        return JsonInXmlToolDefinition(
-            name=self.name,
-            description=self.description,
-            parameters=json.dumps(self.parameters_schema),
-        )
 
     async def handle_tool_call(  # noqa: PLR0912
         self,

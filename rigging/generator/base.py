@@ -248,6 +248,15 @@ class GenerateParams(BaseModel):
             params.update(params.pop("extra"))
         return params
 
+    def clone(self) -> "GenerateParams":
+        """
+        Create a copy of the current parameters instance.
+
+        Returns:
+            A new instance of GenerateParams with the same values.
+        """
+        return self.model_copy(deep=True)
+
 
 StopReason = t.Literal["stop", "length", "content_filter", "tool_calls", "unknown"]
 """Reporting reason for generation completing."""

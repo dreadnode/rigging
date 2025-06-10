@@ -183,29 +183,16 @@ class Model(BaseXmlModel):
         **kwargs: t.Any,
     ) -> str:
         """
-                Serializes the object to an xml string.
+        Serializes the object to an xml string.
 
-        <<<<<<< HEAD
-                Args:
-                    skip_empty: skip empty elements (elements without sub-elements, attributes and text, Nones)
-                    exclude_none: exclude `None` values
-                    exclude_unset: exclude values that haven't been explicitly set
-                    kwargs: additional xml serialization arguments
-        =======
-                with contextlib.suppress(ET.ParseError):
-                    tree = ET.fromstring(pretty_encoded_xml)  # noqa: S314 # nosec
-                    ET.indent(tree, "  ")
-                    pretty_encoded_xml = str(
-                        ET.tostring(
-                            tree,
-                            short_empty_elements=False,
-                            encoding="utf-8",
-                        ).decode(),
-                    )
-        >>>>>>> origin/main
+        Args:
+            skip_empty: skip empty elements (elements without sub-elements, attributes and text, Nones)
+            exclude_none: exclude `None` values
+            exclude_unset: exclude values that haven't been explicitly set
+            kwargs: additional xml serialization arguments
 
-                Returns:
-                    object xml representation
+        Returns:
+            object xml representation
         """
 
         tree = self.to_xml_tree(

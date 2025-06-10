@@ -44,9 +44,15 @@ from rigging.message import (
 )
 from rigging.model import Model, ModelT, SystemErrorModel, ValidationErrorModel
 from rigging.tools.base import Tool, ToolCall, ToolChoice, ToolMode
-from rigging.tools.native import DEFAULT_NATIVE_TOOL_MODE
 from rigging.tracing import Span, tracer
-from rigging.transform import PostTransform, Transform, make_native_tool_transform
+from rigging.transform import (
+    PostTransform,
+    Transform,
+    make_tools_to_xml_transform,
+    tools_to_json_in_xml_transform,
+    tools_to_json_transform,
+    tools_to_json_with_tag_transform,
+)
 from rigging.util import flatten_list, get_qualified_name
 
 if t.TYPE_CHECKING:
@@ -216,13 +222,7 @@ class Chat(BaseModel):
         Returns:
             The MessageDict list
         """
-        return [
-            t.cast(
-                "MessageDict",
-                m.model_dump(include={"role", "content_parts"}, exclude_none=True),
-            )
-            for m in self.all
-        ]
+        return [t.cast("MessageDict", m.to_openai()) for m in self.all]
 
     def meta(self, **kwargs: t.Any) -> "Chat":
         """
@@ -348,22 +348,6 @@ class Chat(BaseModel):
         self.generated = Message.apply_to_list(self.generated, **kwargs)
         return self
 
-    def strip(self, model_type: type[Model], fail_on_missing: bool = False) -> "Chat":  # noqa: FBT001, FBT002 (historical)
-        """
-        Strips all parsed parts of a particular type from the message content.
-
-        Args:
-            model_type: The type of model to keep in the chat.
-            fail_on_missing: Whether to raise an exception if a message of the specified model type is not found.
-
-        Returns:
-            A new chat with only the messages of the specified model type.
-        """
-        new = self.clone()
-        for message in new.all:
-            message.strip(model_type, fail_on_missing=fail_on_missing)
-        return new
-
     def inject_system_content(self, content: str) -> "Chat":
         """
         Injects content into the chat as a system message.
@@ -445,7 +429,9 @@ class Chat(BaseModel):
         Returns:
             A new chat with the transform applied to its messages and parameters.
         """
-        messages, params, _ = await transform(self.messages, self.params or GenerateParams())
+        messages = [m.clone() for m in self.messages]
+        params = self.params.clone() if self.params else GenerateParams()
+        messages, params, _ = await transform(self.messages, params)
         new = self.clone()
         new.messages = messages
         new.params = params
@@ -1198,10 +1184,10 @@ class ChatPipeline:
 
         Args:
             *tools: The tools to be added to the pipeline.
-            mode: The tool calling mode to use (e.g., "xml", "json-in-xml", "api") - default is "auto".
+            mode: The tool calling mode to use (e.g., "xml", "json-with-tag", "json-in-xml", "api") - default is "auto".
             choice: The API tool choice to use. This is only relevant when using the "api" tool mode.
             max_depth: The maximum depth for recursive tool calls (this is shared between all tools).
-            add_stop_token: When using natively parsed tools ("xml", "json-in-xml"), use stop tokens to
+            add_stop_token: When using "xml" tool transforms, use stop tokens to
                 immediately process a tool call when observed.
 
         Returns:
@@ -1500,26 +1486,32 @@ class ChatPipeline:
 
         if self.tool_mode == "auto" and self.tools:
             self.tool_mode = (
-                "api"
-                if await self.generator.supports_function_calling()
-                else DEFAULT_NATIVE_TOOL_MODE
+                "api" if await self.generator.supports_function_calling() else "json-in-xml"
             )
 
         # Transform callbacks (pre)
 
         transforms = self.transforms
 
-        # If we are using native parsing, add the transform here
-        # as we need our latest tool states to properly build it
+        # If we are using tool parsing, add the transform here
+        # as we need our latest tool states for XML
+        # TODO: We don't need everything this early
 
-        if self.tools and self.tool_mode in ["xml", "json-in-xml"]:
-            transforms.append(
-                make_native_tool_transform(
-                    self.tools,
-                    self.tool_mode,
-                    add_tool_stop_token=self.add_tool_stop_token,
-                ),
-            )
+        if self.tools:
+            match self.tool_mode:
+                case "xml":
+                    transforms.append(
+                        make_tools_to_xml_transform(
+                            self.tools,
+                            add_tool_stop_token=self.add_tool_stop_token,
+                        ),
+                    )
+                case "json-in-xml":
+                    transforms.append(tools_to_json_in_xml_transform)
+                case "json-with-tag":
+                    transforms.append(tools_to_json_with_tag_transform)
+                case "json":
+                    transforms.append(tools_to_json_transform)
 
         post_transforms: list[list[PostTransform | None]] = []
         for i, (_messages, _params) in enumerate(zip(messages, params, strict=True)):

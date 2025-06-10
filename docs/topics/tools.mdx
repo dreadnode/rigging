@@ -167,6 +167,8 @@ The `mode` parameter in `.using()` controls how Rigging interacts with the langu
 -  **`api`:** Forces the use of the provider's function calling API. Will fail if the provider doesn't support it.
 -  **`xml`:** Rigging injects instructions and an XML schema into the prompt, telling the model how to format its output to request a tool call using specific XML tags. Rigging parses this XML.
 -  **`json-in-xml`:** Similar to `xml`, but the model is instructed to place a JSON object containing the arguments within the XML tags.
+-  **`json-with-tag`:** Similar to `json`, but the JSON object is wrapped in a specific tag (e.g., `<tool_call>`).
+-  **`json`:** The model is instructed to output tool calls as raw JSON anywhere in the message content with `name` and `arguments` fields
 
 Generally, `auto` is recommended as it leverages the most efficient method available.
 

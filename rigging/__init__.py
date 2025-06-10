@@ -1,4 +1,15 @@
-from rigging import data, error, generator, logging, model, parsing, tools, transform, watchers
+from rigging import (
+    data,
+    error,
+    generator,
+    logging,
+    model,
+    parsing,
+    tokenize,
+    tools,
+    transform,
+    watchers,
+)
 from rigging.chat import (
     Chat,
     ChatPipeline,
@@ -86,6 +97,7 @@ __all__ = [
     "prompt",
     "register_generator",
     "robopages",
+    "tokenize",
     "tool",
     "tool_method",
     "tools",

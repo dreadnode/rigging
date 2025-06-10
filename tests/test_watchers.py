@@ -48,7 +48,9 @@ async def test_write_chats_to_jsonl(tmp_path: Path, sample_chats: list[Chat]) ->
             original_chat = sample_chats[i]
             for k, message in enumerate(saved_chat["messages"]):
                 assert message["role"] == original_chat.messages[k].role
-                assert message["content"] == original_chat.messages[k].content
+                assert message["content"] == [
+                    {"text": original_chat.messages[k].content, "type": "text"},
+                ]
 
 
 @pytest.mark.asyncio
@@ -88,7 +90,9 @@ async def test_write_chats_to_jsonl_replace(tmp_path: Path, sample_chats: list[C
         original_chat = sample_chats[0]
         for k, message in enumerate(saved_chat["messages"]):
             assert message["role"] == original_chat.messages[k].role
-            assert message["content"] == original_chat.messages[k].content
+            assert message["content"] == [
+                {"text": original_chat.messages[k].content, "type": "text"},
+            ]
 
     # write another chat - should append since already replaced once
     await watcher2(sample_chats[1:2])
@@ -103,7 +107,9 @@ async def test_write_chats_to_jsonl_replace(tmp_path: Path, sample_chats: list[C
             original_chat = sample_chats[i]
             for j, message in enumerate(saved_chat["messages"]):
                 assert message["role"] == original_chat.messages[j].role
-                assert message["content"] == original_chat.messages[j].content
+                assert message["content"] == [
+                    {"text": original_chat.messages[j].content, "type": "text"},
+                ]
 
 
 class MockS3Client:
