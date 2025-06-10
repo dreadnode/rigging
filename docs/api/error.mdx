@@ -126,6 +126,14 @@ step = step
 
 The pipeline step which cause the depth error.
 
+MessageWarning
+--------------
+
+Base class for all message warnings.
+
+This is used to indicate that something unexpected happened during the message processing,
+but it is not critical enough to stop the execution.
+
 MessagesExhaustedMaxRoundsError
 -------------------------------
 
@@ -173,6 +181,14 @@ def __init__(self, content: str):
 
 
 </Accordion>
+
+PipelineWarning
+---------------
+
+Base class for all pipeline warnings.
+
+This is used to indicate that something unexpected happened during the pipeline execution,
+but it is not critical enough to stop the execution.
 
 ProcessingError
 ---------------
@@ -237,6 +253,14 @@ message = message
 
 The message associated with the stop.
 
+TokenizeWarning
+---------------
+
+Base class for all tokenization warnings.
+
+This is used to indicate that something unexpected happened during the tokenization process,
+but it is not critical enough to stop the execution.
+
 ToolDefinitionError
 -------------------
 
@@ -254,6 +278,14 @@ def __init__(self, message: str):
 
 
 </Accordion>
+
+ToolWarning
+-----------
+
+Base class for all tool warnings.
+
+This is used to indicate that something unexpected happened during the tool execution,
+but it is not critical enough to stop the execution.
 
 UnknownToolError
 ----------------

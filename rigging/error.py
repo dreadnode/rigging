@@ -43,6 +43,45 @@ class Stop(Exception):  # noqa: N818
         """The message associated with the stop."""
 
 
+# Warnings
+
+
+class PipelineWarning(Warning):
+    """
+    Base class for all pipeline warnings.
+
+    This is used to indicate that something unexpected happened during the pipeline execution,
+    but it is not critical enough to stop the execution.
+    """
+
+
+class ToolWarning(Warning):
+    """
+    Base class for all tool warnings.
+
+    This is used to indicate that something unexpected happened during the tool execution,
+    but it is not critical enough to stop the execution.
+    """
+
+
+class MessageWarning(Warning):
+    """
+    Base class for all message warnings.
+
+    This is used to indicate that something unexpected happened during the message processing,
+    but it is not critical enough to stop the execution.
+    """
+
+
+class TokenizeWarning(Warning):
+    """
+    Base class for all tokenization warnings.
+
+    This is used to indicate that something unexpected happened during the tokenization process,
+    but it is not critical enough to stop the execution.
+    """
+
+
 # System Exceptions
 
 

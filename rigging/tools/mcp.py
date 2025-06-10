@@ -15,7 +15,7 @@ from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
 from mcp.types import CallToolResult, TextResourceContents
 
-from rigging.tool.base import Tool
+from rigging.tools.base import Tool
 
 if t.TYPE_CHECKING:
     from rigging.message import Content
@@ -129,7 +129,9 @@ class MCPClient:
                     t.cast("StdioConnection", self.connection),
                 )
             elif self.transport == "sse":
-                self._session = await self._connect_via_sse(t.cast("SSEConnection", self.connection))
+                self._session = await self._connect_via_sse(
+                    t.cast("SSEConnection", self.connection),
+                )
             else:
                 raise TypeError(  # noqa: TRY301
                     f"Unsupported transport: {self.transport}. Must be 'stdio' or 'sse'",

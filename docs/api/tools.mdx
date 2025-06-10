@@ -1,0 +1,694 @@
+---
+title: rigging.tools
+---
+
+{/*
+::: rigging.tools.base
+::: rigging.tools.mcp
+::: rigging.tools.robopages
+*/}
+
+Core types and functions for defining tools and handling tool calls.
+
+ToolMode
+--------
+
+```python
+ToolMode = Literal[
+    "auto",
+    "api",
+    "xml",
+    "json",
+    "json-in-xml",
+    "json-with-tag",
+]
+```
+
+How tool calls are handled.
+
+* `auto`: The method is chosen based on support (api w/ fallback to json-in-xml).
+* `api`: Tool calls are delegated to api-provided function calling.
+* `xml`: Tool calls are parsed in a nested XML format which is native to Rigging.
+* `json`: Tool calls are parsed as raw name/arg JSON anywhere in assistant message content.
+* `json-in-xml`: Tool calls are parsed using JSON for arguments, and XML for everything else.
+* `json-with-tag`: Tool calls are parsed as name/arg JSON structures inside an XML tag to identify it.
+
+Tool
+----
+
+```python
+Tool(
+    name: str,
+    description: str,
+    parameters_schema: dict[str, Any],
+    fn: Callable[P, R],
+    catch: bool | set[type[Exception]] = False,
+    truncate: int | None = None,
+)
+```
+
+Base class for representing a tool to a generator.
+
+### catch
+
+```python
+catch: bool | set[type[Exception]] = False
+```
+
+Whether to catch exceptions and return them as messages.
+
+* `False`: Do not catch exceptions.
+* `True`: Catch all exceptions.
+* `set[type[Exception]]`: Catch only the specified exceptions.
+
+### definition
+
+```python
+definition: ToolDefinition
+```
+
+Returns the tool definition for this tool.
+This is used for API calls and should be used
+to construct the tool call in the generator.
+
+### description
+
+```python
+description: str
+```
+
+A description of the tool.
+
+### fn
+
+```python
+fn: Callable[P, R]
+```
+
+The function to call.
+
+### name
+
+```python
+name: str
+```
+
+The name of the tool.
+
+### parameters\_schema
+
+```python
+parameters_schema: dict[str, Any]
+```
+
+The JSON schema for the tool's parameters.
+
+### truncate
+
+```python
+truncate: int | None = None
+```
+
+If set, the maximum number of characters to truncate any tool output to.
+
+### handle\_tool\_call
+
+```python
+handle_tool_call(
+    tool_call: ToolCall,
+) -> tuple[Message, bool]
+```
+
+Handle an incoming tool call from a generator.
+
+**Parameters:**
+
+* **`tool_call`**
+  (`ToolCall`)
+  –The tool call to handle.
+
+**Returns:**
+
+* `Message`
+  –A tuple containing the message to send back to the generator and a
+* `bool`
+  –boolean indicating whether tool calling should stop.
+
+<Accordion title="Source code in rigging/tools/base.py" icon="code">
+```python
+async def handle_tool_call(  # noqa: PLR0912
+    self,
+    tool_call: ToolCall,
+) -> tuple["Message", bool]:
+    """
+    Handle an incoming tool call from a generator.
+
+    Args:
+        tool_call: The tool call to handle.
+
+    Returns:
+        A tuple containing the message to send back to the generator and a
+        boolean indicating whether tool calling should stop.
+    """
+
+    from rigging.message import ContentText, ContentTypes, Message
+
+    with tracer.span(f"Tool {self.name}()", name=self.name) as span:
+        if tool_call.name != self.name:
+            warnings.warn(
+                f"Tool call name mismatch: {tool_call.name} != {self.name}",
+                ToolWarning,
+                stacklevel=2,
+            )
+            return Message.from_model(SystemErrorModel(content="Invalid tool call.")), True
+
+        if hasattr(tool_call, "id") and isinstance(tool_call.id, str):
+            span.set_attribute("tool_call_id", tool_call.id)
+
+        result: t.Any
+        stop = False
+
+        # Load + validate arguments
+
+        try:
+            kwargs = json.loads(tool_call.function.arguments)
+            if self._type_adapter is not None:
+                kwargs = self._type_adapter.validate_python(kwargs)
+            span.set_attribute("arguments", kwargs)
+        except (json.JSONDecodeError, ValidationError) as e:
+            result = ErrorModel.from_exception(e)
+
+        # Call the function
+
+        else:
+            try:
+                result = self.fn(**kwargs)  # type: ignore [call-arg]
+                if inspect.isawaitable(result):
+                    result = await result
+            except Stop as e:
+                result = f"<{TOOL_STOP_TAG}>{e.message}</{TOOL_STOP_TAG}>"
+                span.set_attribute("stop", True)
+                stop = True
+            except Exception as e:
+                if self.catch is True or (
+                    not isinstance(self.catch, bool) and isinstance(e, tuple(self.catch))
+                ):
+                    result = ErrorModel.from_exception(e)
+                else:
+                    raise
+
+        span.set_attribute("result", result)
+
+    message = Message(role="tool", tool_call_id=tool_call.id)
+
+    # If the tool gave us back anything that looks like a message, we'll
+    # just pass it along. Otherwise we need to box up the result.
+
+    if isinstance(result, Message):
+        message.content_parts = result.content_parts
+    elif isinstance(result, ContentTypes):
+        message.content_parts = [result]
+    elif (
+        isinstance(result, list)
+        and result
+        and all(isinstance(item, ContentTypes) for item in result)
+    ):
+        message.content_parts = result
+    else:
+        message.content_parts = [ContentText(text=str(result))]
+
+    if self.truncate:
+        message = message.truncate(self.truncate)
+
+    return message, stop
+```
+
+
+</Accordion>
+
+ToolMethod
+----------
+
+```python
+ToolMethod(
+    name: str,
+    description: str,
+    parameters_schema: dict[str, Any],
+    fn: Callable[P, R],
+    catch: bool | set[type[Exception]] = False,
+    truncate: int | None = None,
+)
+```
+
+A Tool wrapping a class method.
+
+tool
+----
+
+```python
+tool(
+    func: None = None,
+    /,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    catch: bool | Iterable[type[Exception]] = False,
+    truncate: int | None = None,
+) -> t.Callable[[t.Callable[P, R]], Tool[P, R]]
+```
+
+```python
+tool(func: Callable[P, R]) -> Tool[P, R]
+```
+
+```python
+tool(
+    func: Callable[P, R] | None = None,
+    /,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    catch: bool | Iterable[type[Exception]] = False,
+    truncate: int | None = None,
+) -> (
+    t.Callable[[t.Callable[P, R]], Tool[P, R]] | Tool[P, R]
+)
+```
+
+Decorator for creating a Tool, useful for overriding a name or description.
+
+**Parameters:**
+
+* **`func`**
+  (`Callable[P, R] | None`, default:
+  `None`
+  )
+  –The function to wrap.
+* **`name`**
+  (`str | None`, default:
+  `None`
+  )
+  –The name of the tool.
+* **`description`**
+  (`str | None`, default:
+  `None`
+  )
+  –The description of the tool.
+* **`catch`**
+  (`bool | Iterable[type[Exception]]`, default:
+  `False`
+  )
+  –Whether to catch exceptions and return them as messages.
+  - `False`: Do not catch exceptions.
+  - `True`: Catch all exceptions.
+  - `list[type[Exception]]`: Catch only the specified exceptions.
+* **`truncate`**
+  (`int | None`, default:
+  `None`
+  )
+  –If set, the maximum number of characters to truncate any tool output to.
+
+**Returns:**
+
+* `Callable[[Callable[P, R]], Tool[P, R]] | Tool[P, R]`
+  –The decorated Tool object.
+
+Example
+
+```python
+@tool(name="add_numbers", description="This is my tool")
+def add(x: int, y: int) -> int:
+    return x + y
+```
+
+
+<Accordion title="Source code in rigging/tools/base.py" icon="code">
+```python
+def tool(
+    func: t.Callable[P, R] | None = None,
+    /,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    catch: bool | t.Iterable[type[Exception]] = False,
+    truncate: int | None = None,
+) -> t.Callable[[t.Callable[P, R]], Tool[P, R]] | Tool[P, R]:
+    """
+    Decorator for creating a Tool, useful for overriding a name or description.
+
+    Args:
+        func: The function to wrap.
+        name: The name of the tool.
+        description: The description of the tool.
+        catch: Whether to catch exceptions and return them as messages.
+            - `False`: Do not catch exceptions.
+            - `True`: Catch all exceptions.
+            - `list[type[Exception]]`: Catch only the specified exceptions.
+        truncate: If set, the maximum number of characters to truncate any tool output to.
+
+    Returns:
+        The decorated Tool object.
+
+    Example:
+        ~~~
+        @tool(name="add_numbers", description="This is my tool")
+        def add(x: int, y: int) -> int:
+            return x + y
+        ~~~
+    """
+
+    def make_tool(func: t.Callable[..., t.Any]) -> Tool[P, R]:
+        # TODO: Improve consistency of detection here before enabling this warning
+        # if _is_unbound_method(func):
+        #     warnings.warn(
+        #         "Passing a class method to @tool improperly handles the 'self' argument, use @tool_method instead.",
+        #         SyntaxWarning,
+        #         stacklevel=3,
+        #     )
+
+        return Tool.from_callable(
+            func,
+            name=name,
+            description=description,
+            catch=catch,
+            truncate=truncate,
+        )
+
+    if func is not None:
+        return make_tool(func)
+
+    return make_tool
+```
+
+
+</Accordion>
+
+tool\_method
+------------
+
+```python
+tool_method(
+    func: None = None,
+    /,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    catch: bool | Iterable[type[Exception]] = False,
+    truncate: int | None = None,
+) -> t.Callable[
+    [t.Callable[t.Concatenate[t.Any, P], R]],
+    ToolMethod[P, R],
+]
+```
+
+```python
+tool_method(
+    func: Callable[Concatenate[Any, P], R],
+) -> ToolMethod[P, R]
+```
+
+```python
+tool_method(
+    func: Callable[Concatenate[Any, P], R] | None = None,
+    /,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    catch: bool | Iterable[type[Exception]] = False,
+    truncate: int | None = None,
+) -> (
+    t.Callable[
+        [t.Callable[t.Concatenate[t.Any, P], R]],
+        ToolMethod[P, R],
+    ]
+    | ToolMethod[P, R]
+)
+```
+
+Decorator for creating a Tool from a class method.
+
+The tool produced from this method will be incomplete until it is called
+from an instantiated class. If you don't require any active state from
+a `self` argument, consider wrapping a method first with `@staticmethod`
+and then using `@tool` to create a tool from it.
+
+See `@tool` for more details.
+
+Example
+
+```python
+class Thing:
+    delta: int = 5
+
+    # Use @tool_method to create a tool from a class method with a `self` argument.
+    @tool_method(name="add_numbers_with_delta", description="This is my tool")
+    def delta_add(self, x: int, y: int) -> int:
+        return x + y + self.delta
+
+    # Use @staticmethod + @tool to avoid the 'self' argument altogether
+    @tool(name="add_numbers", description="This is my tool")
+    @staticmethod
+    def static_add(x: int, y: int) -> int:
+        return x + y
+```
+
+
+<Accordion title="Source code in rigging/tools/base.py" icon="code">
+```python
+def tool_method(
+    func: t.Callable[t.Concatenate[t.Any, P], R] | None = None,
+    /,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    catch: bool | t.Iterable[type[Exception]] = False,
+    truncate: int | None = None,
+) -> t.Callable[[t.Callable[t.Concatenate[t.Any, P], R]], ToolMethod[P, R]] | ToolMethod[P, R]:
+    """
+    Decorator for creating a Tool from a class method.
+
+    The tool produced from this method will be incomplete until it is called
+    from an instantiated class. If you don't require any active state from
+    a `self` argument, consider wrapping a method first with `@staticmethod`
+    and then using `@tool` to create a tool from it.
+
+    See `@tool` for more details.
+
+    Example:
+        ~~~
+        class Thing:
+            delta: int = 5
+
+            # Use @tool_method to create a tool from a class method with a `self` argument.
+            @tool_method(name="add_numbers_with_delta", description="This is my tool")
+            def delta_add(self, x: int, y: int) -> int:
+                return x + y + self.delta
+
+            # Use @staticmethod + @tool to avoid the 'self' argument altogether
+            @tool(name="add_numbers", description="This is my tool")
+            @staticmethod
+            def static_add(x: int, y: int) -> int:
+                return x + y
+        ~~~
+    """
+
+    def make_tool(func: t.Callable[..., t.Any]) -> ToolMethod[P, R]:
+        # TODO: Improve consistency of detection here before enabling this warning
+        # if not _is_unbound_method(func):
+        #     warnings.warn(
+        #         "Passing a regular function to @tool_method improperly handles the 'self' argument, use @tool instead.",
+        #         SyntaxWarning,
+        #         stacklevel=3,
+        #     )
+
+        # Strip the `self` argument from the function signature so
+        # our schema generation doesn't include it under the hood.
+
+        @functools.wraps(func)
+        def wrapper(self: t.Any, *args: P.args, **kwargs: P.kwargs) -> R:
+            return func(self, *args, **kwargs)  # type: ignore [no-any-return]
+
+        wrapper.__signature__ = inspect.signature(func).replace(  # type: ignore [attr-defined]
+            parameters=tuple(
+                param
+                for param in inspect.signature(func).parameters.values()
+                if param.name != "self"
+            ),
+        )
+
+        return ToolMethod.from_callable(
+            wrapper,  # type: ignore [arg-type]
+            name=name,
+            description=description,
+            catch=catch,
+            truncate=truncate,
+        )
+
+    if func is not None:
+        return make_tool(func)
+
+    return make_tool
+```
+
+
+</Accordion>
+Utilities for communicating with MCP servers.
+
+MCPClient
+---------
+
+```python
+MCPClient(
+    transport: Transport,
+    connection: StdioConnection | SSEConnection,
+)
+```
+
+A client for communicating with MCP servers.
+
+<Accordion title="Source code in rigging/tools/mcp.py" icon="code">
+```python
+def __init__(self, transport: Transport, connection: StdioConnection | SSEConnection) -> None:
+    self.transport = transport
+    self.connection = connection
+    self.tools = []
+    self._exit_stack = AsyncExitStack()
+    self._session: ClientSession | None = None
+```
+
+
+</Accordion>
+
+### connection
+
+```python
+connection: StdioConnection | SSEConnection = connection
+```
+
+Connection configuration
+
+### tools
+
+```python
+tools: list[Tool[..., Any]] = []
+```
+
+A list of tools available on the server
+
+### transport
+
+```python
+transport: Transport = transport
+```
+
+The transport to use
+Utilities for integrating tools from a Robopages server.
+
+robopages
+---------
+
+```python
+robopages(
+    url: str, *, name_filter: str | None = None
+) -> list[Tool[..., t.Any]]
+```
+
+Create a list of tools from a Robopages server.
+
+**Parameters:**
+
+* **`url`**
+  (`str`)
+  –The URL of the Robopages server.
+* **`name_filter`**
+  (`str | None`, default:
+  `None`
+  )
+  –A regular expression to filter the tools by name.
+
+**Returns:**
+
+* `list[Tool[..., Any]]`
+  –A list of integrated tools which leverage the Robopages server.
+
+Example
+
+```python
+import rigging as rg
+
+tools = rg.tool.robopages("http://localhost:8080")
+
+chat = (
+    await rg.get_generator('gpt-4o')
+    .chat('Please use tools')
+    .using(*tools)
+    .run()
+)
+
+print(chat.conversation)
+```
+
+
+<Accordion title="Source code in rigging/tools/robopages.py" icon="code">
+```python
+def robopages(url: str, *, name_filter: str | None = None) -> list[Tool[..., t.Any]]:
+    """
+    Create a list of tools from a Robopages server.
+
+    Args:
+        url: The URL of the Robopages server.
+        name_filter: A regular expression to filter the tools by name.
+
+    Returns:
+        A list of integrated tools which leverage the Robopages server.
+
+    Example:
+        ~~~
+        import rigging as rg
+
+        tools = rg.tool.robopages("http://localhost:8080")
+
+        chat = (
+            await rg.get_generator('gpt-4o')
+            .chat('Please use tools')
+            .using(*tools)
+            .run()
+        )
+
+        print(chat.conversation)
+        ~~~
+    """
+
+    filter_regex = re.compile(name_filter) if name_filter else None
+
+    response = requests.get(url, params={"flavor": "openai"}, timeout=DEFAULT_HTTP_TIMEOUT)
+    response.raise_for_status()
+    tools_data = response.json()
+
+    adapter = TypeAdapter(list[ToolDefinition])
+    tool_definitions = adapter.validate_python(tools_data)
+
+    logger.info(f"Fetched {len(tool_definitions)} functions from Robopages ({url})")
+
+    tools: list[Tool[..., t.Any]] = []
+    for definition in tool_definitions:
+        function = definition.function
+
+        if filter_regex and not filter_regex.search(function.name):
+            logger.debug(f"Skipping function {function.name}")
+            continue
+
+        tools.append(
+            Tool(
+                function.name,
+                function.description or "",
+                function.parameters or {},
+                make_execute_on_server(url, function.name),
+            ),
+        )
+
+    return tools
+```
+
+
+</Accordion>

@@ -18,7 +18,7 @@ rg.logging.configure_logging("debug")
 
 
 async def main():
-    tools = rg.integrations.robopages("http://localhost:8000")
+    tools = rg.robopages("http://localhost:8000")
     chat = await rg.get_generator("gpt-4").chat(SYSTEM_PROMPT).using(*tools).run()
     print(chat.conversation)
 

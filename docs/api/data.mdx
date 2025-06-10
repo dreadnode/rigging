@@ -371,7 +371,7 @@ def elastic_data_to_chats(
         # here as we aren't bonded to the underlying rg.Model
         # which was the original object. Skipping for now.
         for msg in chat.all:
-            msg.parts = []
+            msg.slices = []
 
         chats.append(chat)
 

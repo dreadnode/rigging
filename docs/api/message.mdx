@@ -624,8 +624,8 @@ Message
 Message(
     role: Role,
     content: str | Sequence[str | Content] | None = None,
-    parts: Sequence[ParsedMessagePart] | None = None,
-    tool_calls: Sequence[ApiToolCall]
+    slices: Sequence[MessageSlice] | None = None,
+    tool_calls: Sequence[ToolCall]
     | Sequence[dict[str, Any]]
     | None = None,
     tool_call_id: str | None = None,
@@ -654,8 +654,8 @@ def __init__(
     self,
     role: Role,
     content: str | t.Sequence[str | Content] | None = None,
-    parts: t.Sequence[ParsedMessagePart] | None = None,
-    tool_calls: t.Sequence[ApiToolCall] | t.Sequence[dict[str, t.Any]] | None = None,
+    slices: t.Sequence[MessageSlice] | None = None,
+    tool_calls: t.Sequence[ToolCall] | t.Sequence[dict[str, t.Any]] | None = None,
     tool_call_id: str | None = None,
     cache_control: t.Literal["ephemeral"] | dict[str, str] | None = None,
     **kwargs: t.Any,
@@ -670,12 +670,6 @@ def __init__(
         ContentText(text=dedent(part)) if isinstance(part, str) else part for part in content
     ]
 
-    if tool_calls is not None and not all(isinstance(call, ApiToolCall) for call in tool_calls):
-        tool_calls = [
-            ApiToolCall.model_validate(call) if isinstance(call, dict) else call
-            for call in tool_calls
-        ]
-
     if cache_control is not None and content_parts:
         content_parts[-1].cache_control = (
             cache_control if isinstance(cache_control, dict) else EPHERMAL_CACHE_CONTROL
@@ -684,7 +678,7 @@ def __init__(
     super().__init__(
         role=role,
         content_parts=content_parts,
-        parts=parts or [],
+        slices=slices or [],
         tool_calls=tool_calls,
         tool_call_id=tool_call_id,
         **kwargs,
@@ -704,13 +698,27 @@ Returns all content parts of the message or the single text content part as a st
 
 Deprecated - Use `.content_parts` instead
 
+### compatibility\_flags
+
+```python
+compatibility_flags: set[CompatibilityFlag] = Field(
+    default_factory=set, repr=False
+)
+```
+
+Compatibility flags to be applied when conversions occur.
+
 ### content
 
 ```python
 content: str
 ```
 
-The content of the message as a string.
+The content of the message as a string. If multiple text parts are present,
+they will be concatenated together with newlines in between.
+
+This is considered the ground truth for slices of this message. In other words,
+slices do not take into account any structured content parts like images or audio.
 
 If you need to access the structured content parts, use `.content_parts`.
 
@@ -722,21 +730,31 @@ content_parts: list[Content] = Field([], repr=False)
 
 Interior str content or structured content parts.
 
+### metadata
+
+```python
+metadata: dict[str, Any] = Field(
+    default_factory=dict, repr=False
+)
+```
+
+Metadata associated with the message.
+
 ### models
 
 ```python
 models: list[Model]
 ```
 
-Returns a list of models parsed from the message.
+Deprecated - iterate through .slices instead
 
 ### parts
 
 ```python
-parts: list[ParsedMessagePart] = Field(default_factory=list)
+parts: list[Any]
 ```
 
-The parsed message parts.
+Deprecated - iterate through .slices instead
 
 ### role
 
@@ -745,6 +763,14 @@ role: Role
 ```
 
 The role of the message.
+
+### slices
+
+```python
+slices: list[MessageSlice] = Field([], repr=False)
+```
+
+The slices of the message content.
 
 ### tool\_call\_id
 
@@ -757,7 +783,7 @@ Associated call id if this message is a response to a tool call.
 ### tool\_calls
 
 ```python
-tool_calls: list[ApiToolCall] | None = Field(None)
+tool_calls: list[ToolCall] | None = Field(None)
 ```
 
 The tool calls associated with the message.
@@ -769,6 +795,132 @@ uuid: UUID = Field(default_factory=uuid4, repr=False)
 ```
 
 The unique identifier for the message.
+
+### add\_slice
+
+```python
+add_slice(slice_: MessageSlice) -> MessageSlice
+```
+
+```python
+add_slice(
+    slice_: str | Model,
+    type: SliceType | None = None,
+    *,
+    obj: SliceObj | None = None,
+    metadata: dict[str, Any] | None = None,
+    replace_content: bool = False,
+) -> MessageSlice
+```
+
+```python
+add_slice(
+    slice_: MessageSlice | str | Model,
+    type: SliceType | None = None,
+    *,
+    obj: SliceObj | None = None,
+    metadata: dict[str, Any] | None = None,
+    replace_content: bool = False,
+) -> MessageSlice
+```
+
+Add a new tracked slice to the message, either to existing content or by inserting new
+content. If `replace_content` is `True`, the content of the message will be replaced with
+the new slice content. Otherwise, if the slice is a string or Model, it will be
+appended to the existing content. If the slice is a `MessageSlice`, it will be
+added directly to the message's slices and assumed to be part of the existing content.
+
+**Parameters:**
+
+* **`slice_`**
+  (`MessageSlice | str | Model`)
+  –The slice to add. Can be a `MessageSlice`, a string, or a Model.
+* **`type`**
+  (`SliceType | None`, default:
+  `None`
+  )
+  –The type of the slice. If not provided, it will be inferred from the slice.
+* **`obj`**
+  (`SliceObj | None`, default:
+  `None`
+  )
+  –The object associated with the slice, if any.
+* **`metadata`**
+  (`dict[str, Any] | None`, default:
+  `None`
+  )
+  –Additional metadata for the slice.
+* **`replace_content`**
+  (`bool`, default:
+  `False`
+  )
+  –If `True`, replaces the content of the message with the new slice.
+
+**Returns:**
+
+* `MessageSlice`
+  –The added `MessageSlice` object.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def add_slice(
+    self,
+    slice_: MessageSlice | str | Model,
+    type: SliceType | None = None,
+    *,
+    obj: SliceObj | None = None,
+    metadata: dict[str, t.Any] | None = None,
+    replace_content: bool = False,
+) -> "MessageSlice":
+    """
+    Add a new tracked slice to the message, either to existing content or by inserting new
+    content. If `replace_content` is `True`, the content of the message will be replaced with
+    the new slice content. Otherwise, if the slice is a string or Model, it will be
+    appended to the existing content. If the slice is a `MessageSlice`, it will be
+    added directly to the message's slices and assumed to be part of the existing content.
+
+    Args:
+        slice_: The slice to add. Can be a `MessageSlice`, a string, or a Model.
+        type: The type of the slice. If not provided, it will be inferred from the slice.
+        obj: The object associated with the slice, if any.
+        metadata: Additional metadata for the slice.
+        replace_content: If `True`, replaces the content of the message with the new slice.
+
+    Returns:
+        The added `MessageSlice` object.
+    """
+    if replace_content:
+        self.content = ""
+
+    if isinstance(slice_, Model):
+        obj = obj or slice_
+        slice_ = slice_.to_pretty_xml()
+
+    if isinstance(slice_, str):
+        self.content_parts.append(
+            ContentText(text=slice_),
+        )
+        start = self.content.rfind(slice_)
+        slice_ = MessageSlice(
+            type=type or "text",
+            obj=obj,
+            start=start,
+            stop=start + len(slice_) + 1,
+            metadata=metadata,
+        )
+
+    # Check if we have this slice already
+    if not any(
+        existing.slice_ == slice_.slice_ and existing.type == slice_.type
+        for existing in self.slices
+    ):
+        self.slices.append(slice_)
+
+    return slice_
+```
+
+
+</Accordion>
 
 ### apply
 
@@ -913,11 +1065,13 @@ Creates a copy of the message.
 def clone(self) -> "Message":
     """Creates a copy of the message."""
     return Message(
-        self.role,
-        copy.deepcopy(self.content_parts),
-        parts=copy.deepcopy(self.parts),
+        role=self.role,
+        content=copy.deepcopy(self.content_parts),
+        slices=copy.deepcopy(self.slices),
         tool_calls=copy.deepcopy(self.tool_calls),
         tool_call_id=self.tool_call_id,
+        metadata=copy.deepcopy(self.metadata),
+        compatibility_flags=copy.deepcopy(self.compatibility_flags),
     )
 ```
 
@@ -941,7 +1095,11 @@ def fit(cls, message: t.Union["Message", MessageDict, Content, str]) -> "Message
     """Helper function to convert various common types to a Message object."""
     if isinstance(message, (str, *ContentTypes)):
         return cls(role="user", content=[message])
-    return cls(**message) if isinstance(message, dict) else message.model_copy(deep=True)
+    return (
+        cls.model_validate(message)
+        if isinstance(message, dict)
+        else message.model_copy(deep=True)
+    )
 ```
 
 
@@ -1031,18 +1189,66 @@ def from_model(
     Returns:
         The created Message object.
     """
-    parts: list[ParsedMessagePart] = []
+    slices_: list[MessageSlice] = []
     content: str = ""
     for model in models if isinstance(models, list) else [models]:
-        text_form = model.to_pretty_xml()
-        slice_ = slice(len(content), len(content) + len(text_form))
-        content += f"{text_form}\n"
-        parts.append(ParsedMessagePart(model=model, slice_=slice_))
+        model_xml = model.to_pretty_xml()
+        slice_ = slice(len(content), len(content) + len(model_xml))
+        content += f"{model_xml}\n"
+        slices_.append(
+            MessageSlice(
+                type="model",
+                obj=model,
+                start=slice_.start,
+                stop=slice_.stop,
+                metadata={"model_type": model.__class__.__name__},
+            ),
+        )
 
     if suffix is not None:
         content += f"\n{suffix}"
 
-    return cls(role=role, content=content, parts=parts)
+    return cls(role=role, content=content, slices=slices_)
+```
+
+
+</Accordion>
+
+### meta
+
+```python
+meta(**kwargs: Any) -> Message
+```
+
+Updates the metadata of the message with the provided key-value pairs.
+
+**Parameters:**
+
+* **`**kwargs`**
+  (`Any`, default:
+  `{}`
+  )
+  –Key-value pairs representing the metadata to be updated.
+
+**Returns:**
+
+* `Message`
+  –The updated message.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def meta(self, **kwargs: t.Any) -> "Message":
+    """
+    Updates the metadata of the message with the provided key-value pairs.
+
+    Args:
+        **kwargs: Key-value pairs representing the metadata to be updated.
+
+    Returns:
+        The updated message.
+    """
+    self.metadata.update(kwargs)
+    return self
 ```
 
 
@@ -1193,70 +1399,102 @@ def parse_set(self, model_type: type[ModelT], minimum: int | None = None) -> lis
 
 </Accordion>
 
-### strip
+### remove\_slice
 
 ```python
-strip(
-    model_type: type[Model],
-    *,
-    fail_on_missing: bool = False,
-) -> list[ParsedMessagePart]
+remove_slice(slice_: MessageSlice | str) -> MessageSlice
 ```
 
-Removes and returns a list of ParsedMessagePart objects from the message that match the specified model type.
+Removes a slice from the message content. If the slice is a string,
+it will find the slice that matches the string content. If the slice is a
+`MessageSlice`, it will remove the slice directly from the message's slices
+and strip the content associated with that slice from the message content.
 
 **Parameters:**
 
-* **`model_type`**
-  (`type[Model]`)
-  –The type of model to match.
-* **`fail_on_missing`**
-  (`bool`, default:
-  `False`
-  )
-  –If True, raises a TypeError if no matching model is found.
+* **`slice_`**
+  (`MessageSlice | str`)
+  –The slice to remove. Can be a `MessageSlice` or a string.
 
 **Returns:**
 
-* `list[ParsedMessagePart]`
-  –A list of removed ParsedMessagePart objects.
-
-**Raises:**
-
-* `TypeError`
-  –If no matching model is found and fail\_on\_missing is True.
+* `MessageSlice`
+  –The removed `MessageSlice` object.
 
 <Accordion title="Source code in rigging/message.py" icon="code">
 ```python
-def strip(
-    self,
-    model_type: type[Model],
-    *,
-    fail_on_missing: bool = False,
-) -> list[ParsedMessagePart]:
+def remove_slice(self, slice_: MessageSlice | str) -> "MessageSlice":
     """
-    Removes and returns a list of ParsedMessagePart objects from the message that match the specified model type.
+    Removes a slice from the message content. If the slice is a string,
+    it will find the slice that matches the string content. If the slice is a
+    `MessageSlice`, it will remove the slice directly from the message's slices
+    and strip the content associated with that slice from the message content.
 
     Args:
-        model_type: The type of model to match.
-        fail_on_missing: If True, raises a TypeError if no matching model is found.
+        slice_: The slice to remove. Can be a `MessageSlice` or a string.
 
     Returns:
-        A list of removed ParsedMessagePart objects.
-
-    Raises:
-        TypeError: If no matching model is found and fail_on_missing is True.
+        The removed `MessageSlice` object.
     """
-    removed: list[ParsedMessagePart] = []
-    for part in self.parts[:]:
-        if isinstance(part.model, model_type):
-            self._remove_part(part)
-            removed.append(part)
+    if isinstance(slice_, str):
+        # If we have a string, we need to find the slice that matches it
+        slice_ = next(s for s in self.slices if self.content[s.slice_] == slice_)
 
-    if not removed and fail_on_missing:
-        raise TypeError(
-            f"Could not find <{model_type.__xml_tag__}> ({model_type.__name__}) in message",
-        )
+    if slice_ in self.slices:
+        # Let the content update handle reconciling the other slices
+        self.content = self.content[: slice_.start] + self.content[slice_.stop :]
+
+    return slice_
+```
+
+
+</Accordion>
+
+### strip
+
+```python
+strip(obj: SliceType | type[Any]) -> list[MessageSlice]
+```
+
+Removes and returns all slices of the specified type from the message.
+
+**Parameters:**
+
+* **`obj`**
+  (`SliceType | type[Any]`)
+  –The type of slice to remove. Can be a `SliceType` or a model class.
+  If a model class is provided, it will remove all slices
+  that have a model of that type.
+
+**Returns:**
+
+* `list[MessageSlice]`
+  –A list of removed slices.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def strip(self, obj: SliceType | type[t.Any]) -> list[MessageSlice]:
+    """
+    Removes and returns all slices of the specified type from the message.
+
+    Args:
+        obj: The type of slice to remove. Can be a `SliceType` or a model class.
+            If a model class is provided, it will remove all slices
+            that have a model of that type.
+
+    Returns:
+        A list of removed slices.
+    """
+    removed: list[MessageSlice] = []
+    # Walk in reverse so we don't upset the indices of slices as we remove them
+    for slice_ in sorted(self.slices, key=lambda s: s.start, reverse=True):
+        if (isinstance(obj, str) and slice_.type == obj) or (
+            isinstance(obj, type) and slice_.obj and isinstance(slice_.obj, obj)
+        ):
+            self.remove_slice(slice_)
+            removed.append(slice_)
+
+    self.content = self.content.strip()
 
     return removed
 ```
@@ -1264,10 +1502,14 @@ def strip(
 
 </Accordion>
 
-### to\_openai\_spec
+### to\_openai
 
 ```python
-to_openai_spec() -> dict[str, t.Any]
+to_openai(
+    *,
+    compatibility_flags: set[CompatibilityFlag]
+    | None = None,
+) -> dict[str, t.Any]
 ```
 
 Converts the message to the OpenAI-compatible JSON format. This should
@@ -1280,7 +1522,11 @@ be the primary way to serialize a message for use with APIs.
 
 <Accordion title="Source code in rigging/message.py" icon="code">
 ```python
-def to_openai_spec(self) -> dict[str, t.Any]:
+def to_openai(
+    self,
+    *,
+    compatibility_flags: set[CompatibilityFlag] | None = None,
+) -> dict[str, t.Any]:
     """
     Converts the message to the OpenAI-compatible JSON format. This should
     be the primary way to serialize a message for use with APIs.
@@ -1288,11 +1534,27 @@ def to_openai_spec(self) -> dict[str, t.Any]:
     Returns:
         The serialized message.
     """
-    # `content_parts` will be moved to `content`
+    compatibility_flags = compatibility_flags or self.compatibility_flags
+    include_fields = {"role", "content_parts"}
+    if "skip_tools" not in compatibility_flags:
+        include_fields.add("tool_calls")
+        include_fields.add("tool_call_id")
+
     obj = self.model_dump(
-        include={"role", "content_parts", "tool_calls", "tool_call_id"},
+        include=include_fields,
         exclude_none=True,
     )
+
+    # Some backwards compatibility for single text content
+    # which we'll load straight into the content value as opposed
+    # to a list of content parts.
+
+    if (
+        len(obj["content"]) == 1
+        and list(obj["content"][0].keys()) == ["type", "text"]
+        and obj["content"][0].get("type") == "text"
+    ):
+        compatibility_flags.add("content_as_str")
 
     # Walk content parts and add a `\n` to the end of any text parts
     # which are followed by another text part (if not already present).
@@ -1324,7 +1586,7 @@ def to_openai_spec(self) -> dict[str, t.Any]:
     # string for API compatibility. Groq is an example of an API
     # which will complain for some roles if we send a list of content parts.
 
-    if "content_as_str" in self._compability_flags:
+    if "content_as_str" in compatibility_flags:
         obj["content"] = "".join(
             part["text"]
             for part in obj["content"]
@@ -1332,6 +1594,38 @@ def to_openai_spec(self) -> dict[str, t.Any]:
         )
 
     return obj
+```
+
+
+</Accordion>
+
+### to\_openai\_spec
+
+```python
+to_openai_spec() -> dict[str, t.Any]
+```
+
+Converts the message to the OpenAI-compatible JSON format. This should
+be the primary way to serialize a message for use with APIs.
+
+Deprecated - Use `.to_openai` instead
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+@te.deprecated(".to_openai_spec() is deprecated, use .to_openai() instead.", category=None)
+def to_openai_spec(self) -> dict[str, t.Any]:
+    """
+    Converts the message to the OpenAI-compatible JSON format. This should
+    be the primary way to serialize a message for use with APIs.
+
+    Deprecated - Use `.to_openai` instead
+    """
+    warnings.warn(
+        ".to_openai_spec() is deprecated, use .to_openai() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return self.to_openai()
 ```
 
 
@@ -1471,8 +1765,15 @@ def try_parse_many(self, *types: type[ModelT], fail_on_missing: bool = False) ->
         fail_on_missing=fail_on_missing,
     )
     for model, slice_ in parsed:
-        self._add_part(ParsedMessagePart(model=model, slice_=slice_))
-    self._sync_parts()
+        self.add_slice(
+            MessageSlice(
+                type="model",
+                obj=model,
+                start=slice_.start,
+                stop=slice_.stop,
+                metadata={"model_type": model.__class__.__name__},
+            ),
+        )
     return [p[0] for p in parsed]
 ```
 
@@ -1569,29 +1870,184 @@ role: Role
 
 The role of the message.
 
-ParsedMessagePart
------------------
+MessageSlice
+------------
 
-Represents a parsed message part.
-
-### model
+### metadata
 
 ```python
-model: SerializeAsAny[Model]
+metadata: dict[str, Any] | None = None
 ```
 
-The rigging/pydantic model associated with the message part.
+Metadata associated with the slice.
+
+### obj
+
+```python
+obj: SerializeAsAny[SliceObj] | None = None
+```
+
+The model, tool call, or other object associated with the slice.
 
 ### slice\_
 
 ```python
-slice_: Annotated[
-    slice,
-    PlainSerializer(
-        lambda x: [start, stop], return_type=list[int]
-    ),
-    WithJsonSchema({type: array, items: {type: integer}}),
-]
+slice_: slice
 ```
 
-The slice representing the range into the message content.
+Returns the slice representing the range into the message content.
+
+### start
+
+```python
+start: int
+```
+
+The start index of the slice.
+
+### stop
+
+```python
+stop: int
+```
+
+The stop index of the slice.
+
+### type
+
+```python
+type: SliceType
+```
+
+The type of the slice.
+
+### \_\_len\_\_
+
+```python
+__len__() -> int
+```
+
+Returns the length of the slice.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def __len__(self) -> int:
+    """Returns the length of the slice."""
+    return self.stop - self.start
+```
+
+
+</Accordion>
+
+inject\_system\_content
+-----------------------
+
+```python
+inject_system_content(
+    messages: list[Message], content: str
+) -> list[Message]
+```
+
+Injects content into a list of messages as a system message.
+
+<Note>
+If the message list is empty or the first message is not a system message,
+a new system message with the given content is inserted at the beginning of the list.
+If the first message is a system message, the content is appended to it.
+</Note>
+
+**Parameters:**
+
+* **`messages`**
+  (`list[Message]`)
+  –The list of messages to modify.
+* **`content`**
+  (`str`)
+  –The content to be injected.
+
+**Returns:**
+
+* `list[Message]`
+  –The modified list of messages
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def inject_system_content(messages: list[Message], content: str) -> list[Message]:
+    """
+    Injects content into a list of messages as a system message.
+
+    Note:
+        If the message list is empty or the first message is not a system message,
+        a new system message with the given content is inserted at the beginning of the list.
+        If the first message is a system message, the content is appended to it.
+
+    Args:
+        messages: The list of messages to modify.
+        content: The content to be injected.
+
+    Returns:
+        The modified list of messages
+    """
+    if content.strip() == "":
+        return messages
+    if len(messages) == 0 or messages[0].role != "system":
+        messages.insert(0, Message(role="system", content=content))
+    elif messages[0].role == "system" and content not in messages[0].content:
+        messages[0].content += "\n\n" + content
+    return messages
+```
+
+
+</Accordion>
+
+strip\_system\_content
+----------------------
+
+```python
+strip_system_content(
+    messages: list[Message], content: str
+) -> list[Message]
+```
+
+Strips the system message from a list of messages.
+
+**Parameters:**
+
+* **`messages`**
+  (`list[Message]`)
+  –The list of messages to modify.
+
+**Returns:**
+
+* `list[Message]`
+  –The modified list of messages without the system message.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def strip_system_content(messages: list[Message], content: str) -> list[Message]:
+    """
+    Strips the system message from a list of messages.
+
+    Args:
+        messages: The list of messages to modify.
+
+    Returns:
+        The modified list of messages without the system message.
+    """
+    if content.strip() == "":
+        return messages
+
+    if not messages or messages[0].role != "system":
+        return messages
+
+    system_message = messages[0]
+    system_message.content = system_message.content.replace(content, "").strip()
+
+    if system_message.content == "":
+        return messages[1:]
+
+    return messages
+```
+
+
+</Accordion>

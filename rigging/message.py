@@ -17,19 +17,15 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    PlainSerializer,
     SerializeAsAny,
     SerializerFunctionWrapHandler,
-    WithJsonSchema,
-    field_validator,
     model_serializer,
-    model_validator,
 )
 
 from rigging.error import MissingModelError
 from rigging.model import Model, ModelT
 from rigging.parsing import try_parse_many
-from rigging.tool.api import ApiToolCall
+from rigging.tools.base import ToolCall
 from rigging.util import AudioFormat, identify_audio_format, shorten_string, truncate_string
 
 Role = t.Literal["system", "user", "assistant", "tool"]
@@ -39,8 +35,7 @@ EPHERMAL_CACHE_CONTROL = {"type": "ephemeral"}
 """Cache control entry for ephemeral messages."""
 
 
-# Helper type for messages structured
-# more similarly to other libraries
+# Helper type for messages structured more similarly to other libraries
 class MessageDict(t.TypedDict):
     """
     Helper to represent a [rigging.message.Message][] as a dictionary.
@@ -52,32 +47,32 @@ class MessageDict(t.TypedDict):
     """The content of the message."""
 
 
-# Structured portion of a message with
-# a slice indicating where is it located
-class ParsedMessagePart(BaseModel):
-    """
-    Represents a parsed message part.
-    """
+SliceType = t.Literal["tool_call", "tool_response", "model"]
+SliceObj = t.Any
 
+
+class MessageSlice(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    model: SerializeAsAny[Model]
-    """The rigging/pydantic model associated with the message part."""
-    slice_: t.Annotated[
-        slice,
-        PlainSerializer(lambda x: [x.start, x.stop], return_type=list[int]),
-        WithJsonSchema({"type": "array", "items": {"type": "integer"}}),
-    ]
-    """The slice representing the range into the message content."""
+    type: SliceType
+    """The type of the slice."""
+    obj: SerializeAsAny[SliceObj] | None = None
+    """The model, tool call, or other object associated with the slice."""
+    start: int
+    """The start index of the slice."""
+    stop: int
+    """The stop index of the slice."""
+    metadata: dict[str, t.Any] | None = None
+    """Metadata associated with the slice."""
 
-    @field_validator("slice_", mode="before")
-    @classmethod
-    def validate_slice(cls, value: t.Any) -> slice:
-        if isinstance(value, slice):
-            return value
-        if not isinstance(value, list):
-            raise TypeError("slice must be a list or a slice")
-        return slice(value[0], value[1])
+    @property
+    def slice_(self) -> slice:
+        """Returns the slice representing the range into the message content."""
+        return slice(self.start, self.stop)
+
+    def __len__(self) -> int:
+        """Returns the length of the slice."""
+        return self.stop - self.start
 
 
 class ContentText(BaseModel):
@@ -337,7 +332,7 @@ Content = ContentText | ContentImageUrl | ContentAudioInput
 """The types of content that can be included in a message."""
 ContentTypes = (ContentText, ContentImageUrl, ContentAudioInput)
 
-CompatibilityFlag = t.Literal["content_as_str"]
+CompatibilityFlag = t.Literal["content_as_str", "skip_tools"]
 
 
 class Message(BaseModel):
@@ -358,23 +353,25 @@ class Message(BaseModel):
     """The unique identifier for the message."""
     role: Role
     """The role of the message."""
-    parts: list[ParsedMessagePart] = Field(default_factory=list)
-    """The parsed message parts."""
     content_parts: list[Content] = Field([], repr=False)
     """Interior str content or structured content parts."""
-    tool_calls: list[ApiToolCall] | None = Field(None)
+    slices: list[MessageSlice] = Field([], repr=False)
+    """The slices of the message content."""
+    tool_calls: list[ToolCall] | None = Field(None)
     """The tool calls associated with the message."""
     tool_call_id: str | None = Field(None)
     """Associated call id if this message is a response to a tool call."""
-
-    _compability_flags: set[CompatibilityFlag] = set()
+    metadata: dict[str, t.Any] = Field(default_factory=dict, repr=False)
+    """Metadata associated with the message."""
+    compatibility_flags: set[CompatibilityFlag] = Field(default_factory=set, repr=False)
+    """Compatibility flags to be applied when conversions occur."""
 
     def __init__(
         self,
         role: Role,
         content: str | t.Sequence[str | Content] | None = None,
-        parts: t.Sequence[ParsedMessagePart] | None = None,
-        tool_calls: t.Sequence[ApiToolCall] | t.Sequence[dict[str, t.Any]] | None = None,
+        slices: t.Sequence[MessageSlice] | None = None,
+        tool_calls: t.Sequence[ToolCall] | t.Sequence[dict[str, t.Any]] | None = None,
         tool_call_id: str | None = None,
         cache_control: t.Literal["ephemeral"] | dict[str, str] | None = None,
         **kwargs: t.Any,
@@ -389,12 +386,6 @@ class Message(BaseModel):
             ContentText(text=dedent(part)) if isinstance(part, str) else part for part in content
         ]
 
-        if tool_calls is not None and not all(isinstance(call, ApiToolCall) for call in tool_calls):
-            tool_calls = [
-                ApiToolCall.model_validate(call) if isinstance(call, dict) else call
-                for call in tool_calls
-            ]
-
         if cache_control is not None and content_parts:
             content_parts[-1].cache_control = (
                 cache_control if isinstance(cache_control, dict) else EPHERMAL_CACHE_CONTROL
@@ -403,14 +394,16 @@ class Message(BaseModel):
         super().__init__(
             role=role,
             content_parts=content_parts,
-            parts=parts or [],
+            slices=slices or [],
             tool_calls=tool_calls,
             tool_call_id=tool_call_id,
             **kwargs,
         )
 
     def __str__(self) -> str:
-        formatted = f"[{self.role}]:"
+        formatted = (
+            f"[{self.role}:{self.tool_call_id}]:" if self.tool_call_id else f"[{self.role}]:"
+        )
 
         if len(self.content_parts) == 1 and isinstance(self.content_parts[0], ContentText):
             formatted += f" {self.content_parts[0].text}"
@@ -436,17 +429,6 @@ class Message(BaseModel):
         serialized = handler(self)
         if "content_parts" in serialized:
             serialized["content"] = serialized.pop("content_parts")
-
-            # Some backwards compatibility for single text content
-            # which we'll load straight into the content value as opposed
-            # to a list of content parts.
-            if (
-                len(serialized["content"]) == 1
-                and list(serialized["content"][0].keys()) == ["type", "text"]
-                and serialized["content"][0].get("type") == "text"
-            ):
-                serialized["content"] = serialized["content"][0]["text"]
-
         return serialized
 
     @property
@@ -469,59 +451,80 @@ class Message(BaseModel):
     @property
     def content(self) -> str:
         """
-        The content of the message as a string.
+        The content of the message as a string. If multiple text parts are present,
+        they will be concatenated together with newlines in between.
+
+        This is considered the ground truth for slices of this message. In other words,
+        slices do not take into account any structured content parts like images or audio.
 
         If you need to access the structured content parts, use `.content_parts`.
         """
-        return "\n".join(
-            [content.text for content in self.content_parts if isinstance(content, ContentText)],
-        )
+        text_parts = [
+            content.text
+            for content in self.content_parts
+            if isinstance(content, ContentText) and content.text.strip()
+        ]
+        return "\n".join(text_parts)
 
     @content.setter
     def content(self, value: str) -> None:
         """
-        Updates the content of the message.
-
-        Warning:
-            This will remove all parsed parts from the message.
+        Updates the text content of the message. If the message has multiple text parts,
+        it will replace all text parts with a single new `ContentText` part containing the value.
+        If the message has a single text part, it will update that part's text directly.
+        Any parts that are not text will remain unchanged.
         """
-        # TODO: Maintain any parsed parts which are
-        # still in the content - our move to slices for
-        # tracking parsed parts makes this more complicated
-        # so fow now I've opted to strip all parts
-        # when content is changed.
-        self.parts = []
-
-        text_parts = [c for c in self.content_parts if isinstance(c, ContentText)]
-
-        # If we have a single text part, we can just update it
-        if len(text_parts) == 1:
-            text_parts[0].text = value
-            return
-
-        # Otherwise we need to remove text parts without
-        # removing other content parts
         other_parts = [c for c in self.content_parts if not isinstance(c, ContentText)]
+
+        # Get a map of existing slices to their text content.
+        existing_slices: dict[str, MessageSlice] = {
+            self.content[slice_.start : slice_.stop]: slice_ for slice_ in self.slices
+        }
+
+        # Look for any slices that are still present in the new value.
+        # TODO: This could be brittle if the text is identical for different slices.
+        rediscovered_slices: list[MessageSlice] = []
+        for text, existing_slice in existing_slices.items():
+            if (slice_start := value.find(text)) == -1:
+                continue
+
+            rediscovered_slices.append(
+                MessageSlice(
+                    type=existing_slice.type,
+                    obj=existing_slice.obj,
+                    start=slice_start,
+                    stop=slice_start + len(text),
+                    metadata=existing_slice.metadata,
+                ),
+            )
+
+        # If we end up with only whitespace, we want to treat it as empty.
+        if value.strip() == "":
+            value = ""
+
+        self.slices = rediscovered_slices
         self.content_parts = [*other_parts, ContentText(text=value)]
 
-    @model_validator(mode="after")
-    def validate_parts(self) -> "Message":
-        from rigging.model import Model
-
-        # TODO: For now, we don't want to keep parts
-        # under a generic Model class. This can result
-        # from deserialization and will break our
-        # overlapping part check later.
-        #
-        # We'll remove them from our parsed parts list,
-        # but keep them in the content for reparsing.
-
-        for part in self.parts[:]:
-            if part.model.__class__ == Model:
-                self.parts.remove(part)
-        return self
-
+    @te.deprecated(".to_openai_spec() is deprecated, use .to_openai() instead.", category=None)
     def to_openai_spec(self) -> dict[str, t.Any]:
+        """
+        Converts the message to the OpenAI-compatible JSON format. This should
+        be the primary way to serialize a message for use with APIs.
+
+        Deprecated - Use `.to_openai` instead
+        """
+        warnings.warn(
+            ".to_openai_spec() is deprecated, use .to_openai() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.to_openai()
+
+    def to_openai(
+        self,
+        *,
+        compatibility_flags: set[CompatibilityFlag] | None = None,
+    ) -> dict[str, t.Any]:
         """
         Converts the message to the OpenAI-compatible JSON format. This should
         be the primary way to serialize a message for use with APIs.
@@ -529,11 +532,27 @@ class Message(BaseModel):
         Returns:
             The serialized message.
         """
-        # `content_parts` will be moved to `content`
+        compatibility_flags = compatibility_flags or self.compatibility_flags
+        include_fields = {"role", "content_parts"}
+        if "skip_tools" not in compatibility_flags:
+            include_fields.add("tool_calls")
+            include_fields.add("tool_call_id")
+
         obj = self.model_dump(
-            include={"role", "content_parts", "tool_calls", "tool_call_id"},
+            include=include_fields,
             exclude_none=True,
         )
+
+        # Some backwards compatibility for single text content
+        # which we'll load straight into the content value as opposed
+        # to a list of content parts.
+
+        if (
+            len(obj["content"]) == 1
+            and list(obj["content"][0].keys()) == ["type", "text"]
+            and obj["content"][0].get("type") == "text"
+        ):
+            compatibility_flags.add("content_as_str")
 
         # Walk content parts and add a `\n` to the end of any text parts
         # which are followed by another text part (if not already present).
@@ -565,7 +584,7 @@ class Message(BaseModel):
         # string for API compatibility. Groq is an example of an API
         # which will complain for some roles if we send a list of content parts.
 
-        if "content_as_str" in self._compability_flags:
+        if "content_as_str" in compatibility_flags:
             obj["content"] = "".join(
                 part["text"]
                 for part in obj["content"]
@@ -574,106 +593,125 @@ class Message(BaseModel):
 
         return obj
 
-    # TODO: In general the add/remove/sync_part methods are
-    # overly complicated. We should probably just update content,
-    # then reparse all the models to get their fresh slices.
-    #
-    # I don't like all this manual slice recalculation logic, seems brittle.
+    def remove_slice(self, slice_: MessageSlice | str) -> "MessageSlice":
+        """
+        Removes a slice from the message content. If the slice is a string,
+        it will find the slice that matches the string content. If the slice is a
+        `MessageSlice`, it will remove the slice directly from the message's slices
+        and strip the content associated with that slice from the message content.
 
-    def _remove_part(self, part: ParsedMessagePart) -> None:
-        text_parts = [p for p in self.content_parts if isinstance(p, ContentText)]
-        if len(text_parts) > 1:
-            raise NotImplementedError(
-                "Managing parsed parts in messages with multiple content text parts is not supported",
+        Args:
+            slice_: The slice to remove. Can be a `MessageSlice` or a string.
+
+        Returns:
+            The removed `MessageSlice` object.
+        """
+        if isinstance(slice_, str):
+            # If we have a string, we need to find the slice that matches it
+            slice_ = next(s for s in self.slices if self.content[s.slice_] == slice_)
+
+        if slice_ in self.slices:
+            # Let the content update handle reconciling the other slices
+            self.content = self.content[: slice_.start] + self.content[slice_.stop :]
+
+        return slice_
+
+    @t.overload
+    def add_slice(
+        self,
+        slice_: MessageSlice,
+    ) -> "MessageSlice": ...
+
+    @t.overload
+    def add_slice(
+        self,
+        slice_: str | Model,
+        type: SliceType | None = None,
+        *,
+        obj: SliceObj | None = None,
+        metadata: dict[str, t.Any] | None = None,
+        replace_content: bool = False,
+    ) -> "MessageSlice": ...
+
+    def add_slice(
+        self,
+        slice_: MessageSlice | str | Model,
+        type: SliceType | None = None,
+        *,
+        obj: SliceObj | None = None,
+        metadata: dict[str, t.Any] | None = None,
+        replace_content: bool = False,
+    ) -> "MessageSlice":
+        """
+        Add a new tracked slice to the message, either to existing content or by inserting new
+        content. If `replace_content` is `True`, the content of the message will be replaced with
+        the new slice content. Otherwise, if the slice is a string or Model, it will be
+        appended to the existing content. If the slice is a `MessageSlice`, it will be
+        added directly to the message's slices and assumed to be part of the existing content.
+
+        Args:
+            slice_: The slice to add. Can be a `MessageSlice`, a string, or a Model.
+            type: The type of the slice. If not provided, it will be inferred from the slice.
+            obj: The object associated with the slice, if any.
+            metadata: Additional metadata for the slice.
+            replace_content: If `True`, replaces the content of the message with the new slice.
+
+        Returns:
+            The added `MessageSlice` object.
+        """
+        if replace_content:
+            self.content = ""
+
+        if isinstance(slice_, Model):
+            obj = obj or slice_
+            slice_ = slice_.to_pretty_xml()
+
+        if isinstance(slice_, str):
+            self.content_parts.append(
+                ContentText(text=slice_),
+            )
+            start = self.content.rfind(slice_)
+            slice_ = MessageSlice(
+                type=type or "text",
+                obj=obj,
+                start=start,
+                stop=start + len(slice_) + 1,
+                metadata=metadata,
             )
 
-        if len(text_parts) == 0:
-            raise ValueError("No text content to remove part from")
+        # Check if we have this slice already
+        if not any(
+            existing.slice_ == slice_.slice_ and existing.type == slice_.type
+            for existing in self.slices
+        ):
+            self.slices.append(slice_)
 
-        text_part = text_parts[0]
-
-        removed_length = part.slice_.stop - part.slice_.start
-        text_part.text = text_part.text[: part.slice_.start] + text_part.text[part.slice_.stop :]
-        self.parts.remove(part)
-
-        # Update slices of any parts that come after the removed part
-        for other_part in self.parts:
-            if other_part.slice_.start > part.slice_.start:
-                other_part.slice_ = slice(
-                    other_part.slice_.start - removed_length,
-                    other_part.slice_.stop - removed_length,
-                )
-
-    def _add_part(self, part: ParsedMessagePart) -> None:
-        for existing in self.parts:
-            if (
-                part.slice_ == existing.slice_
-                and part.model.xml_tags() == existing.model.xml_tags()
-            ):
-                return  # We clearly already have this part defined
-            if max(part.slice_.start, existing.slice_.start) < min(
-                part.slice_.stop,
-                existing.slice_.stop,
-            ):
-                raise ValueError("Incoming part overlaps with an existing part")
-        self.parts.append(part)
-
-    # Looks more complicated than it is. We just want to clean all the models
-    # in the message content by re-serializing them. As we do so, we'll need
-    # to watch for the total size of our message shifting and update the slices
-    # of the following parts accordingly. In other words, as A expands, B which
-    # follows will have a new start slice and end slice.
-
-    def _sync_parts(self) -> None:
-        text_parts = [p for p in self.content_parts if isinstance(p, ContentText)]
-        if len(text_parts) > 1:
-            raise NotImplementedError(
-                "Managing parsed parts in messages with multiple content text parts is not supported",
-            )
-
-        if len(text_parts) == 0:
-            raise ValueError("No text content to remove part from")
-
-        text_part = text_parts[0]
-
-        self.parts = sorted(self.parts, key=lambda p: p.slice_.start)
-
-        shift = 0
-        for part in self.parts:
-            existing = text_part.text[part.slice_]
-
-            # Adjust for any previous shifts
-            part.slice_ = slice(part.slice_.start + shift, part.slice_.stop + shift)
-
-            # Check if the content has changed
-            xml_content = part.model.to_pretty_xml()
-            if xml_content == existing:
-                continue
-
-            # Otherwise update content, add to shift, and update this slice
-            old_length = part.slice_.stop - part.slice_.start
-            new_length = len(xml_content)
-
-            text_part.text = (
-                text_part.text[: part.slice_.start]
-                + xml_content
-                + text_part.text[part.slice_.stop :]
-            )
-            part.slice_ = slice(part.slice_.start, part.slice_.start + new_length)
-
-            shift += new_length - old_length
-
-        self.parts = sorted(self.parts, key=lambda p: p.slice_.start)
+        return slice_
 
     def clone(self) -> "Message":
         """Creates a copy of the message."""
         return Message(
-            self.role,
-            copy.deepcopy(self.content_parts),
-            parts=copy.deepcopy(self.parts),
+            role=self.role,
+            content=copy.deepcopy(self.content_parts),
+            slices=copy.deepcopy(self.slices),
             tool_calls=copy.deepcopy(self.tool_calls),
             tool_call_id=self.tool_call_id,
+            metadata=copy.deepcopy(self.metadata),
+            compatibility_flags=copy.deepcopy(self.compatibility_flags),
         )
+
+    def meta(self, **kwargs: t.Any) -> "Message":
+        """
+        Updates the metadata of the message with the provided key-value pairs.
+
+        Args:
+            **kwargs: Key-value pairs representing the metadata to be updated.
+
+        Returns:
+            The updated message.
+        """
+        self.metadata.update(kwargs)
+        return self
 
     def cache(self, cache_control: dict[str, str] | bool = True) -> "Message":  # noqa: FBT002
         """
@@ -737,42 +775,56 @@ class Message(BaseModel):
         new.content = truncate_string(new.content, max_length, suf=suffix)
         return new
 
-    def strip(
-        self,
-        model_type: type[Model],
-        *,
-        fail_on_missing: bool = False,
-    ) -> list[ParsedMessagePart]:
+    def strip(self, obj: SliceType | type[t.Any]) -> list[MessageSlice]:
         """
-        Removes and returns a list of ParsedMessagePart objects from the message that match the specified model type.
+        Removes and returns all slices of the specified type from the message.
 
         Args:
-            model_type: The type of model to match.
-            fail_on_missing: If True, raises a TypeError if no matching model is found.
+            obj: The type of slice to remove. Can be a `SliceType` or a model class.
+                If a model class is provided, it will remove all slices
+                that have a model of that type.
 
         Returns:
-            A list of removed ParsedMessagePart objects.
-
-        Raises:
-            TypeError: If no matching model is found and fail_on_missing is True.
+            A list of removed slices.
         """
-        removed: list[ParsedMessagePart] = []
-        for part in self.parts[:]:
-            if isinstance(part.model, model_type):
-                self._remove_part(part)
-                removed.append(part)
+        removed: list[MessageSlice] = []
+        # Walk in reverse so we don't upset the indices of slices as we remove them
+        for slice_ in sorted(self.slices, key=lambda s: s.start, reverse=True):
+            if (isinstance(obj, str) and slice_.type == obj) or (
+                isinstance(obj, type) and slice_.obj and isinstance(slice_.obj, obj)
+            ):
+                self.remove_slice(slice_)
+                removed.append(slice_)
 
-        if not removed and fail_on_missing:
-            raise TypeError(
-                f"Could not find <{model_type.__xml_tag__}> ({model_type.__name__}) in message",
-            )
+        self.content = self.content.strip()
 
         return removed
 
     @property
+    @te.deprecated(".models is deprecated, iterate through .slices instead", category=None)
     def models(self) -> list[Model]:
-        """Returns a list of models parsed from the message."""
-        return [part.model for part in self.parts]
+        """
+        Deprecated - iterate through .slices instead
+        """
+        warnings.warn(
+            ".models is deprecated, iterate through .slices instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return []
+
+    @property
+    @te.deprecated(".parts is deprecated, iterate through .slices instead", category=None)
+    def parts(self) -> list[t.Any]:
+        """
+        Deprecated - iterate through .slices instead
+        """
+        warnings.warn(
+            ".parts is deprecated, iterate through .slices instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return []
 
     # TODO: Many of these functions are duplicates from the parsing
     # module, but here we don't hand back slices and want there
@@ -882,8 +934,15 @@ class Message(BaseModel):
             fail_on_missing=fail_on_missing,
         )
         for model, slice_ in parsed:
-            self._add_part(ParsedMessagePart(model=model, slice_=slice_))
-        self._sync_parts()
+            self.add_slice(
+                MessageSlice(
+                    type="model",
+                    obj=model,
+                    start=slice_.start,
+                    stop=slice_.stop,
+                    metadata={"model_type": model.__class__.__name__},
+                ),
+            )
         return [p[0] for p in parsed]
 
     @classmethod
@@ -904,18 +963,26 @@ class Message(BaseModel):
         Returns:
             The created Message object.
         """
-        parts: list[ParsedMessagePart] = []
+        slices_: list[MessageSlice] = []
         content: str = ""
         for model in models if isinstance(models, list) else [models]:
-            text_form = model.to_pretty_xml()
-            slice_ = slice(len(content), len(content) + len(text_form))
-            content += f"{text_form}\n"
-            parts.append(ParsedMessagePart(model=model, slice_=slice_))
+            model_xml = model.to_pretty_xml()
+            slice_ = slice(len(content), len(content) + len(model_xml))
+            content += f"{model_xml}\n"
+            slices_.append(
+                MessageSlice(
+                    type="model",
+                    obj=model,
+                    start=slice_.start,
+                    stop=slice_.stop,
+                    metadata={"model_type": model.__class__.__name__},
+                ),
+            )
 
         if suffix is not None:
             content += f"\n{suffix}"
 
-        return cls(role=role, content=content, parts=parts)
+        return cls(role=role, content=content, slices=slices_)
 
     @classmethod
     def fit_as_list(
@@ -932,7 +999,11 @@ class Message(BaseModel):
         """Helper function to convert various common types to a Message object."""
         if isinstance(message, (str, *ContentTypes)):
             return cls(role="user", content=[message])
-        return cls(**message) if isinstance(message, dict) else message.model_copy(deep=True)
+        return (
+            cls.model_validate(message)
+            if isinstance(message, dict)
+            else message.model_copy(deep=True)
+        )
 
     @classmethod
     def apply_to_list(cls, messages: t.Sequence["Message"], **kwargs: str) -> list["Message"]:
@@ -941,3 +1012,53 @@ class Message(BaseModel):
 
 
 Messages = t.Sequence[MessageDict] | t.Sequence[Message]
+
+
+def inject_system_content(messages: list[Message], content: str) -> list[Message]:
+    """
+    Injects content into a list of messages as a system message.
+
+    Note:
+        If the message list is empty or the first message is not a system message,
+        a new system message with the given content is inserted at the beginning of the list.
+        If the first message is a system message, the content is appended to it.
+
+    Args:
+        messages: The list of messages to modify.
+        content: The content to be injected.
+
+    Returns:
+        The modified list of messages
+    """
+    if content.strip() == "":
+        return messages
+    if len(messages) == 0 or messages[0].role != "system":
+        messages.insert(0, Message(role="system", content=content))
+    elif messages[0].role == "system" and content not in messages[0].content:
+        messages[0].content += "\n\n" + content
+    return messages
+
+
+def strip_system_content(messages: list[Message], content: str) -> list[Message]:
+    """
+    Strips the system message from a list of messages.
+
+    Args:
+        messages: The list of messages to modify.
+
+    Returns:
+        The modified list of messages without the system message.
+    """
+    if content.strip() == "":
+        return messages
+
+    if not messages or messages[0].role != "system":
+        return messages
+
+    system_message = messages[0]
+    system_message.content = system_message.content.replace(content, "").strip()
+
+    if system_message.content == "":
+        return messages[1:]
+
+    return messages

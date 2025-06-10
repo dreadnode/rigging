@@ -24,7 +24,7 @@ from rigging.chat import (
 from rigging.generator.base import GenerateParams, Generator, get_generator
 from rigging.message import Message
 from rigging.model import Model, SystemErrorModel, ValidationErrorModel, make_primitive
-from rigging.tool import Tool
+from rigging.tools import Tool
 from rigging.tracing import tracer
 from rigging.util import escape_xml, get_qualified_name, to_snake, to_xml_tag
 
