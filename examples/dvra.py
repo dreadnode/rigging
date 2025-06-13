@@ -472,7 +472,7 @@ def cli(
     client = httpx.AsyncClient(
         base_url=base_url,
         verify=False,
-        proxies=(
+        proxy=(
             {
                 "http://": proxy,
                 "https://": proxy,
