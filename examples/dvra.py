@@ -468,6 +468,7 @@ def cli(
 
     # Prepare our objects
 
+    generator = rg.get_generator(generator_id)
     client = httpx.AsyncClient(
         base_url=base_url,
         verify=False,
