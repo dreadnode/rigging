@@ -422,7 +422,7 @@ class Chat(BaseModel):
     async def to_tokens(
         self,
         tokenizer: str,
-        tokenizer_kwargs: dict[str, t.Any] = {},
+        tokenizer_kwargs: dict[str, t.Any] | None = None,
         *,
         apply_chat_template_kwargs: dict[str, t.Any] | None = None,
         encode_kwargs: dict[str, t.Any] | None = None,
@@ -436,6 +436,9 @@ class Chat(BaseModel):
         """
         from rigging.data import chats_to_tokens
         from rigging.tokenize import get_tokenizer
+
+        if tokenizer_kwargs is None:
+            tokenizer_kwargs = {}
 
         tokenizer = get_tokenizer(tokenizer, **tokenizer_kwargs)
 
@@ -538,7 +541,7 @@ class ChatList(list[Chat]):
     async def to_tokens(
         self,
         tokenizer: str,
-        tokenizer_kwargs: dict[str, t.Any] = {},
+        tokenizer_kwargs: dict[str, t.Any] | None = None,
         *,
         apply_chat_template_kwargs: dict[str, t.Any] | None = None,
         encode_kwargs: dict[str, t.Any] | None = None,
@@ -553,6 +556,9 @@ class ChatList(list[Chat]):
 
         from rigging.data import chats_to_tokens
         from rigging.tokenize import get_tokenizer
+
+        if tokenizer_kwargs is None:
+            tokenizer_kwargs = {}
 
         tokenizer = get_tokenizer(tokenizer, **tokenizer_kwargs)
 
