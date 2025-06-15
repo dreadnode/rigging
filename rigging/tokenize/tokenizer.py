@@ -7,26 +7,44 @@ if importlib.util.find_spec("transformers") is None:
 
 from transformers import AutoTokenizer
 
+from rigging.logging import logger
 from rigging.tokenize.base import Decoder
 
 
 def get_tokenizer(
-    model: str | t.Any,
+    tokenizer_id: str | AutoTokenizer | None,
     **tokenizer_kwargs: t.Any,
 ) -> AutoTokenizer:
     """
     Get the tokenizer from transformers model identifier, or from an already loaded tokenizer.
 
     Args:
-        model: The model identifier (string) or an already loaded tokenizer.
+        tokenizer_id: The model identifier (string) or an already loaded tokenizer.
         tokenizer_kwargs: Additional keyword arguments for the tokenizer initialization.
 
     Returns:
         An instance of `AutoTokenizer`.
     """
-    if isinstance(model, str):
-        return AutoTokenizer.from_pretrained(model, **tokenizer_kwargs)
-    return model
+    if isinstance(tokenizer_id, str):
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(
+                tokenizer_id,
+                **tokenizer_kwargs,
+            )
+            logger.success(f"Loaded tokenizer for model '{tokenizer_id}'")
+
+        except Exception as e:  # noqa: BLE001
+            # Catch all exceptions to handle any issues with loading the tokenizer
+            logger.error(f"Failed to load tokenizer for model '{tokenizer_id}': {e}")
+
+    elif isinstance(tokenizer_id, AutoTokenizer):
+        return tokenizer
+
+    else:
+        tokenizer = None
+        logger.error("tokenizer_id must be a string or an instance of AutoTokenizer.")
+
+    return tokenizer
 
 
 def find_in_tokens(

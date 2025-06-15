@@ -422,7 +422,7 @@ class Chat(BaseModel):
     async def to_tokens(
         self,
         tokenizer: str,
-        tokenizer_kwargs: dict[str, t.Any] | None = None,
+        tokenizer_kwargs: dict[str, t.Any] = {},
         *,
         apply_chat_template_kwargs: dict[str, t.Any] | None = None,
         encode_kwargs: dict[str, t.Any] | None = None,
@@ -538,7 +538,7 @@ class ChatList(list[Chat]):
     async def to_tokens(
         self,
         tokenizer: str,
-        tokenizer_kwargs: dict[str, t.Any] | None = None,
+        tokenizer_kwargs: dict[str, t.Any] = {},
         *,
         apply_chat_template_kwargs: dict[str, t.Any] | None = None,
         encode_kwargs: dict[str, t.Any] | None = None,
