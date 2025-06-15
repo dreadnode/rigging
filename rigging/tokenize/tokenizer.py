@@ -5,9 +5,9 @@ if importlib.util.find_spec("transformers") is None:
     raise ModuleNotFoundError("Please install the `transformers` package to use this module.")
 
 
+from loguru import logger
 from transformers import AutoTokenizer
 
-from rigging.logging import logger
 from rigging.tokenize.base import Decoder
 
 
