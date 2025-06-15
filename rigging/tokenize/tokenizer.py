@@ -14,7 +14,7 @@ from rigging.tokenize.base import Decoder
 def get_tokenizer(
     tokenizer_id: str,
     **tokenizer_kwargs: t.Any,
-) -> AutoTokenizer:
+) -> AutoTokenizer | None:
     """
     Get the tokenizer from transformers model identifier, or from an already loaded tokenizer.
 
