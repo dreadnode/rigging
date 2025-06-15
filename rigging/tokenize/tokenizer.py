@@ -12,7 +12,7 @@ from rigging.tokenize.base import Decoder
 
 
 def get_tokenizer(
-    tokenizer_id: str | AutoTokenizer | None,
+    tokenizer_id: str,
     **tokenizer_kwargs: t.Any,
 ) -> AutoTokenizer:
     """
@@ -27,23 +27,16 @@ def get_tokenizer(
     """
     tokenizer: AutoTokenizer | None = None
 
-    if isinstance(tokenizer_id, str):
-        try:
-            tokenizer = AutoTokenizer.from_pretrained(
-                tokenizer_id,
-                **tokenizer_kwargs,
-            )
-            logger.success(f"Loaded tokenizer for model '{tokenizer_id}'")
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(
+            tokenizer_id,
+            **tokenizer_kwargs,
+        )
+        logger.success(f"Loaded tokenizer for model '{tokenizer_id}'")
 
-        except Exception as e:  # noqa: BLE001
-            # Catch all exceptions to handle any issues with loading the tokenizer
-            logger.error(f"Failed to load tokenizer for model '{tokenizer_id}': {e}")
-
-    elif isinstance(tokenizer_id, AutoTokenizer):
-        return tokenizer
-
-    else:
-        logger.error("tokenizer_id must be a string or an instance of AutoTokenizer.")
+    except Exception as e:  # noqa: BLE001
+        # Catch all exceptions to handle any issues with loading the tokenizer
+        logger.error(f"Failed to load tokenizer for model '{tokenizer_id}': {e}")
 
     return tokenizer
 

@@ -43,6 +43,7 @@ from rigging.message import (
     inject_system_content as inject_system_content_into_messages,
 )
 from rigging.model import Model, ModelT, SystemErrorModel, ValidationErrorModel
+from rigging.tokenize import TokenizedChat
 from rigging.tools.base import Tool, ToolCall, ToolChoice, ToolMode
 from rigging.tracing import Span, tracer
 from rigging.transform import (
@@ -421,7 +422,7 @@ class Chat(BaseModel):
 
     async def to_tokens(
         self,
-        tokenizer: str,
+        tokenizer_id: str,
         tokenizer_kwargs: dict[str, t.Any] | None = None,
         *,
         apply_chat_template_kwargs: dict[str, t.Any] | None = None,
@@ -440,7 +441,7 @@ class Chat(BaseModel):
         if tokenizer_kwargs is None:
             tokenizer_kwargs = {}
 
-        tokenizer = get_tokenizer(tokenizer, **tokenizer_kwargs)
+        tokenizer = get_tokenizer(tokenizer_id, **tokenizer_kwargs)
 
         return await chats_to_tokens(
             self,
@@ -540,13 +541,13 @@ class ChatList(list[Chat]):
 
     async def to_tokens(
         self,
-        tokenizer: str,
+        tokenizer_id: str,
         tokenizer_kwargs: dict[str, t.Any] | None = None,
         *,
         apply_chat_template_kwargs: dict[str, t.Any] | None = None,
         encode_kwargs: dict[str, t.Any] | None = None,
         decode_kwargs: dict[str, t.Any] | None = None,
-    ) -> list[list[int]]:
+    ) -> list[TokenizedChat]:
         """
         Converts the chat list to a list of tokenized messages.
 
@@ -560,9 +561,8 @@ class ChatList(list[Chat]):
         if tokenizer_kwargs is None:
             tokenizer_kwargs = {}
 
-        tokenizer = get_tokenizer(tokenizer, **tokenizer_kwargs)
+        tokenizer = get_tokenizer(tokenizer_id, **tokenizer_kwargs)
 
-        # openai_chats = [chat.to_openai() for chat in self]
         return [
             await chats_to_tokens(
                 chat,
