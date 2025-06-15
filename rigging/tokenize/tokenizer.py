@@ -25,6 +25,8 @@ def get_tokenizer(
     Returns:
         An instance of `AutoTokenizer`.
     """
+    tokenizer: AutoTokenizer | None = None
+
     if isinstance(tokenizer_id, str):
         try:
             tokenizer = AutoTokenizer.from_pretrained(
@@ -41,7 +43,6 @@ def get_tokenizer(
         return tokenizer
 
     else:
-        tokenizer = None
         logger.error("tokenizer_id must be a string or an instance of AutoTokenizer.")
 
     return tokenizer
