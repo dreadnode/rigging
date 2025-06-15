@@ -5,9 +5,8 @@ from rigging.tokenize.base import (
     TokenizedChat,
     Tokenizer,
     TokenSlice,
-    find_in_tokens,
-    tokenize_chat,
 )
+from rigging.tokenize.tokenizer import find_in_tokens, get_tokenizer
 
 __all__ = [
     "ChatFormatter",
@@ -17,5 +16,5 @@ __all__ = [
     "TokenizedChat",
     "Tokenizer",
     "find_in_tokens",
-    "tokenize_chat",
+    "get_tokenizer",
 ]

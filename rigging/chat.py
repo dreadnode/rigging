@@ -419,6 +419,34 @@ class Chat(BaseModel):
         """
         return [m.to_openai() for m in self.all]
 
+    async def to_tokens(
+        self,
+        tokenizer: str,
+        tokenizer_kwargs: dict[str, t.Any] = {},
+        *,
+        apply_chat_template_kwargs: dict[str, t.Any] | None = None,
+        encode_kwargs: dict[str, t.Any] | None = None,
+        decode_kwargs: dict[str, t.Any] | None = None,
+    ) -> list[int]:
+        """
+        Converts the chat messages to a list of tokenized messages.
+
+        Returns:
+            The serialized chat as a list of token lists.
+        """
+        from rigging.data import chats_to_tokens
+        from rigging.tokenize import get_tokenizer
+
+        tokenizer = get_tokenizer(tokenizer, **tokenizer_kwargs)
+
+        return await chats_to_tokens(
+            self,
+            tokenizer,
+            apply_chat_template_kwargs=apply_chat_template_kwargs,
+            encode_kwargs=encode_kwargs,
+            decode_kwargs=decode_kwargs,
+        )
+
     async def transform(self, transform: Transform) -> "Chat":
         """
         Applies a transform to the chat.
@@ -506,6 +534,39 @@ class ChatList(list[Chat]):
             The serialized chat list.
         """
         return [chat.to_openai() for chat in self]
+
+    async def to_tokens(
+        self,
+        tokenizer: str,
+        tokenizer_kwargs: dict[str, t.Any] = {},
+        *,
+        apply_chat_template_kwargs: dict[str, t.Any] | None = None,
+        encode_kwargs: dict[str, t.Any] | None = None,
+        decode_kwargs: dict[str, t.Any] | None = None,
+    ) -> list[list[int]]:
+        """
+        Converts the chat list to a list of tokenized messages.
+
+        Returns:
+            The serialized chat list as a list of token lists.
+        """
+
+        from rigging.data import chats_to_tokens
+        from rigging.tokenize import get_tokenizer
+
+        tokenizer = get_tokenizer(tokenizer, **tokenizer_kwargs)
+
+        # openai_chats = [chat.to_openai() for chat in self]
+        return [
+            await chats_to_tokens(
+                chat,
+                tokenizer,
+                apply_chat_template_kwargs=apply_chat_template_kwargs,
+                encode_kwargs=encode_kwargs,
+                decode_kwargs=decode_kwargs,
+            )
+            for chat in self
+        ]
 
 
 # Callbacks
