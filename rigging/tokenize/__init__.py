@@ -1,3 +1,4 @@
+from rigging.tokenize import tokenizer
 from rigging.tokenize.base import (
     ChatFormatter,
     Decoder,
@@ -17,4 +18,5 @@ __all__ = [
     "Tokenizer",
     "find_in_tokens",
     "get_tokenizer",
+    "tokenizer",
 ]

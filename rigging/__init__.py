@@ -56,6 +56,7 @@ from rigging.tokenize import (
     TokenSlice,
     find_in_tokens,
     get_tokenizer,
+    tokenizer,
 )
 from rigging.tools import Tool, mcp, robopages, tool, tool_method
 from rigging.util import await_
@@ -116,6 +117,7 @@ __all__ = [
     "register_generator",
     "robopages",
     "tokenize",
+    "tokenizer",
     "tool",
     "tool_method",
     "tools",

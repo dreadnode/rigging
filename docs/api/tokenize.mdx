@@ -1,320 +1,27 @@
 ---
-title: rigging.tokenize
+title: rigging.tokenizer
 ---
 
 {/*
-::: rigging.tokenize
-::: rigging.tokenize.transformers_
+::: rigging.tokenizer
 */}
 
-TokenSlice
-----------
-
-```python
-TokenSlice(
-    start: int,
-    end: int,
-    type: SliceType,
-    obj: SliceObj | None = None,
-    metadata: dict[str, Any] | None = None,
-)
-```
-
-Represents a slice of tokens within a tokenized chat.
-
-### end
-
-```python
-end: int
-```
-
-The ending index of the slice in the token list.
-
-### metadata
-
-```python
-metadata: dict[str, Any] | None = None
-```
-
-Additional metadata associated with this slice, if any.
-
-### obj
-
-```python
-obj: SliceObj | None = None
-```
-
-The original object this slice corresponds to, if any.
-
-### start
-
-```python
-start: int
-```
-
-The starting index of the slice in the token list.
-
-### type
-
-```python
-type: SliceType
-```
-
-The type of the slice (e.g. message, tool\_call, etc.).
-
-TokenizedChat
--------------
-
-```python
-TokenizedChat(
-    text: str,
-    tokens: list[int],
-    slices: list[TokenSlice],
-    obj: Chat | None = None,
-)
-```
-
-A tokenized representation of a chat, containing the full text,
-token list, and structured slices of tokens.
-
-### obj
-
-```python
-obj: Chat | None = None
-```
-
-The original chat object, if available.
-
-### slices
-
-```python
-slices: list[TokenSlice]
-```
-
-Structured slices of tokens, each representing a part of the chat.
-
-### text
-
-```python
-text: str
-```
-
-The full text of the chat, formatted as a single string.
-
-### tokens
-
-```python
-tokens: list[int]
-```
-
-The list of tokens representing the chat text.
-
-tokenize\_chat
+get\_tokenizer
 --------------
 
 ```python
-tokenize_chat(
-    chat: Chat,
-    formatter: ChatFormatter,
-    encoder: Encoder,
-    decoder: Decoder,
-    *,
-    transform: Transform | None = None,
-) -> TokenizedChat
+get_tokenizer(
+    model: str | Any, **tokenizer_kwargs: Any
+) -> AutoTokenizer
 ```
 
-Transform a chat into a tokenized format with structured slices.
-
-**Parameters:**
-
-* **`chat`**
-  (`Chat`)
-  –The chat object to tokenize.
-* **`formatter`**
-  (`ChatFormatter`)
-  –Function to format the chat into a string.
-* **`encoder`**
-  (`Encoder`)
-  –Function to encode strings into tokens.
-* **`decoder`**
-  (`Decoder`)
-  –Function to decode tokens back into strings.
-* **`transform`**
-  (`Transform | None`, default:
-  `None`
-  )
-  –Optional transformation to apply to the chat before tokenization.
-
-**Returns:**
-
-* `TokenizedChat`
-  –A TokenizedChat object containing the tokenized chat data.
-
-<Accordion title="Source code in rigging/tokenize/base.py" icon="code">
-```python
-async def tokenize_chat(
-    chat: "Chat",
-    formatter: ChatFormatter,
-    encoder: Encoder,
-    decoder: Decoder,
-    *,
-    transform: "Transform | None" = None,
-) -> TokenizedChat:
-    """
-    Transform a chat into a tokenized format with structured slices.
-
-    Args:
-        chat: The chat object to tokenize.
-        formatter: Function to format the chat into a string.
-        encoder: Function to encode strings into tokens.
-        decoder: Function to decode tokens back into strings.
-        transform: Optional transformation to apply to the chat before tokenization.
-
-    Returns:
-        A TokenizedChat object containing the tokenized chat data.
-    """
-    if transform:
-        chat = await chat.transform(transform)
-
-    chat_text = formatter(chat)
-    chat_tokens = encoder(chat_text)
-
-    slices: list[TokenSlice] = []
-    search_start = 0
-
-    # Process messages in order
-    for message in chat.all:
-        # Find this message
-        if not (match := find_in_tokens(message.content, chat_tokens, decoder, 0, search_start)):
-            warnings.warn(
-                f"Warning: Could not find message '{message.content[:50]}...' in chat tokens",
-                TokenizeWarning,
-                stacklevel=2,
-            )
-            continue
-
-        msg_start, msg_end = match
-        msg_metadata = message.metadata or {}
-        msg_metadata["role"] = message.role
-        if message.tool_call_id:
-            msg_metadata["tool_call_id"] = message.tool_call_id
-
-        # Add message slice
-        slices.append(
-            TokenSlice(
-                start=msg_start,
-                end=msg_end,
-                type="message",
-                obj=message,
-                metadata=msg_metadata,
-            ),
-        )
-
-        # Find parts within this message
-        message_tokens = chat_tokens[msg_start:msg_end]
-        part_search_start = 0
-
-        # Process message slices in order
-        for slice_ in message.slices:
-            part_text = message.content[slice_.slice_]
-            part_match = find_in_tokens(
-                part_text,
-                message_tokens,
-                decoder,
-                msg_start,
-                part_search_start,
-            )
-            if not part_match:
-                warnings.warn(
-                    f"Warning: Could not find part '{part_text[:50]}...' in message tokens",
-                    TokenizeWarning,
-                    stacklevel=2,
-                )
-                continue
-
-            part_start, part_end = part_match
-            slices.append(
-                TokenSlice(
-                    start=part_start,
-                    end=part_end,
-                    type=slice_.type,
-                    obj=slice_.obj,
-                    metadata=slice_.metadata,
-                ),
-            )
-
-            # Continue searching after this part
-            part_search_start = part_end - msg_start
-
-        # Continue searching after this message
-        search_start = msg_end
-
-    return TokenizedChat(
-        text=chat_text,
-        tokens=chat_tokens,
-        slices=slices,
-        obj=chat,
-    )
-```
-
-
-</Accordion>
-make\_tokenizers\_from\_transformers
-------------------------------------
-
-```python
-make_tokenizers_from_transformers(
-    model: str | Any,
-    *,
-    apply_chat_template_kwargs: dict[str, Any]
-    | None = None,
-    encode_kwargs: dict[str, Any] | None = None,
-    decode_kwargs: dict[str, Any] | None = None,
-    **tokenizer_kwargs: Any,
-) -> tuple[ChatFormatter, Encoder, Decoder]
-```
-
-Get the chat formatter, encoder, and decoder from transformers model
-identifier, or from an already loaded tokenizer.
-
-**Examples:**
-
-```python
-import rigging as rg
-from rigging.tokenize.transformers_ import make_tokenizers_from_transformers
-
-formatter, encoder, decoder = make_tokenizers_from_transformers("Qwen/Qwen3-8B")
-transform = rg.transform.tools_to_json_with_tag_transform
-
-tokenized = await rg.tokenize.tokenize_chat(
-    chat,
-    formatter,
-    encoder,
-    decoder,
-    transform=transform
-)
-```
+Get the tokenizer from transformers model identifier, or from an already loaded tokenizer.
 
 **Parameters:**
 
 * **`model`**
   (`str | Any`)
   –The model identifier (string) or an already loaded tokenizer.
-* **`apply_chat_template_kwargs`**
-  (`dict[str, Any] | None`, default:
-  `None`
-  )
-  –Additional keyword arguments for applying the chat template.
-* **`encode_kwargs`**
-  (`dict[str, Any] | None`, default:
-  `None`
-  )
-  –Additional keyword arguments for encoding text.
-* **`decode_kwargs`**
-  (`dict[str, Any] | None`, default:
-  `None`
-  )
-  –Additional keyword arguments for decoding tokens.
 * **`tokenizer_kwargs`**
   (`Any`, default:
   `{}`
@@ -323,79 +30,28 @@ tokenized = await rg.tokenize.tokenize_chat(
 
 **Returns:**
 
-* `tuple[ChatFormatter, Encoder, Decoder]`
-  –A tuple containing the chat formatter, encoder, and decoder.
+* `AutoTokenizer`
+  –An instance of `AutoTokenizer`.
 
-<Accordion title="Source code in rigging/tokenize/transformers_.py" icon="code">
+<Accordion title="Source code in rigging/tokenize/tokenizer.py" icon="code">
 ```python
-def make_tokenizers_from_transformers(
+def get_tokenizer(
     model: str | t.Any,
-    *,
-    apply_chat_template_kwargs: dict[str, t.Any] | None = None,
-    encode_kwargs: dict[str, t.Any] | None = None,
-    decode_kwargs: dict[str, t.Any] | None = None,
     **tokenizer_kwargs: t.Any,
-) -> tuple[ChatFormatter, Encoder, Decoder]:
+) -> AutoTokenizer:
     """
-    Get the chat formatter, encoder, and decoder from transformers model
-    identifier, or from an already loaded tokenizer.
-
-    Examples:
-        ~~~
-        import rigging as rg
-        from rigging.tokenize.transformers_ import make_tokenizers_from_transformers
-
-        formatter, encoder, decoder = make_tokenizers_from_transformers("Qwen/Qwen3-8B")
-        transform = rg.transform.tools_to_json_with_tag_transform
-
-        tokenized = await rg.tokenize.tokenize_chat(
-            chat,
-            formatter,
-            encoder,
-            decoder,
-            transform=transform
-        )
-        ~~~
+    Get the tokenizer from transformers model identifier, or from an already loaded tokenizer.
 
     Args:
         model: The model identifier (string) or an already loaded tokenizer.
-        apply_chat_template_kwargs: Additional keyword arguments for applying the chat template.
-        encode_kwargs: Additional keyword arguments for encoding text.
-        decode_kwargs: Additional keyword arguments for decoding tokens.
         tokenizer_kwargs: Additional keyword arguments for the tokenizer initialization.
 
     Returns:
-        A tuple containing the chat formatter, encoder, and decoder.
+        An instance of `AutoTokenizer`.
     """
     if isinstance(model, str):
-        tokenizer = AutoTokenizer.from_pretrained(model, **tokenizer_kwargs)
-    else:
-        tokenizer = model
-
-    apply_chat_template_kwargs = {
-        "tokenize": False,
-        **(apply_chat_template_kwargs or {}),
-    }
-    encode_kwargs = {
-        **(encode_kwargs or {}),
-    }
-    decode_kwargs = {
-        "clean_up_tokenization_spaces": False,
-        **(decode_kwargs or {}),
-    }
-
-    def chat_formatter(chat: "Chat") -> str:
-        messages = [m.to_openai(compatibility_flags={"content_as_str"}) for m in chat.all]
-        tools = chat.params.tools if chat.params else None
-        return tokenizer.apply_chat_template(messages, tools=tools, **apply_chat_template_kwargs)  # type: ignore [no-any-return]
-
-    def encoder(text: str) -> list[int]:
-        return tokenizer.encode(text, **encode_kwargs)  # type: ignore [no-any-return]
-
-    def decoder(tokens: list[int]) -> str:
-        return tokenizer.decode(tokens, **decode_kwargs)  # type: ignore [no-any-return]
-
-    return chat_formatter, encoder, decoder
+        return AutoTokenizer.from_pretrained(model, **tokenizer_kwargs)
+    return model
 ```
 
 
