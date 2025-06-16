@@ -1,4 +1,15 @@
-from rigging import data, error, generator, logging, model, parsing, watchers
+from rigging import (
+    data,
+    error,
+    generator,
+    logging,
+    model,
+    parsing,
+    tokenize,
+    tools,
+    transform,
+    watchers,
+)
 from rigging.chat import (
     Chat,
     ChatPipeline,
@@ -36,7 +47,18 @@ from rigging.message import (
 )
 from rigging.model import Model, attr, element, wrapped
 from rigging.prompt import Ctx, Prompt, prompt
-from rigging.tool import Tool, mcp, robopages, tool, tool_method
+from rigging.tokenize import (
+    ChatFormatter,
+    Decoder,
+    Encoder,
+    TokenizedChat,
+    Tokenizer,
+    TokenSlice,
+    find_in_tokens,
+    get_tokenizer,
+    tokenizer,
+)
+from rigging.tools import Tool, mcp, robopages, tool, tool_method
 from rigging.util import await_
 from rigging.version import VERSION
 
@@ -44,6 +66,7 @@ __version__ = VERSION
 
 __all__ = [
     "Chat",
+    "ChatFormatter",
     "ChatPipeline",
     "Completion",
     "CompletionPipeline",
@@ -51,6 +74,8 @@ __all__ = [
     "ContentImageUrl",
     "ContentText",
     "Ctx",
+    "Decoder",
+    "Encoder",
     "GenerateParams",
     "GeneratedMessage",
     "GeneratedText",
@@ -68,6 +93,9 @@ __all__ = [
     "Stop",
     "ThenChatCallback",
     "ThenCompletionCallback",
+    "TokenSlice",
+    "TokenizedChat",
+    "Tokenizer",
     "Tool",
     "attr",
     "await_",
@@ -76,8 +104,10 @@ __all__ = [
     "data",
     "element",
     "error",
+    "find_in_tokens",
     "generator",
     "get_generator",
+    "get_tokenizer",
     "interact",
     "logging",
     "mcp",
@@ -86,8 +116,12 @@ __all__ = [
     "prompt",
     "register_generator",
     "robopages",
+    "tokenize",
+    "tokenizer",
     "tool",
     "tool_method",
+    "tools",
+    "transform",
     "watchers",
     "wrapped",
 ]

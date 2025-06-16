@@ -30,22 +30,30 @@ from pydantic import (
     computed_field,
 )
 
-from rigging.error import MaxDepthError, UnknownToolError
+from rigging.error import MaxDepthError, PipelineWarning, UnknownToolError
 from rigging.generator import GenerateParams, Generator, get_generator
 from rigging.generator.base import StopReason, Usage
-from rigging.message import Content, Message, MessageDict, Messages
-from rigging.model import Model, ModelT, SystemErrorModel, ValidationErrorModel
-from rigging.tool.api import ApiToolCall, ApiToolChoice
-from rigging.tool.base import Tool, ToolMode
-from rigging.tool.native import (
-    TOOL_CALLS_TAG,
-    JsonInXmlToolCall,
-    JsonInXmlToolDefinition,
-    XmlToolCall,
-    XmlToolDefinition,
-    tool_description_prompt_part,
+from rigging.message import (
+    Content,
+    Message,
+    MessageDict,
+    Messages,
 )
+from rigging.message import (
+    inject_system_content as inject_system_content_into_messages,
+)
+from rigging.model import Model, ModelT, SystemErrorModel, ValidationErrorModel
+from rigging.tokenize import TokenizedChat
+from rigging.tools.base import Tool, ToolCall, ToolChoice, ToolMode
 from rigging.tracing import Span, tracer
+from rigging.transform import (
+    PostTransform,
+    Transform,
+    make_tools_to_xml_transform,
+    tools_to_json_in_xml_transform,
+    tools_to_json_transform,
+    tools_to_json_with_tag_transform,
+)
 from rigging.util import flatten_list, get_qualified_name
 
 if t.TYPE_CHECKING:
@@ -215,13 +223,7 @@ class Chat(BaseModel):
         Returns:
             The MessageDict list
         """
-        return [
-            t.cast(
-                "MessageDict",
-                m.model_dump(include={"role", "content_parts"}, exclude_none=True),
-            )
-            for m in self.all
-        ]
+        return [t.cast("MessageDict", m.to_openai()) for m in self.all]
 
     def meta(self, **kwargs: t.Any) -> "Chat":
         """
@@ -347,22 +349,6 @@ class Chat(BaseModel):
         self.generated = Message.apply_to_list(self.generated, **kwargs)
         return self
 
-    def strip(self, model_type: type[Model], fail_on_missing: bool = False) -> "Chat":  # noqa: FBT001, FBT002 (historical)
-        """
-        Strips all parsed parts of a particular type from the message content.
-
-        Args:
-            model_type: The type of model to keep in the chat.
-            fail_on_missing: Whether to raise an exception if a message of the specified model type is not found.
-
-        Returns:
-            A new chat with only the messages of the specified model type.
-        """
-        new = self.clone()
-        for message in new.all:
-            message.strip(model_type, fail_on_missing=fail_on_missing)
-        return new
-
     def inject_system_content(self, content: str) -> "Chat":
         """
         Injects content into the chat as a system message.
@@ -378,40 +364,8 @@ class Chat(BaseModel):
         Returns:
             The updated chat.
         """
-        if len(self.messages) == 0 or self.messages[0].role != "system":
-            self.messages.insert(0, Message(role="system", content=content))
-        elif self.messages[0].role == "system" and content not in self.messages[0].content:
-            self.messages[0].content += "\n\n" + content
+        self.messages = inject_system_content_into_messages(self.messages, content)
         return self
-
-    def inject_tool_prompt(
-        self,
-        tools: t.Sequence[Tool[..., t.Any]],
-        mode: ToolMode,
-    ) -> "Chat":
-        """
-        Injects a default tool use prompt into the system prompt.
-
-        Args:
-            tools: A sequence of Tool objects.
-
-        Returns:
-            The updated chat.
-        """
-        if mode not in ["xml", "json-in-xml"]:
-            return self
-
-        definitions: list[XmlToolDefinition] | list[JsonInXmlToolDefinition]
-        if mode == "xml":
-            definitions = [tool.xml_definition for tool in tools]
-        else:
-            definitions = [tool.json_definition for tool in tools]
-
-        tool_system_prompt = tool_description_prompt_part(
-            definitions,
-            t.cast("t.Literal['xml', 'json-in-xml']", mode),
-        )
-        return self.inject_system_content(tool_system_prompt)
 
     def to_df(self) -> t.Any:
         """
@@ -454,6 +408,66 @@ class Chat(BaseModel):
             create_index=create_index,
             **kwargs,
         )
+
+    def to_openai(self) -> list[dict[str, t.Any]]:
+        """
+        Converts the chat messages to the OpenAI-compatible JSON format.
+
+        See Message.to_openai() for more information.
+
+        Returns:
+            The serialized chat.
+        """
+        return [m.to_openai() for m in self.all]
+
+    async def to_tokens(
+        self,
+        tokenizer_id: str,
+        tokenizer_kwargs: dict[str, t.Any] | None = None,
+        *,
+        apply_chat_template_kwargs: dict[str, t.Any] | None = None,
+        encode_kwargs: dict[str, t.Any] | None = None,
+        decode_kwargs: dict[str, t.Any] | None = None,
+    ) -> TokenizedChat:
+        """
+        Converts the chat messages to a list of tokenized messages.
+
+        Returns:
+            The serialized chat as a list of token lists.
+        """
+        from rigging.data import chats_to_tokens
+        from rigging.tokenize import get_tokenizer
+
+        if tokenizer_kwargs is None:
+            tokenizer_kwargs = {}
+
+        tokenizer = get_tokenizer(tokenizer_id, **tokenizer_kwargs)
+
+        return await chats_to_tokens(
+            self,
+            tokenizer,
+            apply_chat_template_kwargs=apply_chat_template_kwargs,
+            encode_kwargs=encode_kwargs,
+            decode_kwargs=decode_kwargs,
+        )
+
+    async def transform(self, transform: Transform) -> "Chat":
+        """
+        Applies a transform to the chat.
+
+        Args:
+            transform: The transform to apply.
+
+        Returns:
+            A new chat with the transform applied to its messages and parameters.
+        """
+        messages = [m.clone() for m in self.messages]
+        params = self.params.clone() if self.params else GenerateParams()
+        messages, params, _ = await transform(self.messages, params)
+        new = self.clone()
+        new.messages = messages
+        new.params = params
+        return new
 
 
 # List Helper Type
@@ -513,6 +527,52 @@ class ChatList(list[Chat]):
         Helper to convert the chat list to a list of dictionaries.
         """
         return [chat.model_dump() for chat in self]
+
+    def to_openai(self) -> list[list[dict[str, t.Any]]]:
+        """
+        Converts the chat list to a list of OpenAI-compatible JSON format.
+
+        See Message.to_openai() for more information.
+
+        Returns:
+            The serialized chat list.
+        """
+        return [chat.to_openai() for chat in self]
+
+    async def to_tokens(
+        self,
+        tokenizer_id: str,
+        tokenizer_kwargs: dict[str, t.Any] | None = None,
+        *,
+        apply_chat_template_kwargs: dict[str, t.Any] | None = None,
+        encode_kwargs: dict[str, t.Any] | None = None,
+        decode_kwargs: dict[str, t.Any] | None = None,
+    ) -> list[TokenizedChat]:
+        """
+        Converts the chat list to a list of tokenized messages.
+
+        Returns:
+            The serialized chat list as a list of token lists.
+        """
+
+        from rigging.data import chats_to_tokens
+        from rigging.tokenize import get_tokenizer
+
+        if tokenizer_kwargs is None:
+            tokenizer_kwargs = {}
+
+        tokenizer = get_tokenizer(tokenizer_id, **tokenizer_kwargs)
+
+        return [
+            await chats_to_tokens(
+                chat,
+                tokenizer,
+                apply_chat_template_kwargs=apply_chat_template_kwargs,
+                encode_kwargs=encode_kwargs,
+                decode_kwargs=decode_kwargs,
+            )
+            for chat in self
+        ]
 
 
 # Callbacks
@@ -632,9 +692,11 @@ class PipelineStep:
         while next_parent is not None:
             if next_parent is next_parent.parent:
                 raise RuntimeError("Parent is self-referential")
+
             if next_parent.parent is None:
                 next_parent.parent = parent
                 return copy
+
             next_parent = next_parent.parent
 
         raise RuntimeError("Unable to set parent step")
@@ -718,12 +780,12 @@ class ChatPipeline:
         self.until_types: list[type[Model]] = []
         self.tools: list[Tool[..., t.Any]] = []
         self.tool_mode: ToolMode = "auto"
-        self.api_tool_choice: ApiToolChoice | None = None
         self.inject_tool_prompt = True
         self.add_tool_stop_token = True
         self.then_callbacks: list[tuple[ThenChatCallback, int]] = []
         self.map_callbacks: list[tuple[MapChatCallback, int]] = []
         self.watch_callbacks: list[WatchChatCallback] = watch_callbacks or []
+        self.transforms: list[Transform] = []
 
     def __len__(self) -> int:
         return len(self.chat)
@@ -880,7 +942,7 @@ class ChatPipeline:
         *,
         only_messages: bool = False,
         chat: Chat | None = None,
-        callbacks: bool | t.Sequence[MapChatCallback | ThenChatCallback] = True,
+        callbacks: bool | t.Sequence[MapChatCallback | ThenChatCallback | Transform] = True,
     ) -> "ChatPipeline":
         """
         Creates a clone of the current `ChatPipeline` instance.
@@ -937,6 +999,13 @@ class ChatPipeline:
                 else (types.MethodType(callback.__func__, new), max_depth)  # type: ignore [union-attr]
                 for callback, max_depth in self.map_callbacks.copy()
             ]
+            new.transforms = [
+                callback
+                if not hasattr(callback, "__self__")
+                or not isinstance(callback.__self__, ChatPipeline)
+                else types.MethodType(callback.__func__, new)  # type: ignore [attr-defined]
+                for callback in self.transforms
+            ]
 
             if not isinstance(callbacks, bool):
                 new.then_callbacks = [
@@ -949,6 +1018,7 @@ class ChatPipeline:
                     for callback, max_depth in self.map_callbacks
                     if callback in callbacks
                 ]
+                new.transforms = [callback for callback in self.transforms if callback in callbacks]
 
         return new
 
@@ -982,6 +1052,7 @@ class ChatPipeline:
         Args:
             callbacks: The callback functions to be added.
             max_depth: The maximum depth to allow recursive pipeline calls during this callback.
+            allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
 
         Returns:
             The updated pipeline.
@@ -1028,6 +1099,7 @@ class ChatPipeline:
         Args:
             callbacks: The callback function to be executed.
             max_depth: The maximum depth to allow recursive pipeline calls during this callback.
+            allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
 
         Returns:
             The updated pipeline.
@@ -1055,6 +1127,50 @@ class ChatPipeline:
                 )
 
         self.map_callbacks.extend([(callback, max_depth) for callback in callbacks])
+        return self
+
+    def transform(
+        self,
+        *callbacks: Transform,
+        allow_duplicates: bool = False,
+    ) -> "ChatPipeline":
+        """
+        Registers a callback to be executed just before generation, and optionally return
+        a callback to executed just after generation.
+
+        Transform callbacks are low-level callbacks used to modify messages and parameters based
+        on pipeline state and conditions. They are not emitted as pipeline steps and all other
+        callbacks (watch, then, map) occur after all transform callbacks have been executed.
+
+        Args:
+            callbacks: The callback function to be executed.
+            allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
+
+        Returns:
+            The updated pipeline.
+
+        Example:
+            ```
+            async def transform(
+                messages: list[Message],
+                params: GenerateParams
+            ) -> tuple[list[Message], GenerateParams, PostTransformChatCallback | None]:
+
+                async def post_transform(chat: Chat) -> Chat | None:
+                    ...
+
+                return messages, params, post_transform
+
+            await pipeline.transform(transform).run()
+            ```
+        """
+        for callback in callbacks:
+            if not allow_duplicates and callback in self.transforms:
+                raise ValueError(
+                    f"Callback '{get_qualified_name(callback)}' is already registered.",
+                )
+
+        self.transforms.extend(callbacks)
         return self
 
     def apply(self, **kwargs: str) -> "ChatPipeline":
@@ -1122,7 +1238,7 @@ class ChatPipeline:
         | t.Callable[..., t.Any]
         | t.Sequence[Tool[..., t.Any] | t.Callable[..., t.Any]],
         mode: ToolMode | None = None,
-        choice: ApiToolChoice | None = None,
+        choice: ToolChoice | None = None,
         max_depth: int = DEFAULT_MAX_DEPTH,
         add_stop_token: bool | None = None,
     ) -> "ChatPipeline":
@@ -1135,10 +1251,10 @@ class ChatPipeline:
 
         Args:
             *tools: The tools to be added to the pipeline.
-            mode: The tool calling mode to use (e.g., "xml", "json-in-xml", "api").
+            mode: The tool calling mode to use (e.g., "xml", "json-with-tag", "json-in-xml", "api") - default is "auto".
             choice: The API tool choice to use. This is only relevant when using the "api" tool mode.
             max_depth: The maximum depth for recursive tool calls (this is shared between all tools).
-            add_stop_token: When using natively parsed tools ("xml", "json-in-xml"), use stop tokens to
+            add_stop_token: When using "xml" tool transforms, use stop tokens to
                 immediately process a tool call when observed.
 
         Returns:
@@ -1168,32 +1284,41 @@ class ChatPipeline:
         ]
 
         existing_names = {tool.name for tool in self.tools}
-        for tool in new_tools:
-            if tool.name in existing_names:
-                raise ValueError(
-                    f"Tool with name '{tool.name}' already exists in the pipeline.",
-                )
+        new_names = {tool.name for tool in new_tools}
+        for name in existing_names & new_names:
+            warnings.warn(
+                f"Overwriting existing tool '{name}'.",
+                PipelineWarning,
+                stacklevel=2,
+            )
 
-        self.tools += new_tools
+        self.tools = [tool for tool in self.tools if tool.name not in new_names] + new_tools
 
         self.then_callbacks = [
             (callback, max_depth)
             for callback, max_depth in self.then_callbacks
-            if callback != self._then_tools
+            if callback != self._then_tools  # Always remove to update max_depth
         ]
         self.then_callbacks.insert(
-            0,
+            0,  # make sure this is first
             (self._then_tools, max_depth),
-        )  # make sure this is first
+        )
 
         if mode is not None:
             self.tool_mode = mode
 
-        if choice is not None:
-            self.api_tool_choice = choice
-
         if add_stop_token is not None:
             self.add_tool_stop_token = add_stop_token
+
+        # We would install the transform here for native tool calls,
+        # but we want to do it lazily because it's a closure that requires
+        # the current state of the pipeline. Having to re-construct it during
+        # cloning would be a pain.
+
+        self.params = self.params or GenerateParams()
+        self.params.tools = [tool.api_definition for tool in self.tools]
+        if choice is not None:
+            self.params.tool_choice = choice
 
         return self
 
@@ -1254,52 +1379,27 @@ class ChatPipeline:
     # Internal callbacks for handling tools and parsing
 
     async def _then_tools(self, chat: Chat) -> PipelineStepContextManager | None:
-        if (
-            self.add_tool_stop_token
-            and self.tool_mode in ["xml", "json-in-xml"]
-            and chat.stop_reason == "stop"
-        ):
-            # If we:
-            # 1. Are using native tools
-            # 2. Set a stop token for the tool calls
-            # 3. Hit that stop token
-            #
-            # Then we should re-inject the closing tag for completeness.
-
-            for part in chat.last.content_parts:
-                if (
-                    part.type == "text"
-                    and f"<{TOOL_CALLS_TAG}>" in part.text
-                    and f"</{TOOL_CALLS_TAG}>" not in part.text
-                ):
-                    part.text += f"</{TOOL_CALLS_TAG}>"
-                    break
-
-        # Parse the actual tool calls
-
-        tool_calls: list[ApiToolCall] | list[XmlToolCall] | list[JsonInXmlToolCall] | None = None
-        if self.tool_mode == "api":
-            tool_calls = chat.last.tool_calls
-        if self.tool_mode == "xml":
-            tool_calls = chat.last.try_parse_set(XmlToolCall)
-        elif self.tool_mode == "json-in-xml":
-            tool_calls = chat.last.try_parse_set(JsonInXmlToolCall)
-
-        if not tool_calls:
+        if not chat.last.tool_calls:
             return None
 
         next_pipeline = self.clone(chat=chat, callbacks=[self._then_tools])
 
-        stop = False
-
-        for tool_call in tool_calls:
+        async def _process_tool_call(tool_call: ToolCall) -> bool:
             tool = next((t for t in self.tools if t.name == tool_call.name), None)
             if tool is None:
                 raise UnknownToolError(tool_call.name)
 
-            message, _stop = await tool.handle_tool_call(tool_call)
-            stop = _stop if not _stop else stop
+            message, stop = await tool.handle_tool_call(tool_call)
             next_pipeline.add(message)
+            return stop
+
+        # Process all tool calls in parallel
+
+        stop = max(
+            await asyncio.gather(
+                *[_process_tool_call(tool_call) for tool_call in chat.last.tool_calls],
+            ),
+        )
 
         # Need to prevent infinite loops and treat tool_choice like
         # an ephemeral setting which resets after the first tool call.
@@ -1308,8 +1408,7 @@ class ChatPipeline:
             next_pipeline.params.tool_choice = None
 
         if stop:
-            # TODO(nick): Type hints here stop us from mixing step generators
-            # and basic chat returns.
+            # TODO(nick): Type hints here stop us from mixing step generators and basic chat returns.
             return next_pipeline.chat  # type: ignore [return-value]
 
         return next_pipeline.step()
@@ -1339,26 +1438,6 @@ class ChatPipeline:
         return next_pipeline.step()
 
     # Run helper methods
-
-    async def _pre_run(self) -> None:
-        if self.tool_mode == "auto" and self.tools:
-            self.tool_mode = "api" if await self.generator.supports_function_calling() else "xml"
-
-        if self.tools and self.tool_mode in ["xml", "json-in-xml"]:
-            if self.inject_tool_prompt:
-                self.chat.inject_tool_prompt(self.tools, self.tool_mode)
-                self.inject_native_tool_prompt = False
-
-            if self.add_tool_stop_token:
-                self.params = self.params = GenerateParams()
-                self.params.stop = self.params.stop or []
-                self.params.stop.append(f"</{TOOL_CALLS_TAG}>")
-
-        if self.tools and self.tool_mode == "api":
-            if self.params is None:
-                self.params = GenerateParams()
-            self.params.tools = [tool.api_definition for tool in self.tools]
-            self.params.tool_choice = self.api_tool_choice
 
     def _fit_params(
         self,
@@ -1470,6 +1549,48 @@ class ChatPipeline:
     ) -> PipelineStepGenerator:
         chats: ChatList = ChatList([])
 
+        # Some pre-run work
+
+        if self.tool_mode == "auto" and self.tools:
+            self.tool_mode = (
+                "api" if await self.generator.supports_function_calling() else "json-in-xml"
+            )
+
+        # Transform callbacks (pre)
+
+        transforms = self.transforms
+
+        # If we are using tool parsing, add the transform here
+        # as we need our latest tool states for XML
+        # TODO: We don't need everything this early
+
+        if self.tools:
+            match self.tool_mode:
+                case "xml":
+                    transforms.append(
+                        make_tools_to_xml_transform(
+                            self.tools,
+                            add_tool_stop_token=self.add_tool_stop_token,
+                        ),
+                    )
+                case "json-in-xml":
+                    transforms.append(tools_to_json_in_xml_transform)
+                case "json-with-tag":
+                    transforms.append(tools_to_json_with_tag_transform)
+                case "json":
+                    transforms.append(tools_to_json_transform)
+
+        post_transforms: list[list[PostTransform | None]] = []
+        for i, (_messages, _params) in enumerate(zip(messages, params, strict=True)):
+            _post_transforms: list[PostTransform | None] = []
+            for transform_callback in transforms:
+                _messages, _params, post_transform = await transform_callback(_messages, _params)
+                _post_transforms.append(post_transform)
+
+            messages[i] = _messages
+            params[i] = _params
+            post_transforms.append(_post_transforms)
+
         # Pass the messages to the generator
 
         try:
@@ -1537,6 +1658,13 @@ class ChatPipeline:
                     )
                 ],
             )
+
+        # Transform callbacks (post)
+
+        for i, (_chat, _post_transforms) in enumerate(zip(chats, post_transforms, strict=True)):
+            for post_transform in [transform for transform in _post_transforms if transform]:
+                _chat = await post_transform(_chat) or _chat
+            chats[i] = _chat
 
         # Watch callbacks
 
@@ -1758,8 +1886,6 @@ class ChatPipeline:
                 "Cannot use 'skip' mode with single message generation (pass allow_failed=True or on_failed='include'/'raise')",
             )
 
-        await self._pre_run()
-
         on_failed = on_failed or self.on_failed
 
         messages = [self.chat.all]
@@ -1837,8 +1963,6 @@ class ChatPipeline:
         Yields:
             Pipeline steps.
         """
-        await self._pre_run()
-
         on_failed = on_failed or self.on_failed
 
         messages = [self.chat.all] * count
@@ -1913,8 +2037,6 @@ class ChatPipeline:
         Yields:
             Pipeline steps.
         """
-        await self._pre_run()
-
         on_failed = on_failed or self.on_failed
 
         # Get the maximum of either incoming messages or params
@@ -2007,8 +2129,6 @@ class ChatPipeline:
         Returns:
             A list of generatated Chats.
         """
-        await self._pre_run()
-
         on_failed = on_failed or self.on_failed
 
         _generators: list[Generator] = [

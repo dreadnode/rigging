@@ -8,6 +8,7 @@ import inspect
 import re
 import types
 import typing as t
+from json import JSONDecoder
 from threading import Thread
 
 import jsonref  # type: ignore [import-untyped]
@@ -42,13 +43,11 @@ def _get_event_loop() -> asyncio.AbstractEventLoop:
 
 
 @t.overload
-def await_(coros: t.Coroutine[t.Any, t.Any, R]) -> R:
-    ...
+def await_(coros: t.Coroutine[t.Any, t.Any, R]) -> R: ...
 
 
 @t.overload
-def await_(*coros: t.Coroutine[t.Any, t.Any, R]) -> list[R]:
-    ...
+def await_(*coros: t.Coroutine[t.Any, t.Any, R]) -> list[R]: ...
 
 
 def await_(*coros: t.Coroutine[t.Any, t.Any, R]) -> R | list[R]:  # type: ignore [misc]
@@ -73,6 +72,17 @@ def await_(*coros: t.Coroutine[t.Any, t.Any, R]) -> R | list[R]:  # type: ignore
 
 
 def deref_json(obj: dict[str, t.Any], *, is_json_schema: bool = False) -> dict[str, t.Any]:
+    """
+    Light wrapper around jsonref.replace_refs() to dereference JSON objects which might
+    contain JSON Schema references ($ref).
+
+    Args:
+        obj: JSON object to dereference.
+        is_json_schema: See jsonref.replace_refs() for details on this parameter.
+
+    Returns:
+        A new JSON object with all references resolved.
+    """
     return jsonref.replace_refs(  # type: ignore [no-any-return]
         obj,
         jsonschema=is_json_schema,
@@ -81,16 +91,47 @@ def deref_json(obj: dict[str, t.Any], *, is_json_schema: bool = False) -> dict[s
     )
 
 
+def extract_json_objects(text: str) -> list[tuple[dict[str, t.Any], slice]]:
+    """
+    Find JSON objects in text using JSONDecoder.raw_decode().
+
+    Does not attempt to look for JSON arrays, text, or other JSON types outside
+    of a parent JSON object.
+
+    Args:
+        text: Text to search for JSON objects
+
+    Returns:
+        A list of tuples containing (JSON object, slice) where slice indicates
+        the position in the original text where the object was found.
+    """
+    decoder = JSONDecoder()
+    results = []
+    pos = 0
+
+    while True:
+        match = text.find("{", pos)
+        if match == -1:
+            break
+        try:
+            result, index = decoder.raw_decode(text[match:])
+            # Create slice representing the position in the original text
+            json_slice = slice(match, match + index)
+            results.append((result, json_slice))
+            pos = match + index
+        except ValueError:
+            pos = match + 1
+
+    return results
+
+
 # XML Formatting
 
 
-def escape_xml(xml_string: str) -> str:
-    """Escape XML special characters in a string."""
-    return re.sub(r"&(?!(?:amp|lt|gt|apos|quot);)", "&amp;", xml_string)
-
-
 def unescape_xml(xml_string: str) -> str:
-    """Unescape XML special characters in a string."""
+    """
+    Unescape XML special characters in a string.
+    """
     unescaped = re.sub(r"&amp;", "&", xml_string)
     unescaped = re.sub(r"&lt;", "<", unescaped)
     unescaped = re.sub(r"&gt;", ">", unescaped)
@@ -98,11 +139,44 @@ def unescape_xml(xml_string: str) -> str:
     return re.sub(r"&quot;", '"', unescaped)
 
 
+def escape_xml(xml_string: str) -> str:
+    """
+    Escape XML special characters in a string.
+    """
+    escaped = xml_string.replace(r"&", "&amp;")
+    escaped = escaped.replace(r"<", "&lt;")
+    escaped = escaped.replace(r">", "&gt;")
+    escaped = escaped.replace(r"'", "&apos;")
+    return escaped.replace(r'"', "&quot;")
+
+
+def unescape_cdata_tags(xml_string: str) -> str:
+    """
+    Unescape double-escaped CDATA tags in an XML string.
+    """
+
+    def unescape_cdata(match: re.Match[str]) -> str:
+        return unescape_xml(match.group(1))
+
+    return re.sub(
+        r"&lt;!\[CDATA\[(.*?)\]\]&gt;",  # The CDATA itself is escaped at this point,
+        unescape_cdata,
+        xml_string,
+        flags=re.DOTALL,
+    )
+
+
 def to_snake(text: str) -> str:
+    """
+    Convert a string to snake_case.
+    """
     return alias_generators.to_snake(text).replace("-", "_")
 
 
 def to_xml_tag(text: str) -> str:
+    """
+    Convert a string to a valid XML tag name.
+    """
     return to_snake(text).replace("_", "-").strip("-")
 
 
@@ -110,6 +184,10 @@ def to_xml_tag(text: str) -> str:
 
 
 def get_qualified_name(obj: t.Callable[..., t.Any]) -> str:
+    """
+    Return a best guess at the qualified name of a callable object.
+    This includes functions, methods, and callable classes.
+    """
     if obj is None or not callable(obj):
         return "unknown"
 
@@ -151,7 +229,9 @@ def get_qualified_name(obj: t.Callable[..., t.Any]) -> str:
 
 
 def shorten_string(content: str, max_length: int, *, sep: str = "...") -> str:
-    """Return a string at most max_length characters long by removing the middle of the string."""
+    """
+    Return a string at most max_length characters long by removing the middle of the string.
+    """
     if len(content) <= max_length:
         return content
 
@@ -164,7 +244,9 @@ def shorten_string(content: str, max_length: int, *, sep: str = "...") -> str:
 
 
 def truncate_string(content: str, max_length: int, *, suf: str = "...") -> str:
-    """Return a string at most max_length characters long by removing the end of the string."""
+    """
+    Return a string at most max_length characters long by removing the end of the string.
+    """
     if len(content) <= max_length:
         return content
 
@@ -179,6 +261,9 @@ def truncate_string(content: str, max_length: int, *, suf: str = "...") -> str:
 
 
 def flatten_list(nested_list: t.Iterable[t.Iterable[t.Any] | t.Any]) -> list[t.Any]:
+    """
+    Recursively flatten a nested list into a single list.
+    """
     flattened = []
     for item in nested_list:
         if isinstance(item, list):
@@ -205,9 +290,9 @@ def identify_audio_format(data: bytes) -> AudioFormat | None:
     signatures: dict[bytes, AudioFormat] = {
         b"RIFF": "wav",  # WAV files start with 'RIFF'
         b"ID3": "mp3",  # MP3 files often start with 'ID3' (ID3 tag)
-        b"\xFF\xFB": "mp3",  # MP3 files without ID3 tag
-        b"\xFF\xF3": "mp3",  # MP3 files (MPEG-1 Layer 3)
-        b"\xFF\xF2": "mp3",  # MP3 files (MPEG-2 Layer 3)
+        b"\xff\xfb": "mp3",  # MP3 files without ID3 tag
+        b"\xff\xf3": "mp3",  # MP3 files (MPEG-1 Layer 3)
+        b"\xff\xf2": "mp3",  # MP3 files (MPEG-2 Layer 3)
         b"OggS": "ogg",  # Ogg files
         b"fLaC": "flac",  # FLAC files
     }

@@ -12,17 +12,16 @@ from dataclasses import dataclass, field
 from functools import cached_property
 
 import typing_extensions as te
-from pydantic import TypeAdapter
+from pydantic import BaseModel, TypeAdapter, ValidationError, field_validator
+from pydantic_xml import attr
 
-from rigging.error import Stop, ToolDefinitionError
-from rigging.model import Model, make_from_schema, make_from_signature
-from rigging.tool.api import ApiFunctionDefinition, ApiToolCall, ApiToolDefinition
-from rigging.tool.native import (
-    JsonInXmlToolCall,
-    JsonInXmlToolDefinition,
-    NativeToolResult,
-    XmlToolCall,
-    XmlToolDefinition,
+from rigging.error import Stop, ToolDefinitionError, ToolWarning
+from rigging.model import (
+    ErrorModel,
+    Model,
+    SystemErrorModel,
+    make_from_schema,
+    make_from_signature,
 )
 from rigging.tracing import tracer
 from rigging.util import deref_json
@@ -30,18 +29,99 @@ from rigging.util import deref_json
 if t.TYPE_CHECKING:
     from rigging.message import Message
 
+TOOL_STOP_TAG = "rg-stop"
+
 P = t.ParamSpec("P")
 R = t.TypeVar("R")
 
-ToolMode = t.Literal["auto", "api", "xml", "json-in-xml"]
+ToolMode = t.Literal["auto", "api", "xml", "json", "json-in-xml", "json-with-tag"]
 """
 How tool calls are handled.
 
-- `auto`: The method is chosen based on support (api > xml).
+- `auto`: The method is chosen based on support (api w/ fallback to json-in-xml).
 - `api`: Tool calls are delegated to api-provided function calling.
-- `xml`: Tool calls are parsed in nested XML format.
-- `json-in-xml`: Tool calls are parsed as raw JSON inside XML tags.
+- `xml`: Tool calls are parsed in a nested XML format which is native to Rigging.
+- `json`: Tool calls are parsed as raw name/arg JSON anywhere in assistant message content.
+- `json-in-xml`: Tool calls are parsed using JSON for arguments, and XML for everything else.
+- `json-with-tag`: Tool calls are parsed as name/arg JSON structures inside an XML tag to identify it.
 """
+
+
+class NamedFunction(BaseModel):
+    name: str
+
+
+class ToolChoiceDefinition(BaseModel):
+    type: t.Literal["function"] = "function"
+    function: NamedFunction
+
+
+# I want to avoid making ToolChoice too specific as
+# different providers interpret it differently.
+
+# ToolChoice = t.Union[t.Literal["none"], t.Literal["auto"], ToolChoiceDefinition]
+ToolChoice = str | dict[str, t.Any]
+
+
+class FunctionDefinition(BaseModel):
+    name: str
+    description: str | None = None
+    parameters: dict[str, t.Any] | None = None
+
+    # Logic here is a bit hacky, but in general
+    # we want to handle cases where pydantic has
+    # generated an empty object schema for a function
+    # with no parameters, and convert it to None.
+    #
+    # This seems to be the most well-supported way
+    # across providers to indicate a function with
+    # no arguments.
+    #
+    # TODO: I've also seen cases where keys like additionalProperties
+    # have special handling, but we'll assume LiteLLM will
+    # take care of things like that for now.
+    @field_validator("parameters", mode="before")
+    @classmethod
+    def validate_parameters(cls, value: t.Any) -> t.Any:
+        if not isinstance(value, dict):
+            return value
+
+        if value.get("type") == "object" and value.get("properties") == {}:
+            return None
+
+        return value
+
+
+class ToolDefinition(BaseModel):
+    type: t.Literal["function"] = "function"
+    function: FunctionDefinition
+
+
+class FunctionCall(BaseModel):
+    name: str
+    arguments: str
+
+
+class ToolCall(BaseModel):
+    id: str
+    type: t.Literal["function"] = "function"
+    function: FunctionCall
+
+    def __str__(self) -> str:
+        return f"<ToolCall id={self.id} {self.function.name}({self.function.arguments})>"
+
+    @property
+    def name(self) -> str:
+        return self.function.name
+
+    @property
+    def arguments(self) -> str:
+        return self.function.arguments
+
+
+class ToolResponse(Model):
+    id: str = attr(default="")
+    result: str
 
 
 def _is_unbound_method(func: t.Any) -> bool:
@@ -71,7 +151,7 @@ class Tool(t.Generic[P, R]):
 
     - `False`: Do not catch exceptions.
     - `True`: Catch all exceptions.
-    - `list[type[Exception]]`: Catch only the specified exceptions.
+    - `set[type[Exception]]`: Catch only the specified exceptions.
     """
     truncate: int | None = None
     """If set, the maximum number of characters to truncate any tool output to."""
@@ -213,20 +293,32 @@ class Tool(t.Generic[P, R]):
         return self
 
     @cached_property
-    def api_definition(self) -> ApiToolDefinition:
-        return ApiToolDefinition(
-            function=ApiFunctionDefinition(
+    def definition(self) -> ToolDefinition:
+        """
+        Returns the tool definition for this tool.
+        This is used for API calls and should be used
+        to construct the tool call in the generator.
+        """
+        return ToolDefinition(
+            function=FunctionDefinition(
                 name=self.name,
                 description=self.description,
                 parameters=self.parameters_schema,
             ),
         )
 
+    @cached_property
+    def api_definition(self) -> ToolDefinition:
+        return self.definition
+
     @property
     def model(self) -> type[Model]:
-        # Do this lazily in case our our xml-based model doesn't
-        # support some of the argument types. We don't want to
-        # break api-based tools because of this.
+        # Usually, we only dynamically construct a model when we are
+        # using `xml` tool calls (noted above). We'll do this lazily
+        # to avoid overhead and exceptions.
+
+        # We use the signature if we have it as it's more accurate,
+        # but fallback to using just the schema if we don't.
 
         if self._model is None:
             try:
@@ -242,25 +334,9 @@ class Tool(t.Generic[P, R]):
                 ) from e
         return self._model
 
-    @cached_property
-    def xml_definition(self) -> XmlToolDefinition:
-        return XmlToolDefinition.from_parameter_model(
-            self.model,
-            self.name,
-            self.description,
-        )
-
-    @cached_property
-    def json_definition(self) -> JsonInXmlToolDefinition:
-        return JsonInXmlToolDefinition(
-            name=self.name,
-            description=self.description,
-            parameters=json.dumps(self.parameters_schema),
-        )
-
-    async def handle_tool_call(  # noqa: PLR0912, PLR0915
+    async def handle_tool_call(  # noqa: PLR0912
         self,
-        tool_call: ApiToolCall | XmlToolCall | JsonInXmlToolCall,
+        tool_call: ToolCall,
     ) -> tuple["Message", bool]:
         """
         Handle an incoming tool call from a generator.
@@ -275,87 +351,53 @@ class Tool(t.Generic[P, R]):
 
         from rigging.message import ContentText, ContentTypes, Message
 
-        tool_call_parameters = (
-            tool_call.function.arguments
-            if isinstance(tool_call, ApiToolCall)
-            else tool_call.parameters
-        )
-
         with tracer.span(f"Tool {self.name}()", name=self.name) as span:
             if tool_call.name != self.name:
-                raise ValueError(
-                    f"Requested function name '{tool_call.name}' does not match '{self.name}'",
+                warnings.warn(
+                    f"Tool call name mismatch: {tool_call.name} != {self.name}",
+                    ToolWarning,
+                    stacklevel=2,
                 )
+                return Message.from_model(SystemErrorModel(content="Invalid tool call.")), True
 
-            if isinstance(tool_call, ApiToolCall):
+            if hasattr(tool_call, "id") and isinstance(tool_call.id, str):
                 span.set_attribute("tool_call_id", tool_call.id)
+
+            result: t.Any
+            stop = False
 
             # Load + validate arguments
 
-            kwargs: dict[str, t.Any]
-            if isinstance(tool_call, ApiToolCall | JsonInXmlToolCall):
-                kwargs = json.loads(tool_call_parameters)
-
+            try:
+                kwargs = json.loads(tool_call.function.arguments)
                 if self._type_adapter is not None:
                     kwargs = self._type_adapter.validate_python(kwargs)
-
-            elif isinstance(tool_call, XmlToolCall):
-                try:
-                    parsed = self.model.from_text(
-                        self.model.xml_start_tag()
-                        + tool_call_parameters
-                        + self.model.xml_end_tag(),
-                    )
-                except Exception as e:
-                    raise ValueError(
-                        f"Failed to parse parameters from:\n{tool_call_parameters}",
-                    ) from e
-
-                if not parsed:
-                    raise ValueError(
-                        f"Failed to parse parameters from:\n{tool_call_parameters}",
-                    )
-
-                parameters = parsed[0][0]
-
-                # As opposed to a model_dump, we want to retain the
-                # argument object instances. We'll just flatten the
-                # model into a dictionary for the function call.
-
-                kwargs = {
-                    field_name: getattr(parameters, field_name, None)
-                    for field_name in self.model.model_fields
-                }
-
-            span.set_attribute("arguments", kwargs)
+                span.set_attribute("arguments", kwargs)
+            except (json.JSONDecodeError, ValidationError) as e:
+                result = ErrorModel.from_exception(e)
 
             # Call the function
 
-            stop = False
-
-            try:
-                result: t.Any = self.fn(**kwargs)  # type: ignore [call-arg]
-                if inspect.isawaitable(result):
-                    result = await result
-            except Stop as e:
-                result = f"<rg:stop>{e.message}</rg:stop>"
-                span.set_attribute("stop", True)
-                stop = True
-            except Exception as e:
-                if self.catch is True or (
-                    not isinstance(self.catch, bool) and isinstance(e, tuple(self.catch))
-                ):
-                    result = f'<error type="{e.__class__.__name__}">{e}</error>'
-                else:
-                    raise
+            else:
+                try:
+                    result = self.fn(**kwargs)  # type: ignore [call-arg]
+                    if inspect.isawaitable(result):
+                        result = await result
+                except Stop as e:
+                    result = f"<{TOOL_STOP_TAG}>{e.message}</{TOOL_STOP_TAG}>"
+                    span.set_attribute("stop", True)
+                    stop = True
+                except Exception as e:
+                    if self.catch is True or (
+                        not isinstance(self.catch, bool) and isinstance(e, tuple(self.catch))
+                    ):
+                        result = ErrorModel.from_exception(e)
+                    else:
+                        raise
 
             span.set_attribute("result", result)
 
-        message = (
-            Message(role="tool", tool_call_id=tool_call.id)
-            if isinstance(tool_call, ApiToolCall)
-            else Message("user")
-        )
+        message = Message(role="tool", tool_call_id=tool_call.id)
 
         # If the tool gave us back anything that looks like a message, we'll
         # just pass it along. Otherwise we need to box up the result.
@@ -375,27 +417,6 @@ class Tool(t.Generic[P, R]):
 
         if self.truncate:
             message = message.truncate(self.truncate)
-
-        # If this is a native tool call, we should wrap up our
-        # result in a NativeToolResult object to provide clarity to the
-        # generator. Otherwise we can rely on the `tool` role and associated
-        # tool_call_id to provide context.
-        #
-        # TODO: It would be great to have some kind of identifier here to let
-        # the model know what result is associated with what tool call when
-        # we aren't working with api calls
-        #
-        # (we'd likely have to insert the shared identifier upstream in the call)
-
-        if (
-            len(message.content_parts) == 1
-            and isinstance(message.content_parts[0], ContentText)
-            and isinstance(tool_call, XmlToolCall | JsonInXmlToolCall)
-        ):
-            message.content_parts[0].text = NativeToolResult(
-                name=self.name,
-                result=message.content_parts[0].text,
-            ).to_pretty_xml()
 
         return message, stop
 
@@ -456,12 +477,13 @@ def tool(
     """
 
     def make_tool(func: t.Callable[..., t.Any]) -> Tool[P, R]:
-        if _is_unbound_method(func):
-            warnings.warn(
-                "Passing a class method to @tool improperly handles the 'self' argument, use @tool_method instead.",
-                SyntaxWarning,
-                stacklevel=3,
-            )
+        # TODO: Improve consistency of detection here before enabling this warning
+        # if _is_unbound_method(func):
+        #     warnings.warn(
+        #         "Passing a class method to @tool improperly handles the 'self' argument, use @tool_method instead.",
+        #         SyntaxWarning,
+        #         stacklevel=3,
+        #     )
 
         return Tool.from_callable(
             func,
@@ -547,10 +569,12 @@ def tool_method(
         class Thing:
             delta: int = 5
 
+            # Use @tool_method to create a tool from a class method with a `self` argument.
             @tool_method(name="add_numbers_with_delta", description="This is my tool")
             def delta_add(self, x: int, y: int) -> int:
                 return x + y + self.delta
 
+            # Use @staticmethod + @tool to avoid the 'self' argument altogether
             @tool(name="add_numbers", description="This is my tool")
             @staticmethod
             def static_add(x: int, y: int) -> int:
@@ -559,12 +583,13 @@ def tool_method(
     """
 
     def make_tool(func: t.Callable[..., t.Any]) -> ToolMethod[P, R]:
-        if not _is_unbound_method(func):
-            warnings.warn(
-                "Passing a regular function to @tool_method improperly handles the 'self' argument, use @tool instead.",
-                SyntaxWarning,
-                stacklevel=3,
-            )
+        # TODO: Improve consistency of detection here before enabling this warning
+        # if not _is_unbound_method(func):
+        #     warnings.warn(
+        #         "Passing a regular function to @tool_method improperly handles the 'self' argument, use @tool instead.",
+        #         SyntaxWarning,
+        #         stacklevel=3,
+        #     )
 
         # Strip the `self` argument from the function signature so
         # our schema generation doesn't include it under the hood.

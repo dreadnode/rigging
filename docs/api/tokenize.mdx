@@ -1,0 +1,58 @@
+---
+title: rigging.tokenizer
+---
+
+{/*
+::: rigging.tokenizer
+*/}
+
+get\_tokenizer
+--------------
+
+```python
+get_tokenizer(
+    model: str | Any, **tokenizer_kwargs: Any
+) -> AutoTokenizer
+```
+
+Get the tokenizer from transformers model identifier, or from an already loaded tokenizer.
+
+**Parameters:**
+
+* **`model`**
+  (`str | Any`)
+  –The model identifier (string) or an already loaded tokenizer.
+* **`tokenizer_kwargs`**
+  (`Any`, default:
+  `{}`
+  )
+  –Additional keyword arguments for the tokenizer initialization.
+
+**Returns:**
+
+* `AutoTokenizer`
+  –An instance of `AutoTokenizer`.
+
+<Accordion title="Source code in rigging/tokenize/tokenizer.py" icon="code">
+```python
+def get_tokenizer(
+    model: str | t.Any,
+    **tokenizer_kwargs: t.Any,
+) -> AutoTokenizer:
+    """
+    Get the tokenizer from transformers model identifier, or from an already loaded tokenizer.
+
+    Args:
+        model: The model identifier (string) or an already loaded tokenizer.
+        tokenizer_kwargs: Additional keyword arguments for the tokenizer initialization.
+
+    Returns:
+        An instance of `AutoTokenizer`.
+    """
+    if isinstance(model, str):
+        return AutoTokenizer.from_pretrained(model, **tokenizer_kwargs)
+    return model
+```
+
+
+</Accordion>

@@ -157,7 +157,7 @@ class VLLMGenerator(Generator):
         messages: t.Sequence[t.Sequence["Message"]],
         params: t.Sequence[GenerateParams],
     ) -> t.Sequence[GeneratedMessage]:
-        message_dicts = [[m.to_openai_spec() for m in _messages] for _messages in messages]
+        message_dicts = [[m.to_openai() for m in _messages] for _messages in messages]
         tokenizer = self.llm.get_tokenizer()
         if not hasattr(tokenizer, "apply_chat_template"):
             raise RuntimeError(
