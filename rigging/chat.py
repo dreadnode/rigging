@@ -428,7 +428,7 @@ class Chat(BaseModel):
         apply_chat_template_kwargs: dict[str, t.Any] | None = None,
         encode_kwargs: dict[str, t.Any] | None = None,
         decode_kwargs: dict[str, t.Any] | None = None,
-    ) -> list[TokenizedChat]:
+    ) -> TokenizedChat:
         """
         Converts the chat messages to a list of tokenized messages.
 
