@@ -36,7 +36,7 @@ repos:
 
   # Python code security
   - repo: https://github.com/PyCQA/bandit
-    rev: 1.8.4
+    rev: 1.8.5
     hooks:
       - id: bandit
         name: Code security checks
