@@ -11,16 +11,16 @@ get\_tokenizer
 
 ```python
 get_tokenizer(
-    model: str | Any, **tokenizer_kwargs: Any
-) -> AutoTokenizer
+    tokenizer_id: str, **tokenizer_kwargs: Any
+) -> AutoTokenizer | None
 ```
 
 Get the tokenizer from transformers model identifier, or from an already loaded tokenizer.
 
 **Parameters:**
 
-* **`model`**
-  (`str | Any`)
+* **`tokenizer_id`**
+  (`str`)
   –The model identifier (string) or an already loaded tokenizer.
 * **`tokenizer_kwargs`**
   (`Any`, default:
@@ -30,28 +30,39 @@ Get the tokenizer from transformers model identifier, or from an already loaded 
 
 **Returns:**
 
-* `AutoTokenizer`
+* `AutoTokenizer | None`
   –An instance of `AutoTokenizer`.
 
 <Accordion title="Source code in rigging/tokenize/tokenizer.py" icon="code">
 ```python
 def get_tokenizer(
-    model: str | t.Any,
+    tokenizer_id: str,
     **tokenizer_kwargs: t.Any,
-) -> AutoTokenizer:
+) -> AutoTokenizer | None:
     """
     Get the tokenizer from transformers model identifier, or from an already loaded tokenizer.
 
     Args:
-        model: The model identifier (string) or an already loaded tokenizer.
+        tokenizer_id: The model identifier (string) or an already loaded tokenizer.
         tokenizer_kwargs: Additional keyword arguments for the tokenizer initialization.
 
     Returns:
         An instance of `AutoTokenizer`.
     """
-    if isinstance(model, str):
-        return AutoTokenizer.from_pretrained(model, **tokenizer_kwargs)
-    return model
+    tokenizer: AutoTokenizer | None = None
+
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(
+            tokenizer_id,
+            **tokenizer_kwargs,
+        )
+        logger.success(f"Loaded tokenizer for model '{tokenizer_id}'")
+
+    except Exception as e:  # noqa: BLE001
+        # Catch all exceptions to handle any issues with loading the tokenizer
+        logger.error(f"Failed to load tokenizer for model '{tokenizer_id}': {e}")
+
+    return tokenizer
 ```
 
 
