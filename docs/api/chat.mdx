@@ -837,34 +837,34 @@ def to_openai(self) -> list[dict[str, t.Any]]:
 
 ```python
 to_tokens(
-    tokenizer: str,
+    tokenizer_id: str,
     tokenizer_kwargs: dict[str, Any] | None = None,
     *,
     apply_chat_template_kwargs: dict[str, Any]
     | None = None,
     encode_kwargs: dict[str, Any] | None = None,
     decode_kwargs: dict[str, Any] | None = None,
-) -> list[int]
+) -> TokenizedChat
 ```
 
 Converts the chat messages to a list of tokenized messages.
 
 **Returns:**
 
-* `list[int]`
+* `TokenizedChat`
   –The serialized chat as a list of token lists.
 
 <Accordion title="Source code in rigging/chat.py" icon="code">
 ```python
 async def to_tokens(
     self,
-    tokenizer: str,
+    tokenizer_id: str,
     tokenizer_kwargs: dict[str, t.Any] | None = None,
     *,
     apply_chat_template_kwargs: dict[str, t.Any] | None = None,
     encode_kwargs: dict[str, t.Any] | None = None,
     decode_kwargs: dict[str, t.Any] | None = None,
-) -> list[int]:
+) -> TokenizedChat:
     """
     Converts the chat messages to a list of tokenized messages.
 
@@ -874,7 +874,10 @@ async def to_tokens(
     from rigging.data import chats_to_tokens
     from rigging.tokenize import get_tokenizer
 
-    tokenizer = get_tokenizer(tokenizer, **tokenizer_kwargs)
+    if tokenizer_kwargs is None:
+        tokenizer_kwargs = {}
+
+    tokenizer = get_tokenizer(tokenizer_id, **tokenizer_kwargs)
 
     return await chats_to_tokens(
         self,
@@ -1085,34 +1088,34 @@ def to_openai(self) -> list[list[dict[str, t.Any]]]:
 
 ```python
 to_tokens(
-    tokenizer: str,
+    tokenizer_id: str,
     tokenizer_kwargs: dict[str, Any] | None = None,
     *,
     apply_chat_template_kwargs: dict[str, Any]
     | None = None,
     encode_kwargs: dict[str, Any] | None = None,
     decode_kwargs: dict[str, Any] | None = None,
-) -> list[list[int]]
+) -> list[TokenizedChat]
 ```
 
 Converts the chat list to a list of tokenized messages.
 
 **Returns:**
 
-* `list[list[int]]`
+* `list[TokenizedChat]`
   –The serialized chat list as a list of token lists.
 
 <Accordion title="Source code in rigging/chat.py" icon="code">
 ```python
 async def to_tokens(
     self,
-    tokenizer: str,
+    tokenizer_id: str,
     tokenizer_kwargs: dict[str, t.Any] | None = None,
     *,
     apply_chat_template_kwargs: dict[str, t.Any] | None = None,
     encode_kwargs: dict[str, t.Any] | None = None,
     decode_kwargs: dict[str, t.Any] | None = None,
-) -> list[list[int]]:
+) -> list[TokenizedChat]:
     """
     Converts the chat list to a list of tokenized messages.
 
@@ -1123,9 +1126,11 @@ async def to_tokens(
     from rigging.data import chats_to_tokens
     from rigging.tokenize import get_tokenizer
 
-    tokenizer = get_tokenizer(tokenizer, **tokenizer_kwargs)
+    if tokenizer_kwargs is None:
+        tokenizer_kwargs = {}
 
-    # openai_chats = [chat.to_openai() for chat in self]
+    tokenizer = get_tokenizer(tokenizer_id, **tokenizer_kwargs)
+
     return [
         await chats_to_tokens(
             chat,

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "rigging"
-version = "3.0.0"
+version = "3.0.3"
 description = "LLM Interaction Framework"
 authors = ["Nick Landers <monoxgas@gmail.com>"]
 license = "MIT"
@@ -17,7 +17,7 @@ pydantic-xml = "^2.11.0"
 loguru = "^0.7.2"
 litellm = "^1.67.2"
 pandas = "^2.2.2"
-eval-type-backport = "^0.2.0"                           # For 3.9 future annotations
+eval-type-backport = "^0.2.0"                          # For 3.9 future annotations
 elasticsearch = "^8.13.2"
 xmltodict = "^0.13.0"
 colorama = "^0.4.6"
@@ -66,7 +66,7 @@ pytest-asyncio = "^1.0.0"
 types-colorama = "^0.4.15.20240311"
 types-requests = "2.32.4.20250611"
 beautifulsoup4 = "^4.13.4"
-mkdocstrings = {extras = ["python"], version = "^0.29.1"}
+mkdocstrings = { extras = ["python"], version = "^0.29.1" }
 markdown = "^3.8"
 markdownify = "^1.1.0"
 
@@ -101,11 +101,7 @@ ignore_no_config = true
 # Security
 
 [tool.bandit]
-exclude_dirs = [
-    "examples/*",
-    ".github/*",
-    ".hooks/*",
-]
+exclude_dirs = ["examples/*", ".github/*", ".hooks/*"]
 
 # Type Checking
 
@@ -126,22 +122,22 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-select = [ "ALL" ]
+select = ["ALL"]
 ignore = [
-    "E501",     # line too long (we make best effort)
-    "TRY003",   # long messages in exception classes
-    "EM",       # picky message construction for exceptions
-    "C90",      # mccabe complexity
-    "A002",     # shadowing built-in
-    "D",        # docstrings
-    "ANN",      # annotations (handled by mypy)
-    "PLR0913",  # too many arguments
-    "ERA001",   # commented out code
-    "FIX002",   # contains todo, consider fixing
-    "TD002",    # TODO
-    "TD003",    # TODO
-    "PLR0911",  # too many return statements
-    "FBT003",   # boolean positional in function call
+    "E501",    # line too long (we make best effort)
+    "TRY003",  # long messages in exception classes
+    "EM",      # picky message construction for exceptions
+    "C90",     # mccabe complexity
+    "A002",    # shadowing built-in
+    "D",       # docstrings
+    "ANN",     # annotations (handled by mypy)
+    "PLR0913", # too many arguments
+    "ERA001",  # commented out code
+    "FIX002",  # contains todo, consider fixing
+    "TD002",   # TODO
+    "TD003",   # TODO
+    "PLR0911", # too many return statements
+    "FBT003",  # boolean positional in function call
 ]
 
 [tool.ruff.format]
