@@ -1,12 +1,17 @@
-import importlib.util
 import typing as t
+from typing import TYPE_CHECKING
 
-if importlib.util.find_spec("transformers") is None:
-    raise ModuleNotFoundError("Please install the `transformers` package to use this module.")
-
+if TYPE_CHECKING:
+    from transformers import AutoTokenizer
 
 from loguru import logger
-from transformers import AutoTokenizer
+
+try:
+    from transformers import AutoTokenizer
+except ImportError:
+    raise ModuleNotFoundError(
+        "Please install the `transformers` package to use this module."
+    ) from None
 
 from rigging.tokenize.base import Decoder
 
