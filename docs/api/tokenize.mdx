@@ -12,7 +12,7 @@ get\_tokenizer
 ```python
 get_tokenizer(
     tokenizer_id: str, **tokenizer_kwargs: Any
-) -> AutoTokenizer | None
+) -> t.Any
 ```
 
 Get the tokenizer from transformers model identifier, or from an already loaded tokenizer.
@@ -30,7 +30,7 @@ Get the tokenizer from transformers model identifier, or from an already loaded 
 
 **Returns:**
 
-* `AutoTokenizer | None`
+* `Any`
   –An instance of `AutoTokenizer`.
 
 <Accordion title="Source code in rigging/tokenize/tokenizer.py" icon="code">
@@ -38,7 +38,7 @@ Get the tokenizer from transformers model identifier, or from an already loaded 
 def get_tokenizer(
     tokenizer_id: str,
     **tokenizer_kwargs: t.Any,
-) -> AutoTokenizer | None:
+) -> t.Any:
     """
     Get the tokenizer from transformers model identifier, or from an already loaded tokenizer.
 
@@ -49,18 +49,20 @@ def get_tokenizer(
     Returns:
         An instance of `AutoTokenizer`.
     """
-    tokenizer: AutoTokenizer | None = None
-
     try:
+        from transformers import AutoTokenizer
+
         tokenizer = AutoTokenizer.from_pretrained(
             tokenizer_id,
             **tokenizer_kwargs,
         )
         logger.success(f"Loaded tokenizer for model '{tokenizer_id}'")
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         # Catch all exceptions to handle any issues with loading the tokenizer
-        logger.error(f"Failed to load tokenizer for model '{tokenizer_id}': {e}")
+        raise RuntimeError(
+            f"Failed to load tokenizer for model '{tokenizer_id}': {e}",
+        ) from e
 
     return tokenizer
 ```
