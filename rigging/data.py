@@ -294,7 +294,7 @@ async def chats_to_elastic(
 
 
 async def chats_to_tokens(
-    chat: Chat | None,
+    chat: Chat,
     tokenizer: AutoTokenizer,
     *,
     apply_chat_template_kwargs: dict[str, t.Any] | None = None,
