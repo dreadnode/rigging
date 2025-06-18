@@ -12,13 +12,15 @@ import elasticsearch.helpers
 import pandas as pd
 from elastic_transport import ObjectApiResponse
 from mypy_boto3_s3 import S3Client
-from transformers import AutoTokenizer
 
 from rigging.chat import Chat
 from rigging.error import TokenizeWarning
 from rigging.message import Message
 from rigging.tokenize import find_in_tokens
 from rigging.tokenize.base import TokenizedChat, TokenSlice
+
+if t.TYPE_CHECKING:
+    from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 
 def flatten_chats(chats: Chat | t.Sequence[Chat]) -> list[dict[t.Any, t.Any]]:
@@ -294,8 +296,8 @@ async def chats_to_elastic(
 
 
 async def chats_to_tokens(
-    chat: Chat | None,
-    tokenizer: AutoTokenizer,
+    chat: Chat,
+    tokenizer: "PreTrainedTokenizerBase",
     *,
     apply_chat_template_kwargs: dict[str, t.Any] | None = None,
     encode_kwargs: dict[str, t.Any] | None = None,
@@ -331,8 +333,9 @@ async def chats_to_tokens(
         if chat.params and chat.params.tools
         else None
     )
+    # the tools above return dict[str, Any], but Transformers expects list[dict[Any, Any]]
 
-    chat_text = tokenizer.apply_chat_template(messages, tools=tools, **apply_chat_template_kwargs)
+    chat_text = tokenizer.apply_chat_template(messages, tools=tools, **apply_chat_template_kwargs)  # type: ignore[arg-type]
     chat_tokens = tokenizer.encode(chat_text, **encode_kwargs)
 
     slices: list[TokenSlice] = []
@@ -342,7 +345,13 @@ async def chats_to_tokens(
     for message in chat.all:
         # Find this message
         if not (
-            match := find_in_tokens(message.content, chat_tokens, tokenizer.decode, 0, search_start)
+            match := find_in_tokens(
+                message.content,
+                chat_tokens,
+                lambda tokens: tokenizer.decode(tokens),
+                0,
+                search_start,
+            )
         ):
             warnings.warn(
                 f"Warning: Could not find message '{message.content[:50]}...' in chat tokens",
@@ -378,7 +387,7 @@ async def chats_to_tokens(
             part_match = find_in_tokens(
                 part_text,
                 message_tokens,
-                tokenizer.decode,
+                lambda tokens: tokenizer.decode(tokens),
                 msg_start,
                 part_search_start,
             )
@@ -407,8 +416,9 @@ async def chats_to_tokens(
         # Continue searching after this message
         search_start = msg_end
 
+    # we ask for a string by default in apply_chat_template_kwargs with the tokenize=False
     return TokenizedChat(
-        text=chat_text,
+        text=chat_text,  # type: ignore[arg-type]
         tokens=chat_tokens,
         slices=slices,
         obj=chat,

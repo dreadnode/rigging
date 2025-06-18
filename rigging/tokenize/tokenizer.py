@@ -1,12 +1,6 @@
-import importlib.util
 import typing as t
 
-if importlib.util.find_spec("transformers") is None:
-    raise ModuleNotFoundError("Please install the `transformers` package to use this module.")
-
-
 from loguru import logger
-from transformers import AutoTokenizer
 
 from rigging.tokenize.base import Decoder
 
@@ -14,7 +8,7 @@ from rigging.tokenize.base import Decoder
 def get_tokenizer(
     tokenizer_id: str,
     **tokenizer_kwargs: t.Any,
-) -> AutoTokenizer | None:
+) -> t.Any:
     """
     Get the tokenizer from transformers model identifier, or from an already loaded tokenizer.
 
@@ -25,18 +19,20 @@ def get_tokenizer(
     Returns:
         An instance of `AutoTokenizer`.
     """
-    tokenizer: AutoTokenizer | None = None
-
     try:
+        from transformers import AutoTokenizer
+
         tokenizer = AutoTokenizer.from_pretrained(
             tokenizer_id,
             **tokenizer_kwargs,
         )
         logger.success(f"Loaded tokenizer for model '{tokenizer_id}'")
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         # Catch all exceptions to handle any issues with loading the tokenizer
-        logger.error(f"Failed to load tokenizer for model '{tokenizer_id}': {e}")
+        raise RuntimeError(
+            f"Failed to load tokenizer for model '{tokenizer_id}': {e}",
+        ) from e
 
     return tokenizer
 
