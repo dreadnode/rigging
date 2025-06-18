@@ -10,7 +10,7 @@ try:
     from transformers import AutoTokenizer
 except ImportError:
     raise ModuleNotFoundError(
-        "Please install the `transformers` package to use this module."
+        "Please install the `transformers` package to use this module.",
     ) from None
 
 from rigging.tokenize.base import Decoder
