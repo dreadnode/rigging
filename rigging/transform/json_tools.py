@@ -130,7 +130,7 @@ def make_tools_to_json_transform(  # noqa: PLR0915
     mode: JsonToolMode = "json-with-tag",
     *,
     system_tool_prompt: ToolPromptCallable | str | None = None,
-    tool_responses_as_user_messages: bool | None = None,
+    tool_responses_as_user_messages: bool = True,
     tool_call_tag: str | None = None,
     tool_response_tag: str | None = None,
 ) -> Transform:
@@ -148,8 +148,6 @@ def make_tools_to_json_transform(  # noqa: PLR0915
         A Transform that processes messages to convert tool calls and responses to the specified JSON format.
     """
 
-    tool_responses_as_user_messages = tool_responses_as_user_messages or True
-
     match mode:
         case "json":
             system_tool_prompt = system_tool_prompt or json_tools_prompt
@@ -160,7 +158,7 @@ def make_tools_to_json_transform(  # noqa: PLR0915
         case "json-with-tag":
             system_tool_prompt = system_tool_prompt or json_tools_prompt
             tool_call_tag = tool_call_tag or "tool-call"
-            tool_response_tag = tool_response_tag or "tool_response"
+            tool_response_tag = tool_response_tag or "tool-response"
         case _:
             raise ValueError(f"Invalid mode: {mode}")
 
@@ -200,14 +198,13 @@ def make_tools_to_json_transform(  # noqa: PLR0915
 
         for message in messages:
             if tool_responses_as_user_messages and message.role == "tool":
-                message.add_slice(
+                message.replace_with_slice(
                     tool_response_cls(
                         id=message.tool_call_id or "",
                         result=message.content,
                     ),
-                    type="tool_response",
+                    "tool_response",
                     metadata={"id": message.tool_call_id or ""},
-                    replace_content=True,
                 )
                 message.role = "user"
                 message.tool_call_id = None
@@ -240,9 +237,9 @@ def make_tools_to_json_transform(  # noqa: PLR0915
                                 ),
                             )
 
-                    message.add_slice(
+                    message.append_slice(
                         content,
-                        type="tool_call",
+                        "tool_call",
                         obj=tool_call,
                         metadata={"id": tool_call.id or ""},
                     )
@@ -268,7 +265,7 @@ def make_tools_to_json_transform(  # noqa: PLR0915
                     if slice_.type == "tool_call" and isinstance(slice_.obj, ToolCall):
                         message.tool_calls = message.tool_calls or []
                         message.tool_calls.append(slice_.obj)
-                        message.remove_slice(slice_)
+                        message.remove_slices(slice_)
 
                 # Otherwise, find any new tool calls in the content
 
@@ -317,7 +314,7 @@ def make_tools_to_json_transform(  # noqa: PLR0915
                             ),
                         )
 
-                    message.strip(json_in_xml_tool_call_cls)
+                    message.remove_slices(json_in_xml_tool_call_cls)
 
                 elif mode == "json-with-tag":
                     if not (tag_tool_calls := message.try_parse_set(json_tool_call_cls)):

@@ -120,6 +120,52 @@ def __call__(
 
 </Accordion>
 
+get\_transform
+--------------
+
+```python
+get_transform(identifier: str) -> Transform
+```
+
+Get a well-known transform by its identifier.
+
+**Parameters:**
+
+* **`identifier`**
+  (`str`)
+  –The identifier of the transform to retrieve.
+
+**Returns:**
+
+* `Transform`
+  –The corresponding transform callable.
+
+<Accordion title="Source code in rigging/transform/__init__.py" icon="code">
+```python
+def get_transform(identifier: str) -> Transform:
+    """
+    Get a well-known transform by its identifier.
+
+    Args:
+        identifier: The identifier of the transform to retrieve.
+
+    Returns:
+        The corresponding transform callable.
+    """
+    match identifier:
+        case "json":
+            return tools_to_json_transform
+        case "json-in-xml":
+            return tools_to_json_in_xml_transform
+        case "json-with-tag":
+            return tools_to_json_with_tag_transform
+        case _:
+            raise ValueError(f"Unknown transform identifier: {identifier}")
+```
+
+
+</Accordion>
+
 make\_tools\_to\_json\_transform
 --------------------------------
 
@@ -130,7 +176,7 @@ make_tools_to_json_transform(
     system_tool_prompt: ToolPromptCallable
     | str
     | None = None,
-    tool_responses_as_user_messages: bool | None = None,
+    tool_responses_as_user_messages: bool = True,
     tool_call_tag: str | None = None,
     tool_response_tag: str | None = None,
 ) -> Transform
@@ -151,8 +197,8 @@ Create a transform that converts tool calls and responses to various JSON format
   )
   –A callable or string that generates the system prompt for tools.
 * **`tool_responses_as_user_messages`**
-  (`bool | None`, default:
-  `None`
+  (`bool`, default:
+  `True`
   )
   –If True, tool responses will be converted to user messages wrapped in tool response tags.
 * **`tool_call_tag`**
@@ -177,7 +223,7 @@ def make_tools_to_json_transform(  # noqa: PLR0915
     mode: JsonToolMode = "json-with-tag",
     *,
     system_tool_prompt: ToolPromptCallable | str | None = None,
-    tool_responses_as_user_messages: bool | None = None,
+    tool_responses_as_user_messages: bool = True,
     tool_call_tag: str | None = None,
     tool_response_tag: str | None = None,
 ) -> Transform:
@@ -195,8 +241,6 @@ def make_tools_to_json_transform(  # noqa: PLR0915
         A Transform that processes messages to convert tool calls and responses to the specified JSON format.
     """
 
-    tool_responses_as_user_messages = tool_responses_as_user_messages or True
-
     match mode:
         case "json":
             system_tool_prompt = system_tool_prompt or json_tools_prompt
@@ -207,7 +251,7 @@ def make_tools_to_json_transform(  # noqa: PLR0915
         case "json-with-tag":
             system_tool_prompt = system_tool_prompt or json_tools_prompt
             tool_call_tag = tool_call_tag or "tool-call"
-            tool_response_tag = tool_response_tag or "tool_response"
+            tool_response_tag = tool_response_tag or "tool-response"
         case _:
             raise ValueError(f"Invalid mode: {mode}")
 
@@ -247,14 +291,13 @@ def make_tools_to_json_transform(  # noqa: PLR0915
 
         for message in messages:
             if tool_responses_as_user_messages and message.role == "tool":
-                message.add_slice(
+                message.replace_with_slice(
                     tool_response_cls(
                         id=message.tool_call_id or "",
                         result=message.content,
                     ),
-                    type="tool_response",
+                    "tool_response",
                     metadata={"id": message.tool_call_id or ""},
-                    replace_content=True,
                 )
                 message.role = "user"
                 message.tool_call_id = None
@@ -287,9 +330,9 @@ def make_tools_to_json_transform(  # noqa: PLR0915
                                 ),
                             )
 
-                    message.add_slice(
+                    message.append_slice(
                         content,
-                        type="tool_call",
+                        "tool_call",
                         obj=tool_call,
                         metadata={"id": tool_call.id or ""},
                     )
@@ -315,7 +358,7 @@ def make_tools_to_json_transform(  # noqa: PLR0915
                     if slice_.type == "tool_call" and isinstance(slice_.obj, ToolCall):
                         message.tool_calls = message.tool_calls or []
                         message.tool_calls.append(slice_.obj)
-                        message.remove_slice(slice_)
+                        message.remove_slices(slice_)
 
                 # Otherwise, find any new tool calls in the content
 
@@ -364,7 +407,7 @@ def make_tools_to_json_transform(  # noqa: PLR0915
                             ),
                         )
 
-                    message.strip(json_in_xml_tool_call_cls)
+                    message.remove_slices(json_in_xml_tool_call_cls)
 
                 elif mode == "json-with-tag":
                     if not (tag_tool_calls := message.try_parse_set(json_tool_call_cls)):
@@ -515,14 +558,13 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
 
         for message in messages:
             if message.role == "tool":
-                message.add_slice(
+                message.replace_with_slice(
                     ToolResponse(
                         id=message.tool_call_id or "",
                         result=message.content,
                     ),
-                    type="tool_response",
+                    "tool_response",
                     metadata={"id": message.tool_call_id or ""},
-                    replace_content=True,
                 )
                 message.role = "user"
                 message.tool_call_id = None
@@ -568,13 +610,13 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
                                 stacklevel=2,
                             )
 
-                    message.add_slice(
+                    message.append_slice(
                         XmlToolCall(
                             id=tool_call.id,
                             name=tool_call.function.name,
-                            parameters=tool_call.function.arguments,
+                            parameters=parameters,
                         ),
-                        type="tool_call",
+                        "tool_call",
                         obj=tool_call,
                         metadata={"id": tool_call.id or ""},
                     )
@@ -582,10 +624,10 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
                 message.tool_calls = None  # Clear tool calls after rendering
 
         # Update generate params and save any existing tool params
-
+        existing_stop = params.stop or []
         if add_tool_stop_token:
             params.stop = params.stop or []
-            params.stop.append(f"</{TOOL_CALL_TAG}>")
+            params.stop = list(set(existing_stop) | {f"</{TOOL_CALL_TAG}>"})
 
         existing_tool_definitions = params.tools
         params.tools = None
@@ -618,7 +660,7 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
                     if slice_.type == "tool_call" and isinstance(slice_.obj, ToolCall):
                         message.tool_calls = message.tool_calls or []
                         message.tool_calls.append(slice_.obj)
-                        message.remove_slice(slice_)
+                        message.remove_slices(slice_)
 
                 # Otherwise, find any new tool calls in the content
 
@@ -628,6 +670,7 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
                 message.tool_calls = []
                 for native_call in tool_calls:
                     arguments = native_call.parameters
+                    arguments_dict: dict[str, t.Any] | None = None
 
                     tool = next(
                         (t for t in tools if t.name == native_call.name),
@@ -639,18 +682,12 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
                             ToolWarning,
                             stacklevel=2,
                         )
-
-                    arguments_dict: dict[str, t.Any] | None = None
-
-                    if tool is not None:
+                    else:
                         try:
-                            parsed = tool.model.from_text(
+                            if parsed := tool.model.from_text(
                                 tool.model.xml_start_tag() + arguments + tool.model.xml_end_tag(),
-                            )
-
-                            if parsed:
+                            ):
                                 arguments_dict = parsed[0][0].model_dump(mode="json")
-
                         except Exception as e:  # noqa: BLE001
                             warnings.warn(
                                 f"Failed to parse tool call for '{native_call.name}' with arguments ({e}):\n{arguments}",
@@ -663,11 +700,11 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
                     if arguments_dict is None:
                         try:
                             arguments_dict = xmltodict.parse(
-                                arguments,
-                            )
-                        except Exception:  # noqa: BLE001
+                                f"<content>{arguments}</content>",
+                            )["content"]
+                        except Exception as e:  # noqa: BLE001
                             warnings.warn(
-                                f"Failed to parse tool call for '{native_call.name}' with arguments:\n{arguments}",
+                                f"Failed to parse tool call for '{native_call.name}' with arguments using xmltodict ({e}):\n{arguments}",
                                 ToolWarning,
                                 stacklevel=2,
                             )
@@ -685,7 +722,7 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
                         ),
                     )
 
-                message.strip(XmlToolCall)
+                message.remove_slices(XmlToolCall)
 
             # Convert our tool responses
             # TODO: handle cased where multiple tool responses are present
@@ -703,6 +740,7 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
             chat.params = chat.params or GenerateParams()
             chat.params.tools = existing_tool_definitions
             chat.params.tool_choice = existing_tool_choice
+            chat.params.stop = existing_stop
 
             # Strip the system message part
 

@@ -1,6 +1,6 @@
 import pytest
 
-from rigging.error import InvalidModelSpecifiedError
+from rigging.error import InvalidGeneratorError
 from rigging.generator import (
     GenerateParams,
     LiteLLMGenerator,
@@ -23,7 +23,7 @@ def test_get_generator_default_is_litellm(identifier: str) -> None:
 
 @pytest.mark.parametrize("identifier", ["invalid!testing", "no_exist!stuff,args=123"])
 def test_get_generator_invalid_provider(identifier: str) -> None:
-    with pytest.raises(InvalidModelSpecifiedError):
+    with pytest.raises(InvalidGeneratorError):
         get_generator(identifier)
 
 
@@ -71,7 +71,7 @@ def test_get_identifier_no_extra() -> None:
     ["litellm:invalid,stuff:test,t1/123", "bad:invalid,stuff:test,t1//;;123:"],
 )
 def test_get_generator_invalid_structure_format(identifier: str) -> None:
-    with pytest.raises(InvalidModelSpecifiedError):
+    with pytest.raises(InvalidGeneratorError):
         get_generator(identifier)
 
 
@@ -80,12 +80,12 @@ def test_get_generator_invalid_structure_format(identifier: str) -> None:
     ["litellm:model,bad_param=123,temperature=1.0", "litellm:model,temperature=True"],
 )
 def test_get_generator_invalid_params(identifier: str) -> None:
-    with pytest.raises(InvalidModelSpecifiedError):
+    with pytest.raises(InvalidGeneratorError):
         get_generator(identifier)
 
 
 def test_register_generator() -> None:
-    with pytest.raises(InvalidModelSpecifiedError):
+    with pytest.raises(InvalidGeneratorError):
         get_generator("echo!test")
 
     register_generator("echo", EchoGenerator)

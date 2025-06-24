@@ -73,7 +73,7 @@ class MessageWarning(Warning):
     """
 
 
-class TokenizeWarning(Warning):
+class TokenizerWarning(Warning):
     """
     Base class for all tokenization warnings.
 
@@ -151,13 +151,24 @@ class MaxDepthError(Exception):
         """The pipeline step which cause the depth error."""
 
 
-class InvalidModelSpecifiedError(Exception):
+class InvalidGeneratorError(Exception):
     """
     Raised when an invalid identifier is specified when getting a generator.
     """
 
     def __init__(self, model: str):
         super().__init__(f"Invalid model specified: {model}")
+
+
+class InvalidTokenizerError(Exception):
+    """
+    Raised when an invalid tokenizer is specified.
+    """
+
+    def __init__(self, tokenizer: str):
+        super().__init__(f"Invalid tokenizer specified: {tokenizer}")
+        self.tokenizer = tokenizer
+        """The name of the tokenizer which was invalid."""
 
 
 class MissingModelError(Exception):

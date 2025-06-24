@@ -1,0 +1,378 @@
+---
+title: "Message Slicing"
+description: "Track structured data within message content with slices and metadata"
+public: true
+---
+
+Message slicing allows you to mark specific ranges of text within messages and attach structured data, types, and metadata to them—creating "smart bookmarks" that maintain their positions and context as content evolves through your processing pipeline.
+
+Unlike simple text processing approaches, message slices establish a **bidirectional relationship** between your Python objects and the exact locations where they appear in message content. This means you can track tool calls through transforms, preserve training signals during tokenization, manage overlapping annotations, and perform sophisticated content manipulation while maintaining perfect data integrity.
+
+<Tip>
+In prior versions of Rigging, message content tracking was limited to structured models and was referred to as "content parts". Slicing expands this concept and allows you to track any text segment or tool information, not just structured models.
+</Tip>
+
+## Basic Usage
+
+Every message slice contains four key pieces of information:
+
+- The **text range** it covers (start and stop positions)
+- Its **type** (like "model", "tool_call", or "other")
+- An optional **associated object** (such as a parsed Rigging model or ToolCall)
+- **Metadata** for additional context (like confidence scores, IDs, or custom tags)
+
+When you parse models from message content, Rigging automatically creates slices to track exactly where each parsed object appears. This automatic slice creation is the foundation for maintaining data relationships throughout your pipeline:
+
+```python
+import rigging as rg
+
+class Summary(rg.Model):
+    content: str
+
+message = rg.Message(
+    "assistant",
+    "Here's what I found: <summary>Rigging handles complex parsing</summary>"
+)
+message.parse(Summary)  # Parsing automatically creates slices for found models
+
+# Check the automatically created slice
+slice_ = message.slices[0]
+print(f"Type: {slice_.type}")        # model
+print(f"Range: {slice_.start}-{slice_.stop}")  # 22-73
+print(f"Text: {slice_.content}")     # <summary>Rigging handles complex parsing</summary>
+print(f"Object: {slice_.obj}")       # Summary(content='Rigging handles complex parsing')
+```
+
+<Note>
+The slice tracks the **exact character positions** where the parsed model appears in the message content. This position tracking is maintained even when the message content is modified, making slices perfect for dynamic content management.
+</Note>
+
+## Manual Slicing
+
+While automatic slicing handles parsed models, you'll often want to manually create slices to track specific phrases, actions, or concepts that don't correspond to structured models. Manual slicing gives you complete control over what gets tracked and how it's categorized:
+
+```python
+import rigging as rg
+
+message = rg.Message("assistant", "I'll search for that information.")
+
+# Add a slice to track an action
+action_slice = message.mark_slice(
+    "search for that information",  # Text to slice
+    metadata={"action": "search", "confidence": 0.9}
+)
+
+print(f"Slices: {len(message.slices)}")  # 1
+print(f"Action confidence: {action_slice.metadata['confidence']}")  # 0.9
+```
+
+## Training Signals
+
+One of the most powerful applications of message slicing is in **fine-tuning and reinforcement learning workflows**. Slices allow you to attach training signals (like rewards, corrections, or quality scores) directly to specific parts of generated content, and these signals persist through tokenization and dataset preparation.
+
+This approach is particularly valuable for techniques like Constitutional AI, where you need to track which parts of a response should be reinforced or discouraged, or for building preference datasets where human feedback applies to specific segments rather than entire responses:
+
+```python
+import rigging as rg
+
+class Answer(rg.Model):
+    answer: str
+
+chat = rg.Chat(
+    [
+        {"role": "user", "content": "What is the answer to life, the universe, and everything?"},
+        {"role": "assistant", "content": "<answer>24</answer>"},
+        {"role": "user", "content": "Check one more time."},
+        {"role": "assistant", "content": "<answer>42</answer>"},
+    ]
+)
+
+for msg in chat.all:
+    if slice_ := msg.mark_slice(Answer):
+        slice_.metadata["reward"] = (
+            1.0 if slice_.obj.answer == "42"
+            else -1.0
+        )
+
+for slice_ in chat.message_slices("model"):
+    print(slice_.content, slice_.metadata)
+
+# <answer>24</answer> {'reward': -1.0}
+# <answer>42</answer> {'reward': 1.0}
+```
+
+## Tool Call Slicing
+
+When working with [tool-enabled pipelines](/topics/tools), Rigging automatically creates slices to track tool calls and their responses. This is especially important when using transforms that convert function calls into text representations, as it allows you to maintain the structured relationship between the call, its arguments, and the response.
+
+Tool call slices preserve essential metadata like call IDs, function names, and execution context, making them invaluable for debugging, auditing, and building more sophisticated tool orchestration patterns:
+
+```python
+import rigging as rg
+
+@rg.tool
+def search_web(query: str) -> str:
+    return f"Found 0 results."
+
+# Use tools with mode to get structured output
+chat = (
+    await rg.get_generator("gpt-4o")
+    .chat("Search for recent AI news and summarize it.")
+    .using(search_web)
+    .run()
+)
+
+# Transform the chat to load our tool calls into text
+chat = await chat.transform("json-with-tag")
+
+# Show the chat
+print(chat.conversation)
+
+# [system]: # Tools
+#
+# You may call one or more functions to assist with the user query. Don't make assumptions about what values to plug into functions.
+#
+# <tools>
+# {"type":"function","function":{"name":"search_web","description":"","parameters":{"additionalProperties":false,"properties":{"query":{"title":"Query","type":"string"}},"required":["query"],"type":"object"}}}
+# </tools>
+#
+# To call a function, respond with the following format:
+#
+# <tool-call>
+# {"name": <function-name>, "arguments": <args-dict>}
+# </tool-call>
+#
+# [user]: Search for recent AI news and summarize it.
+#
+# [assistant]: <tool-call id="call_9nwnwrVRkjnheCgCxRjKLrwF">{"name": "search_web", "arguments": {"query": "recent AI news October 2023"}}</tool-call>
+#
+# [user]: <tool-response id="call_9nwnwrVRkjnheCgCxRjKLrwF">Found 0 results.</tool-response>
+#
+# [assistant]: I wasn't able to find the latest news on AI from my current sources.
+
+# Show the slices
+print(chat.message_slices())
+
+# [
+#     MessageSlice(type='tool_call', obj=ToolCall(...), start=0, stop=135, metadata={'id': 'call_9nwnwrVRkjnheCgCxRjKLrwF'}),
+#     MessageSlice(type='tool_response', obj=ToolResponse(...), start=0, stop=82, metadata={'id': 'call_9nwnwrVRkjnheCgCxRjKLrwF'})
+# ]
+```
+
+## Tokenization Preservation
+
+When you tokenize a chat and its messages which contain slices, the system automatically maps character-based slice positions to token-based ranges, creating `TokenSlice` objects that preserve all the original metadata and relationships.
+
+This is crucial for fine-tuning workflows where you need to apply different learning signals to different parts of the token sequence, or for building attention masks that focus on specific semantic elements. You can use these token slices to adjust attention masks and reward structures.
+
+```python
+import rigging as rg
+
+# Start with a message containing slices
+user = rg.Message("user", "What is the answer to life, the universe, and everything?")
+assistant = rg.Message("assistant", "The answer is 42. This is correct.")
+assistant.mark_slice("42", metadata={"confidence": 0.95})
+assistant.mark_slice("This is correct", metadata={"confidence": 0.8})
+
+chat = rg.Chat([user, assistant])
+
+# Tokenize while preserving slice structure
+tokenizer = rg.get_tokenizer("unsloth/tinyllama-chat")
+tokenized = await tokenizer.tokenize_chat(chat)
+
+# Print the tokenized message
+print(tokenized.text)
+
+# <|user|>
+# What is the answer to life, the universe, and everything?</s>
+# <|assistant|>
+# The answer is 42. This is correct.</s>
+
+# Slices now map to token positions
+for token_slice in tokenized.slices:
+    if token_slice.metadata and "confidence" in token_slice.metadata:
+        # Get the tokens for this slice
+        tokens = tokenized.tokens[token_slice.start:token_slice.end]
+        text = tokenizer.decode(tokens)
+        confidence = token_slice.metadata["confidence"]
+        print(f"Confident text: {text} (confidence: {confidence})")
+
+# Confident text: 42 (confidence: 0.95)
+# Confident text: This is correct (confidence: 0.8)
+```
+
+## Dynamic Content Updates
+
+Slices automatically adjust their positions when content changes:
+
+```python
+import rigging as rg
+
+message = rg.Message("assistant", "I think the answer is maybe 42.")
+
+# Add slices for different parts
+uncertainty = message.mark_slice("I think")
+hedge = message.mark_slice("maybe ")
+answer = message.mark_slice("42")
+
+# Remove uncertain parts
+message.remove_slices(uncertainty, hedge)  # (1)!
+
+# Content updates automatically
+print(message.content)  # "the answer is 42."
+print(len(message.slices))  # 1 (only the answer slice remains)
+
+# The remaining slice position is automatically updated
+print(f"Answer at: {message.slices[0].start}-{message.slices[0].stop}")  # (2)!
+print(f"Content: {message.slices[0].content}")  # "42"
+```
+
+1. When slices are removed, their text content is automatically deleted from the message
+2. Remaining slices have their positions recalculated to stay aligned with the new content
+
+<Warning>
+The slice system uses text matching when content changes. If a slice's exact text can be found in the new content, its position will be updated automatically. If the text no longer exists, the slice is removed.
+
+This might cause unexpected behavior in edge cases where the same text appears multiple times in a message. When in doubt, clearing and re-assigning slices is a safer approach to ensure they reflect the current content accurately.
+</Warning>
+
+## Advanced Slice Operations
+
+Beyond basic slicing, Message and Chat objects provide utility methods for sophisticated slice management. These methods give you fine-grained control over slice discovery, content targeting, and batch operations:
+
+### Finding and Accessing Slices
+
+Rigging provides several methods for discovering and accessing slices based on different criteria:
+
+**Discovery Methods:**
+- `find_slices()` - Filter by type and custom functions
+- `get_slice()` - Get single slice with first/last selection
+- `iter_slices()` - Iterator with type filtering and reverse order
+
+```python
+import rigging as rg
+
+message = rg.Message("assistant", "Here's a tool call: search_web. The result is helpful.")
+message.mark_slice("search_web", "tool_call", metadata={"id": "call_123"})
+message.mark_slice("helpful", metadata={"sentiment": "positive"})
+
+# Find slices by type
+tool_slices = message.find_slices(slice_type="tool_call")  # (1)!
+print(f"Found {len(tool_slices)} tool call slices")
+
+# Get the first slice of any type
+first_slice = message.get_slice()  # (2)!
+print(f"First slice: {first_slice.content}")
+
+# Get the last tool call slice specifically
+last_tool_slice = message.get_slice(slice_type="tool_call", select="last")
+
+# Iterate over slices in reverse order
+for slice_ in message.iter_slices(reverse=True):  # (3)!
+    print(f"Slice: {slice_.content} (type: {slice_.type})")
+```
+
+1. Filter slices by their `SliceType` - useful for finding specific categories of content
+2. Without arguments, returns the first slice found, or `None` if no slices exist
+3. Reverse iteration is helpful when you want to process slices from end to beginning
+
+### Flexible Slice Targeting
+
+The `mark_slice` method is incredibly versatile, supporting multiple targeting approaches for different use cases:
+
+**Targeting Options:**
+- **String matching** - Case-sensitive or insensitive text search
+- **Range specification** - Direct character positions `(start, stop)`
+- **Full content** - Use `-1` to mark the entire message
+- **Regex patterns** - Pattern matching with `re.Pattern` objects
+- **Model types** - Automatically parse and mark model instances
+
+```python
+import rigging as rg
+import re
+
+message = rg.Message("assistant", "The result is 42 and 99. Both are correct answers.")
+
+# Target by exact range
+range_slice = message.mark_slice((14, 16))  # "42"
+
+# Target by regex pattern
+number_pattern = re.compile(r'\d+')
+number_slices = message.mark_slice(number_pattern, select="all")
+print(f"Found {len(number_slices)} numbers")
+
+# Target entire message content
+full_slice = message.mark_slice(-1)
+
+# Target with case-insensitive string matching
+result_slice = message.mark_slice("RESULT", case_sensitive=False)
+
+print(message.slices)
+# [
+#     MessageSlice(type='other', start=14, stop=16, content='42'),
+#     MessageSlice(type='other', start=21, stop=23, content='99'),
+#     MessageSlice(type='other', start=0, stop=50, content='The result is 42 and 99. Both are correct answers.'),
+#     MessageSlice(type='other', start=4, stop=10, content='result')
+# ]
+```
+
+### Chat-Level Slice Operations
+
+When working with multi-message conversations, use Chat methods to operate across all messages:
+
+```python
+import rigging as rg
+
+# Create a conversation with slices
+user_msg = rg.Message("user", "What's the weather?")
+assistant_msg = rg.Message("assistant", "I'll check that for you.")
+assistant_msg.mark_slice("check", metadata={"action": True, "confidence": 0.9})
+
+chat = rg.Chat([user_msg, assistant_msg])
+
+# Get all slices across all messages
+all_slices = chat.message_slices()
+print(f"Total slices in conversation: {len(all_slices)}")
+
+# Filter slices across the conversation
+action_slices = chat.message_slices(slice_type="action")
+high_confidence_slices = chat.message_slices(
+    filter_fn=lambda s: s.metadata and s.metadata.get("confidence", 0) > 0.8
+)
+print(high_confidence_slices)
+# [MessageSlice(type='other', start=5, stop=10, content='check')]
+```
+
+### Slice Overlap
+
+Slices can overlap freely, allowing you to mark the same parts of content multiple times with different metadata or types. This is useful for complex relationships like processes with steps:
+
+```python
+import rigging as rg
+
+message = rg.Message("assistant", "Step 1: Analyze data. Step 2: Draw conclusions.")
+
+# Add parent slice for the entire process
+process_slice = message.mark_slice(
+    message.content,
+    metadata={"type": "process", "steps": 2}
+)
+
+# Add child slices with parent reference
+step1_slice = message.mark_slice(
+    "Step 1: Analyze data",
+    metadata={"type": "step", "parent_id": id(process_slice), "order": 1}
+)
+
+step2_slice = message.mark_slice(
+    "Step 2: Draw conclusions",
+    metadata={"type": "step", "parent_id": id(process_slice), "order": 2}
+)
+
+print(message.slices)
+# [
+#     MessageSlice(type='other', obj=None, start=0, stop=47, metadata={'type': 'process', 'steps': 2}),
+#     MessageSlice(type='other', obj=None, start=0, stop=20, metadata={'type': 'step', 'parent_id': 4655713472, 'order': 1}),
+#     MessageSlice(type='other', obj=None, start=22, stop=46, metadata={'type': 'step', 'parent_id': 4655713472, 'order': 2})
+# ]
+```

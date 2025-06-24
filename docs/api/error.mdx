@@ -68,11 +68,11 @@ max_rounds = max_rounds
 
 The number of rounds which was exceeded.
 
-InvalidModelSpecifiedError
---------------------------
+InvalidGeneratorError
+---------------------
 
 ```python
-InvalidModelSpecifiedError(model: str)
+InvalidGeneratorError(model: str)
 ```
 
 Raised when an invalid identifier is specified when getting a generator.
@@ -85,6 +85,34 @@ def __init__(self, model: str):
 
 
 </Accordion>
+
+InvalidTokenizerError
+---------------------
+
+```python
+InvalidTokenizerError(tokenizer: str)
+```
+
+Raised when an invalid tokenizer is specified.
+
+<Accordion title="Source code in rigging/error.py" icon="code">
+```python
+def __init__(self, tokenizer: str):
+    super().__init__(f"Invalid tokenizer specified: {tokenizer}")
+    self.tokenizer = tokenizer
+    """The name of the tokenizer which was invalid."""
+```
+
+
+</Accordion>
+
+### tokenizer
+
+```python
+tokenizer = tokenizer
+```
+
+The name of the tokenizer which was invalid.
 
 MaxDepthError
 -------------
@@ -253,8 +281,8 @@ message = message
 
 The message associated with the stop.
 
-TokenizeWarning
----------------
+TokenizerWarning
+----------------
 
 Base class for all tokenization warnings.
 

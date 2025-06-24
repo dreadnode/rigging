@@ -159,6 +159,57 @@ chat = (
 print(chat.conversation)
 ```
 
+### Passing Class Instances Directly
+
+You can also pass an entire class instance directly to `.using()`, and Rigging will automatically discover and include all methods decorated with `@tool_method`:
+
+```python
+import rigging as rg
+
+class DatabaseTools:
+    def __init__(self, connection_string: str):
+        self.connection_string = connection_string
+
+    @rg.tool_method
+    def query_users(self, name_filter: str) -> list[dict]:
+        """Query users from the database by name filter."""
+        # Database query logic here
+        return [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
+
+    @rg.tool_method
+    def create_user(self, name: str, email: str) -> dict:
+        """Create a new user in the database."""
+        # User creation logic here
+        return {"id": 3, "name": name, "email": email}
+
+# Instantiate the class
+db_tools = DatabaseTools("postgresql://localhost/mydb")
+
+# Pass the instance directly - Rigging will find both tool methods
+chat = (
+    await rg.get_generator("openai/gpt-4o-mini")
+    .chat("Find all users with 'Al' in their name, then create a new user named Charlie with email charlie@example.com")
+    .using(db_tools)  # Pass the entire instance
+    .run()
+)
+```
+
+This is equivalent to passing each tool method individually:
+
+```python
+# These two approaches are equivalent:
+.using(db_tools)  # Automatic discovery
+
+.using(
+    db_tools.query_users,
+    db_tools.create_user
+)  # Manual specification
+```
+
+<Note>
+When you pass a class instance to `.using()`, Rigging uses Python's `inspect` module to discover all methods decorated with `@tool_method`. This automatic discovery only includes methods that have been properly decorated - regular methods without the `@tool_method` decorator will be ignored.
+</Note>
+
 ### Tool Invocation Modes (`mode`)
 
 The `mode` parameter in `.using()` controls how Rigging interacts with the language model for tool calls:

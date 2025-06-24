@@ -5,7 +5,7 @@ from rigging import (
     logging,
     model,
     parsing,
-    tokenize,
+    tokenizer,
     tools,
     transform,
     watchers,
@@ -44,21 +44,13 @@ from rigging.message import (
     Message,
     MessageDict,
     Messages,
+    MessageSlice,
 )
 from rigging.model import Model, attr, element, wrapped
 from rigging.prompt import Ctx, Prompt, prompt
-from rigging.tokenize import (
-    ChatFormatter,
-    Decoder,
-    Encoder,
-    TokenizedChat,
-    Tokenizer,
-    TokenSlice,
-    find_in_tokens,
-    get_tokenizer,
-    tokenizer,
-)
+from rigging.tokenizer import TokenizedChat, Tokenizer, get_tokenizer, register_tokenizer
 from rigging.tools import Tool, mcp, robopages, tool, tool_method
+from rigging.transform import PostTransform, Transform
 from rigging.util import await_
 from rigging.version import VERSION
 
@@ -84,11 +76,13 @@ __all__ = [
     "MapCompletionCallback",
     "Message",
     "MessageDict",
+    "MessageSlice",
     "Messages",
     "Model",
     "PipelineStep",
     "PipelineStepContextManager",
     "PipelineStepGenerator",
+    "PostTransform",
     "Prompt",
     "Stop",
     "ThenChatCallback",
@@ -97,6 +91,7 @@ __all__ = [
     "TokenizedChat",
     "Tokenizer",
     "Tool",
+    "Transform",
     "attr",
     "await_",
     "chat",
@@ -115,8 +110,8 @@ __all__ = [
     "parsing",
     "prompt",
     "register_generator",
+    "register_tokenizer",
     "robopages",
-    "tokenize",
     "tokenizer",
     "tool",
     "tool_method",

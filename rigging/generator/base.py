@@ -10,7 +10,7 @@ from loguru import logger
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, field_validator
 from typing_extensions import Self
 
-from rigging.error import InvalidModelSpecifiedError
+from rigging.error import InvalidGeneratorError
 from rigging.message import Message, MessageDict
 from rigging.tools.base import ToolChoice, ToolDefinition
 
@@ -33,7 +33,7 @@ class LazyGenerator(t.Protocol):
     def __call__(self) -> type["Generator"]: ...
 
 
-g_providers: dict[str, type["Generator"] | LazyGenerator] = {}
+g_generators: dict[str, type["Generator"] | LazyGenerator] = {}
 
 # Fixups
 
@@ -662,7 +662,7 @@ def get_identifier(generator: Generator, params: GenerateParams | None = None) -
 
     provider = next(
         name
-        for name, klass in g_providers.items()
+        for name, klass in g_generators.items()
         if isinstance(klass, type) and isinstance(generator, klass)
     )
     identifier = f"{provider}!{generator.model}"
@@ -711,21 +711,20 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
 
     Identifier strings are formatted like `<provider>!<model>,<**kwargs>`
 
-    (provider is optional andif not specified)
+    (provider is optional and defaults to `litellm` if not specified)
 
     Examples:
+        - "gpt-3.5-turbo" -> `LiteLLMGenerator(model="gpt-3.5-turbo")`
+        - "litellm!claude-2.1" -> `LiteLLMGenerator(model="claude-2.1")`
+        - "mistral/mistral-tiny" -> `LiteLLMGenerator(model="mistral/mistral-tiny")`
 
-    - "gpt-3.5-turbo" -> `LiteLLMGenerator(model="gpt-3.5-turbo")`
-    - "litellm!claude-2.1" -> `LiteLLMGenerator(model="claude-2.1")`
-    - "mistral/mistral-tiny" -> `LiteLLMGenerator(model="mistral/mistral-tiny")`
+        You can also specify arguments to the generator by comma-separating them:
 
-    You can also specify arguments to the generator by comma-separating them:
+        - "mistral/mistral-medium,max_tokens=1024"
+        - "gpt-4-0613,temperature=0.9,max_tokens=512"
+        - "claude-2.1,stop_sequences=Human:;test,max_tokens=100"
 
-    - "mistral/mistral-medium,max_tokens=1024"
-    - "gpt-4-0613,temperature=0.9,max_tokens=512"
-    - "claude-2.1,stop_sequences=Human:;test,max_tokens=100"
-
-    (These get parsed as [rigging.generator.GenerateParams][])
+        (These get parsed as [rigging.generator.GenerateParams][])
 
     Args:
         identifier: The identifier string to use to get a generator.
@@ -736,14 +735,14 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
         The generator object.
 
     Raises:
-        InvalidModelSpecified: If the identifier is invalid.
+        InvalidGeneratorError: If the identifier is invalid.
     """
 
-    provider: str = next(iter(g_providers.keys()))
+    provider: str = next(iter(g_generators.keys()))
     model: str = identifier
 
     if not identifier:
-        raise InvalidModelSpecifiedError(identifier)
+        raise InvalidGeneratorError(identifier)
 
     # Split provider, model, and kwargs
 
@@ -751,16 +750,16 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
         try:
             provider, model = identifier.split("!")
         except Exception as e:
-            raise InvalidModelSpecifiedError(identifier) from e
+            raise InvalidGeneratorError(identifier) from e
 
-    if provider not in g_providers:
-        raise InvalidModelSpecifiedError(identifier)
+    if provider not in g_generators:
+        raise InvalidGeneratorError(identifier)
 
-    if not isinstance(g_providers[provider], type):
-        lazy_generator = t.cast("LazyGenerator", g_providers[provider])
-        g_providers[provider] = lazy_generator()
+    if not isinstance(g_generators[provider], type):
+        lazy_generator = t.cast("LazyGenerator", g_generators[provider])
+        g_generators[provider] = lazy_generator()
 
-    generator_cls = t.cast("type[Generator]", g_providers[provider])
+    generator_cls = t.cast("type[Generator]", g_generators[provider])
 
     kwargs = {}
     if "," in model:
@@ -768,7 +767,7 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
             model, kwargs_str = model.split(",", 1)
             kwargs = dict(arg.split("=", 1) for arg in kwargs_str.split(","))
         except Exception as e:
-            raise InvalidModelSpecifiedError(identifier) from e
+            raise InvalidGeneratorError(identifier) from e
 
     # Decode any base64 values if present
     def decode_value(value: str) -> t.Any:
@@ -806,7 +805,7 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
     try:
         merged_params = GenerateParams(**kwargs).merge_with(params)
     except Exception as e:
-        raise InvalidModelSpecifiedError(identifier) from e
+        raise InvalidGeneratorError(identifier) from e
 
     return generator_cls(model=model, params=merged_params, **init_kwargs)
 
@@ -824,8 +823,8 @@ def register_generator(provider: str, generator_cls: type[Generator] | LazyGener
     Returns:
         None
     """
-    global g_providers  # noqa: PLW0602
-    g_providers[provider] = generator_cls
+    global g_generators  # noqa: PLW0602
+    g_generators[provider] = generator_cls
 
 
 def trace_messages(

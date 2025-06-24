@@ -52,7 +52,7 @@ Create a watcher to write each chat to an ElasticSearch index.
 <Accordion title="Source code in rigging/watchers.py" icon="code">
 ```python
 def write_chats_to_elastic(
-    client: AsyncElasticsearch,
+    client: "AsyncElasticsearch",
     index: str,
     *,
     create_index: bool = True,

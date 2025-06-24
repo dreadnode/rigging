@@ -5,20 +5,16 @@ Utilities for converting chat data between different formats.
 import itertools
 import json
 import typing as t
-import warnings
 
-import elasticsearch as es
-import elasticsearch.helpers
 import pandas as pd
-from elastic_transport import ObjectApiResponse
 from mypy_boto3_s3 import S3Client
-from transformers import AutoTokenizer
 
 from rigging.chat import Chat
-from rigging.error import TokenizeWarning
 from rigging.message import Message
-from rigging.tokenize import find_in_tokens
-from rigging.tokenize.base import TokenizedChat, TokenSlice
+
+if t.TYPE_CHECKING:
+    import elasticsearch
+    from elastic_transport import ObjectApiResponse
 
 
 def flatten_chats(chats: Chat | t.Sequence[Chat]) -> list[dict[t.Any, t.Any]]:
@@ -261,7 +257,7 @@ def chats_to_elastic_data(
 async def chats_to_elastic(
     chats: Chat | t.Sequence[Chat],
     index: str,
-    client: es.AsyncElasticsearch,
+    client: "elasticsearch.AsyncElasticsearch",
     *,
     op_type: ElasticOpType = "index",
     create_index: bool = True,
@@ -282,6 +278,13 @@ async def chats_to_elastic(
     Returns:
         The indexed count from the bulk operation
     """
+    try:
+        import elasticsearch.helpers
+    except ImportError as e:
+        raise ImportError(
+            "Elasticsearch is not available. Please install `elasticsearch` or use `rigging[extra]`.",
+        ) from e
+
     es_data = chats_to_elastic_data(chats, index, op_type=op_type)
     if create_index:
         if (await client.indices.exists(index=index)).meta.status != 200:  # noqa: PLR2004
@@ -293,130 +296,8 @@ async def chats_to_elastic(
     return results[0]  # Return modified count
 
 
-async def chats_to_tokens(
-    chat: Chat | None,
-    tokenizer: AutoTokenizer,
-    *,
-    apply_chat_template_kwargs: dict[str, t.Any] | None = None,
-    encode_kwargs: dict[str, t.Any] | None = None,
-    decode_kwargs: dict[str, t.Any] | None = None,
-) -> TokenizedChat:
-    """
-    Transform a chat into a tokenized format with structured slices.
-
-    Args:
-        chat: The chat object to tokenize.
-        tokenizer: The tokenizer to use for encoding and decoding.
-
-    Returns:
-        A TokenizedChat object containing the tokenized chat data.
-    """
-
-    apply_chat_template_kwargs = {
-        "tokenize": False,
-        **(apply_chat_template_kwargs or {}),
-    }
-    encode_kwargs = {
-        **(encode_kwargs or {}),
-    }
-    decode_kwargs = {
-        "clean_up_tokenization_spaces": False,
-        **(decode_kwargs or {}),
-    }
-
-    messages = [m.to_openai(compatibility_flags={"content_as_str"}) for m in chat.all]
-
-    tools = (
-        [tool.model_dump() for tool in chat.params.tools]
-        if chat.params and chat.params.tools
-        else None
-    )
-
-    chat_text = tokenizer.apply_chat_template(messages, tools=tools, **apply_chat_template_kwargs)
-    chat_tokens = tokenizer.encode(chat_text, **encode_kwargs)
-
-    slices: list[TokenSlice] = []
-    search_start = 0
-
-    # Process messages in order
-    for message in chat.all:
-        # Find this message
-        if not (
-            match := find_in_tokens(message.content, chat_tokens, tokenizer.decode, 0, search_start)
-        ):
-            warnings.warn(
-                f"Warning: Could not find message '{message.content[:50]}...' in chat tokens",
-                TokenizeWarning,
-                stacklevel=2,
-            )
-            continue
-
-        msg_start, msg_end = match
-        msg_metadata = message.metadata or {}
-        msg_metadata["role"] = message.role
-        if message.tool_call_id:
-            msg_metadata["tool_call_id"] = message.tool_call_id
-
-        # Add message slice
-        slices.append(
-            TokenSlice(
-                start=msg_start,
-                end=msg_end,
-                type="message",
-                obj=message,
-                metadata=msg_metadata,
-            ),
-        )
-
-        # Find parts within this message
-        message_tokens = chat_tokens[msg_start:msg_end]
-        part_search_start = 0
-
-        # Process message slices in order
-        for slice_ in message.slices:
-            part_text = message.content[slice_.slice_]
-            part_match = find_in_tokens(
-                part_text,
-                message_tokens,
-                tokenizer.decode,
-                msg_start,
-                part_search_start,
-            )
-            if not part_match:
-                warnings.warn(
-                    f"Warning: Could not find part '{part_text[:50]}...' in message tokens",
-                    TokenizeWarning,
-                    stacklevel=2,
-                )
-                continue
-
-            part_start, part_end = part_match
-            slices.append(
-                TokenSlice(
-                    start=part_start,
-                    end=part_end,
-                    type=slice_.type,
-                    obj=slice_.obj,
-                    metadata=slice_.metadata,
-                ),
-            )
-
-            # Continue searching after this part
-            part_search_start = part_end - msg_start
-
-        # Continue searching after this message
-        search_start = msg_end
-
-    return TokenizedChat(
-        text=chat_text,
-        tokens=chat_tokens,
-        slices=slices,
-        obj=chat,
-    )
-
-
 def elastic_data_to_chats(
-    data: t.Mapping[str, t.Any] | ObjectApiResponse[t.Any],
+    data: "t.Mapping[str, t.Any] | ObjectApiResponse[t.Any]",
 ) -> list[Chat]:
     """
     Convert the raw elastic results into a list of Chat objects.
@@ -449,7 +330,7 @@ def elastic_data_to_chats(
 async def elastic_to_chats(
     query: t.Mapping[str, t.Any],
     index: str,
-    client: es.AsyncElasticsearch,
+    client: "elasticsearch.AsyncElasticsearch",
     *,
     max_results: int | None = None,
     **kwargs: t.Any,
