@@ -16,6 +16,9 @@ if t.TYPE_CHECKING:
     import elasticsearch
     from elastic_transport import ObjectApiResponse
 
+if t.TYPE_CHECKING:
+    pass
+
 
 def flatten_chats(chats: Chat | t.Sequence[Chat]) -> list[dict[t.Any, t.Any]]:
     """
@@ -222,7 +225,9 @@ def df_to_chats(df: pd.DataFrame) -> list[Chat]:
 ElasticOpType = t.Literal["index", "create", "delete"]
 """Available operations for bulk operations."""
 
-ElasticMapping = {"properties": {"generated": {"type": "nested"}, "messages": {"type": "nested"}}}
+ElasticMapping = {
+    "properties": {"generated": {"type": "nested"}, "messages": {"type": "nested"}}
+}
 """Default index mapping for chat objects in elastic."""
 
 
@@ -290,7 +295,9 @@ async def chats_to_elastic(
         if (await client.indices.exists(index=index)).meta.status != 200:  # noqa: PLR2004
             await client.indices.create(index=index, mappings=ElasticMapping)
         else:
-            await client.indices.put_mapping(index=index, properties=ElasticMapping["properties"])
+            await client.indices.put_mapping(
+                index=index, properties=ElasticMapping["properties"]
+            )
 
     results = await elasticsearch.helpers.async_bulk(client, es_data, **kwargs)
     return results[0]  # Return modified count
@@ -302,7 +309,9 @@ def elastic_data_to_chats(
     """
     Convert the raw elastic results into a list of Chat objects.
     """
-    while all(hasattr(data, attr) for attr in ("keys", "__getitem__")) and "hits" in data:
+    while (
+        all(hasattr(data, attr) for attr in ("keys", "__getitem__")) and "hits" in data
+    ):
         data = data["hits"]
 
     objects = t.cast("t.Sequence[t.Mapping[str, t.Any]]", data)

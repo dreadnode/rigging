@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "rigging"
-version = "3.0.3"
+version = "3.0.0"
 description = "LLM Interaction Framework"
 authors = ["Nick Landers <monoxgas@gmail.com>"]
 license = "MIT"
@@ -65,7 +65,7 @@ pytest-asyncio = "^1.0.0"
 types-colorama = "^0.4.15.20240311"
 types-requests = "2.32.4.20250611"
 beautifulsoup4 = "^4.13.4"
-mkdocstrings = { extras = ["python"], version = "^0.29.1" }
+mkdocstrings = {extras = ["python"], version = "^0.29.1"}
 markdown = "^3.8"
 markdownify = "^1.1.0"
 
@@ -100,7 +100,11 @@ ignore_no_config = true
 # Security
 
 [tool.bandit]
-exclude_dirs = ["examples/*", ".github/*", ".hooks/*"]
+exclude_dirs = [
+    "examples/*",
+    ".github/*",
+    ".hooks/*",
+]
 
 # Type Checking
 
@@ -121,7 +125,7 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-select = ["ALL"]
+select = [ "ALL" ]
 ignore = [
     "E501",    # line too long (we make best effort)
     "TRY003",  # long messages in exception classes
