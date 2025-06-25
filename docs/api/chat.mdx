@@ -288,9 +288,7 @@ Alias for the .generated property
 ### params
 
 ```python
-params: GenerateParams | None = Field(
-    None, exclude=True, repr=False
-)
+params: GenerateParams | None = Field(None, repr=False)
 ```
 
 Any additional generation params used for this chat.

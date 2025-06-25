@@ -119,7 +119,7 @@ class Chat(BaseModel):
 
     generator: Generator | None = Field(None, exclude=True, repr=False)
     """The generator associated with the chat."""
-    params: GenerateParams | None = Field(None, exclude=True, repr=False)
+    params: GenerateParams | None = Field(None, repr=False)
     """Any additional generation params used for this chat."""
 
     error: (
@@ -148,7 +148,7 @@ class Chat(BaseModel):
     def generator_id(self) -> str | None:
         """The identifier of the generator used to create the chat"""
         if self.generator is not None:
-            return self.generator.to_identifier(self.params)
+            return self.generator.to_identifier()
         return None
 
     def __init__(
