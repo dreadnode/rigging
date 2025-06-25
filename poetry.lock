@@ -1420,6 +1420,7 @@ description = "Transport classes and utilities shared among Python Elastic clien
 optional = true
 python-versions = ">=3.8"
 groups = ["main"]
+markers = "extra == \"all\""
 files = [
     {file = "elastic_transport-8.17.1-py3-none-any.whl", hash = "sha256:192718f498f1d10c5e9aa8b9cf32aed405e469a7f0e9d6a8923431dbb2c59fb8"},
     {file = "elastic_transport-8.17.1.tar.gz", hash = "sha256:5edef32ac864dca8e2f0a613ef63491ee8d6b8cfb52881fa7313ba9290cac6d2"},
@@ -1439,6 +1440,7 @@ description = "Python client for Elasticsearch"
 optional = true
 python-versions = ">=3.8"
 groups = ["main"]
+markers = "extra == \"all\""
 files = [
     {file = "elasticsearch-8.18.1-py3-none-any.whl", hash = "sha256:1a8c8b5ec3ce5be88f96d2f898375671648e96272978bce0dee3137d9326aabb"},
     {file = "elasticsearch-8.18.1.tar.gz", hash = "sha256:998035f17a8c1fba7ae26b183dca797dcf95db86da6a7ecba56d31afc40f07c7"},
@@ -6934,11 +6936,11 @@ test = ["big-O", "importlib_resources ; python_version < \"3.9\"", "jaraco.funct
 type = ["pytest-mypy"]
 
 [extras]
-all = ["accelerate", "aiodocker", "asyncssh", "click", "httpx", "transformers", "vllm", "websockets"]
+all = ["accelerate", "aiodocker", "asyncssh", "click", "elasticsearch", "httpx", "transformers", "vllm", "websockets"]
 examples = ["aiodocker", "asyncssh", "click", "httpx", "websockets"]
 tracing = []
 
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "356b5322a0d261e997d869367461ba1859fddf50e8106486378bb6b719a77953"
+content-hash = "70c9b2fdea3938a6ed1aa0a1316aaadf2d0a0633fbed8340bdf29d3f35337511"

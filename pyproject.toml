@@ -51,6 +51,7 @@ all = [
     "aiodocker",
     "websockets",
     "logfire",
+    "elasticsearch",
 ]
 
 [tool.poetry.group.dev.dependencies]
