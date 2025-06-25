@@ -5,6 +5,7 @@ This module covers core message objects and handling.
 import base64
 import copy
 import mimetypes
+import re
 import string
 import typing as t
 import warnings
@@ -17,12 +18,13 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     SerializeAsAny,
     SerializerFunctionWrapHandler,
     model_serializer,
 )
 
-from rigging.error import MissingModelError
+from rigging.error import MessageWarning, MissingModelError
 from rigging.model import Model, ModelT
 from rigging.parsing import try_parse_many
 from rigging.tools.base import ToolCall
@@ -47,32 +49,86 @@ class MessageDict(t.TypedDict):
     """The content of the message."""
 
 
-SliceType = t.Literal["tool_call", "tool_response", "model"]
+SliceType = t.Literal["tool_call", "tool_response", "model", "other"]
 SliceObj = t.Any
 
 
 class MessageSlice(BaseModel):
+    """
+    Represents a slice content within a message.
+
+    This can be a tool call, tool response, or model output. You can associate
+    metadata with the slice to add rich information like scores, confidence levels,
+    or reward information.
+    """
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     type: SliceType
     """The type of the slice."""
-    obj: SerializeAsAny[SliceObj] | None = None
+    obj: SerializeAsAny[SliceObj] | None = Field(default=None, repr=False)
     """The model, tool call, or other object associated with the slice."""
     start: int
     """The start index of the slice."""
     stop: int
     """The stop index of the slice."""
-    metadata: dict[str, t.Any] | None = None
+    metadata: dict[str, t.Any] = Field(default_factory=dict)
     """Metadata associated with the slice."""
+
+    _message: "Message | None" = PrivateAttr(None)
 
     @property
     def slice_(self) -> slice:
         """Returns the slice representing the range into the message content."""
         return slice(self.start, self.stop)
 
+    @property
+    def content(self) -> str:
+        """Get the content text for this slice from the parent message."""
+        if self._message is None:
+            return "[detached]"
+        return self._message.content[self.start : self.stop]
+
+    @content.setter
+    def content(self, value: str) -> None:
+        """Set the content text for this slice in the parent message."""
+        if self._message is None:
+            warnings.warn(
+                "Setting content on a detached MessageSlice, this will not update the message.",
+                MessageWarning,
+                stacklevel=2,
+            )
+            return
+
+        self._message.content = (
+            self._message.content[: self.start] + value + self._message.content[self.stop :]
+        )
+        self.stop = self.start + len(value)
+
     def __len__(self) -> int:
         """Returns the length of the slice."""
         return self.stop - self.start
+
+    def __str__(self) -> str:
+        """Returns a string representation of the slice."""
+        content_preview = self.content if self._message else "[detached]"
+        return f"<MessageSlice type='{self.type}' start={self.start} stop={self.stop} obj={self.obj.__class__.__name__ if self.obj else None} content='{shorten_string(content_preview, 50)}'>"
+
+    def clone(self) -> "MessageSlice":
+        """
+        Creates a deep copy of the MessageSlice.
+
+        Returns:
+            A new MessageSlice instance with the same properties.
+        """
+        return MessageSlice(
+            type=self.type,
+            obj=self.obj,
+            start=self.start,
+            stop=self.stop,
+            metadata=copy.deepcopy(self.metadata),
+            _message=self._message,  # Keep the reference to the original message
+        )
 
 
 class ContentText(BaseModel):
@@ -349,14 +405,14 @@ class Message(BaseModel):
         `content_parts` to `content` for compatibility.
     """
 
+    model_config = ConfigDict(serialize_by_alias=True)
+
     uuid: UUID = Field(default_factory=uuid4, repr=False)
     """The unique identifier for the message."""
     role: Role
     """The role of the message."""
     content_parts: list[Content] = Field([], repr=False)
     """Interior str content or structured content parts."""
-    slices: list[MessageSlice] = Field([], repr=False)
-    """The slices of the message content."""
     tool_calls: list[ToolCall] | None = Field(None)
     """The tool calls associated with the message."""
     tool_call_id: str | None = Field(None)
@@ -365,6 +421,8 @@ class Message(BaseModel):
     """Metadata associated with the message."""
     compatibility_flags: set[CompatibilityFlag] = Field(default_factory=set, repr=False)
     """Compatibility flags to be applied when conversions occur."""
+
+    slice_refs: list[MessageSlice] = Field(default_factory=list, repr=False, alias="slices")
 
     def __init__(
         self,
@@ -399,6 +457,9 @@ class Message(BaseModel):
             tool_call_id=tool_call_id,
             **kwargs,
         )
+
+        for slice_ in self.slice_refs:
+            slice_._message = self  # noqa: SLF001
 
     def __str__(self) -> str:
         formatted = (
@@ -476,34 +537,425 @@ class Message(BaseModel):
         """
         other_parts = [c for c in self.content_parts if not isinstance(c, ContentText)]
 
-        # Get a map of existing slices to their text content.
-        existing_slices: dict[str, MessageSlice] = {
-            self.content[slice_.start : slice_.stop]: slice_ for slice_ in self.slices
-        }
+        # Find slices that still exist in the new content
+        preserved_slices: list[MessageSlice] = []
+        for slice_obj in self.slices:
+            slice_content = slice_obj.content
+            slice_start = value.find(slice_content)
 
-        # Look for any slices that are still present in the new value.
-        # TODO: This could be brittle if the text is identical for different slices.
-        rediscovered_slices: list[MessageSlice] = []
-        for text, existing_slice in existing_slices.items():
-            if (slice_start := value.find(text)) == -1:
-                continue
+            if slice_start != -1:
+                # Update the existing slice object's positions
+                slice_obj.start = slice_start
+                slice_obj.stop = slice_start + len(slice_content)
+                preserved_slices.append(slice_obj)
 
-            rediscovered_slices.append(
-                MessageSlice(
-                    type=existing_slice.type,
-                    obj=existing_slice.obj,
-                    start=slice_start,
-                    stop=slice_start + len(text),
-                    metadata=existing_slice.metadata,
-                ),
-            )
-
-        # If we end up with only whitespace, we want to treat it as empty.
+        # Handle empty content
         if value.strip() == "":
             value = ""
 
-        self.slices = rediscovered_slices
         self.content_parts = [*other_parts, ContentText(text=value)]
+        self.slices = preserved_slices
+
+    @property
+    def slices(self) -> list[MessageSlice]:
+        """The slices of the message content."""
+        return self.slice_refs
+
+    @slices.setter
+    def slices(self, value: list[MessageSlice]) -> None:
+        for slice_ in value:
+            slice_._message = self  # noqa: SLF001
+        self.slice_refs = value
+
+    def _add_slice(self, slice_obj: MessageSlice) -> MessageSlice:
+        """Add a slice to the message."""
+        for existing in self.slices:
+            if (  # avoid obvious duplicates
+                existing.start == slice_obj.start
+                and existing.stop == slice_obj.stop
+                and existing.type == slice_obj.type
+            ):
+                return existing
+        slice_obj._message = self  # noqa: SLF001
+        self.slices.append(slice_obj)
+        return slice_obj
+
+    def _remove_slice(self, slice_: MessageSlice) -> MessageSlice:
+        """Remove a slice and update content."""
+        if slice_ not in self.slices:
+            raise ValueError(f"Slice {slice_} not found in message slices")
+
+        self.content = self.content[: slice_.start] + self.content[slice_.stop :]
+        slice_._message = None  # Detach from message  # noqa: SLF001
+        return slice_
+
+    def append_slice(
+        self,
+        content: str | Model,
+        slice_type: SliceType | None = None,
+        *,
+        obj: SliceObj | None = None,
+        metadata: dict[str, t.Any] | None = None,
+    ) -> MessageSlice:
+        """
+        Add content to the end of the message (with newline separator) and create a slice tracking it.
+
+        Type defaults to 'model' for Model objects, 'other' for strings.
+
+        Args:
+            content: The content to append. This can be a string or a Model instance.
+            slice_type: The type of slice to create, inferred from content type if not provided.
+            obj: The object associated with the slice
+            metadata: Additional metadata for the slice
+
+        Returns:
+            The created MessageSlice
+        """
+        if isinstance(content, Model):
+            content_str = content.to_pretty_xml()
+            slice_type = slice_type or "model"
+            obj = obj or content
+        else:
+            content_str = content
+            slice_type = slice_type or "other"
+
+        start_pos = len(self.content) + (
+            1 if self.content_parts else 0  # +1 for newline if not empty
+        )
+        self.content_parts.append(ContentText(text=content_str))
+
+        return self._add_slice(
+            MessageSlice(
+                type=slice_type,
+                obj=obj,
+                start=start_pos,
+                stop=len(self.content),
+                metadata=metadata or {},
+            ),
+        )
+
+    def replace_with_slice(
+        self,
+        content: str | Model,
+        slice_type: SliceType | None = None,
+        *,
+        obj: SliceObj | None = None,
+        metadata: dict[str, t.Any] | None = None,
+    ) -> MessageSlice:
+        """
+        Replace all message content and create a slice tracking the new content.
+
+        Type defaults to 'model' for Model objects, 'other' for strings.
+
+        Args:
+            content: The content to replace with. This can be a string or a Model instance.
+            slice_type: The type of slice to create, inferred from content type if not provided.
+            obj: The object associated with the slice
+            metadata: Additional metadata for the slice
+
+        Returns:
+            The created MessageSlice
+        """
+        # Clear existing content and slices
+        self.content_parts = []
+        self.slices = []
+
+        return self.append_slice(
+            content,
+            slice_type=slice_type,
+            obj=obj,
+            metadata=metadata,
+        )
+
+    @t.overload
+    def mark_slice(
+        self,
+        target: str | tuple[int, int] | t.Literal[-1] | re.Pattern[str] | type[Model],
+        slice_type: SliceType | None = None,
+        *,
+        obj: SliceObj | None = None,
+        metadata: dict[str, t.Any] | None = None,
+        select: t.Literal["first", "last"] = "first",
+        case_sensitive: bool = True,
+    ) -> MessageSlice | None: ...
+
+    @t.overload
+    def mark_slice(
+        self,
+        target: str | tuple[int, int] | t.Literal[-1] | re.Pattern[str] | type[Model],
+        slice_type: SliceType | None = None,
+        *,
+        obj: SliceObj | None = None,
+        metadata: dict[str, t.Any] | None = None,
+        select: t.Literal["all"],
+        case_sensitive: bool = True,
+    ) -> list[MessageSlice]: ...
+
+    def mark_slice(  # noqa: PLR0912
+        self,
+        target: str | tuple[int, int] | t.Literal[-1] | re.Pattern[str] | type[Model],
+        slice_type: SliceType | None = None,
+        *,
+        obj: SliceObj | None = None,
+        metadata: dict[str, t.Any] | None = None,
+        select: t.Literal["first", "last", "all"] = "first",
+        case_sensitive: bool = True,
+    ) -> MessageSlice | list[MessageSlice] | None:
+        """
+        Mark existing content as slices without modifying content.
+
+        Args:
+            target: What to mark as a slice:
+                - str: Find this text in content
+                - tuple[int, int]: Mark this exact range
+                - "*" or -1: Mark entire message content
+                - re.Pattern: Find matches of this pattern
+                - type[Model]: Parse and mark instances of this model type
+            slice_type: The type of slice to create
+            obj: The object associated with the slice
+            metadata: Additional metadata for the slice
+            select: Which matches to return - 'first', 'last', or 'all'
+            case_sensitive: Whether string search should be case sensitive
+
+        Returns:
+            If select='first'/'last': MessageSlice or None if no matches, otherwise if select='all': list[MessageSlice] (empty if no matches)
+        """
+        matches: list[tuple[int, int]] = []
+        objects: list[SliceObj] = []
+        content = self.content
+
+        # Mark entire content
+        if content and (target in (-1, "*")):
+            matches = [(0, len(content))]
+
+        # Direct range specification - validate bounds
+        elif isinstance(target, tuple):
+            start, stop = target
+            if not (0 <= start < len(content) and start < stop <= len(content)):
+                warnings.warn(
+                    f"Invalid range ({start}, {stop}) for content length {len(content)}",
+                    MessageWarning,
+                    stacklevel=2,
+                )
+                matches = []
+            else:
+                matches = [(start, stop)]
+
+        elif isinstance(target, str):
+            # Handle empty string case
+            if not target:
+                warnings.warn("Empty string target provided", MessageWarning, stacklevel=2)
+                matches = []
+
+            # Find all occurrences of the string (case insensitive by default)
+            else:
+                search_content = content.lower() if not case_sensitive else content
+                search_target = target.lower() if not case_sensitive else target
+                start = 0
+                while True:
+                    pos = search_content.find(search_target, start)
+                    if pos == -1:
+                        break
+                    matches.append((pos, pos + len(target)))
+                    start = pos + 1
+
+        # Find all regex matches
+        elif isinstance(target, re.Pattern):
+            matches = [(match.start(), match.end()) for match in target.finditer(content)]
+
+        # Parse and mark instances of this model type from content
+        elif isinstance(target, type) and issubclass(target, Model):
+            try:
+                parsed_models = try_parse_many(content, target)
+                for model, slice_range in parsed_models:
+                    matches.append((slice_range.start, slice_range.stop))
+                    objects.append(model)
+            except Exception as e:  # noqa: BLE001
+                warnings.warn(
+                    f"Failed to parse {target.__name__} from content: {e}",
+                    MessageWarning,
+                    stacklevel=2,
+                )
+                matches = []
+
+        if not objects:
+            objects = [obj] * len(matches)
+
+        # Create base slices for storage
+        created_slices = []
+        for (start, stop), obj_ in zip(matches, objects, strict=True):
+            base_slice = MessageSlice(
+                type=slice_type
+                or ("model" if isinstance(target, type) and issubclass(target, Model) else "other"),
+                obj=obj_,
+                start=start,
+                stop=stop,
+                metadata=metadata or {},
+            )
+            created_slices.append(self._add_slice(base_slice))
+
+        if select == "first":
+            return created_slices[0] if created_slices else None
+
+        if select == "last":
+            return created_slices[-1] if created_slices else None
+
+        return created_slices
+
+    def find_slices(
+        self,
+        slice_type: SliceType | None = None,
+        filter_fn: t.Callable[[MessageSlice], bool] | None = None,
+        *,
+        reverse: bool = False,
+    ) -> list[MessageSlice]:
+        """
+        Find slices with simple filtering.
+
+        Args:
+            slice_type: Filter by slice type
+            filter_fn: Custom filter function called for each slice
+
+        Returns:
+            List of matching slices
+        """
+        results = []
+        for slice_obj in self.iter_slices(slice_type=slice_type, reverse=reverse):
+            if filter_fn is not None and not filter_fn(slice_obj):
+                continue
+            results.append(slice_obj)
+
+        return results
+
+    def get_slice(
+        self,
+        slice_type: SliceType | None = None,
+        *,
+        select: t.Literal["first", "last"] = "first",
+    ) -> MessageSlice | None:
+        """
+        Get a single slice of the message, optionally filtering by type.
+
+        Args:
+            slice_type: Optional type or string to filter slices by.
+            select: Which slice to return - 'first' or 'last'.
+
+        Returns:
+            The requested MessageSlice or None if not found.
+        """
+        return next(self.iter_slices(slice_type=slice_type, reverse=(select == "last")), None)
+
+    def iter_slices(
+        self,
+        slice_type: SliceType | t.Iterable[SliceType] | None = None,
+        *,
+        reverse: bool = False,
+    ) -> t.Iterator[MessageSlice]:
+        """
+        Iterate over slices of the message, optionally filtering by type.
+
+        Args:
+            slice_type: Optional type or iterable of types to filter slices by.
+            reverse: If True, iterate in reverse order.
+
+        Returns:
+            An iterator over MessageSlice objects.
+        """
+        sorted_slices = sorted(self.slices, key=lambda s: s.start, reverse=reverse)
+        if slice_type is None:
+            return iter(sorted_slices)
+
+        slice_type = [slice_type] if isinstance(slice_type, str) else slice_type
+
+        if isinstance(slice_type, (list, tuple)):
+            return (s for s in sorted_slices if s.type in slice_type)
+
+        return (s for s in sorted_slices if s.type == slice_type)
+
+    def remove_slices(
+        self,
+        *slices: MessageSlice | str | SliceType | type[t.Any],
+    ) -> list[MessageSlice]:
+        """
+        Removes and returns slices from the message that match the given object.
+
+        If the object is a string, it will find slices that match the string content.
+        If the object is a `SliceType`, it will find slices of that type.
+        If the object is a type, it will find slices that have an `obj` of that type.
+        If the object is a `MessageSlice`, it will remove that slice exactly.
+
+        Args:
+            *slices: The slices to remove. Can be a `MessageSlice`, a string, a `SliceType`, or a type.
+
+        Returns:
+            The removed `MessageSliceRef` objects.
+        """
+        removed: list[MessageSlice] = []
+
+        matching_slices: list[MessageSlice] = []
+        for slice_ in slices:
+            for existing in self.slices:
+                if (
+                    (
+                        isinstance(slice_, str)
+                        and slice_ in t.get_args(SliceType)
+                        and existing.type == slice_
+                    )
+                    or (
+                        isinstance(slice_, str)
+                        and slice_ not in t.get_args(SliceType)
+                        and self.content[existing.slice_].lower() == slice_.lower()
+                    )
+                    or (
+                        isinstance(slice_, type)
+                        and existing.obj
+                        and isinstance(existing.obj, slice_)
+                    )
+                    or (isinstance(slice_, MessageSlice) and existing == slice_)
+                ):
+                    matching_slices.append(existing)  # noqa: PERF401
+
+        removed = [
+            self._remove_slice(matched)
+            for matched in sorted(matching_slices, key=lambda s: s.start, reverse=True)
+        ]
+        self.content = self.content.strip()
+
+        return removed
+
+    @te.deprecated(".strip() is deprecated, use .remove_slice() instead", category=None)
+    def strip(self, obj: SliceType | type[t.Any]) -> list[MessageSlice]:
+        """
+        Removes and returns all slices of the specified type from the message.
+
+        This is a deprecated method, use `remove_slice()` instead.
+
+        Args:
+            obj: The type of slice to remove. Can be a `SliceType` or a model class.
+                If a model class is provided, it will remove all slices
+                that have a model of that type.
+
+        Returns:
+            A list of removed slices.
+        """
+        warnings.warn(
+            ".strip() is deprecated, use .remove_slice() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.remove_slices(obj)
+
+    def clone(self) -> "Message":
+        """Creates a copy of the message."""
+        return Message(
+            role=self.role,
+            content=copy.deepcopy(self.content_parts),
+            slices=copy.deepcopy(self.slices),
+            tool_calls=copy.deepcopy(self.tool_calls),
+            tool_call_id=self.tool_call_id,
+            metadata=copy.deepcopy(self.metadata),
+            compatibility_flags=copy.deepcopy(self.compatibility_flags),
+        )
 
     @te.deprecated(".to_openai_spec() is deprecated, use .to_openai() instead.", category=None)
     def to_openai_spec(self) -> dict[str, t.Any]:
@@ -593,113 +1045,6 @@ class Message(BaseModel):
 
         return obj
 
-    def remove_slice(self, slice_: MessageSlice | str) -> "MessageSlice":
-        """
-        Removes a slice from the message content. If the slice is a string,
-        it will find the slice that matches the string content. If the slice is a
-        `MessageSlice`, it will remove the slice directly from the message's slices
-        and strip the content associated with that slice from the message content.
-
-        Args:
-            slice_: The slice to remove. Can be a `MessageSlice` or a string.
-
-        Returns:
-            The removed `MessageSlice` object.
-        """
-        if isinstance(slice_, str):
-            # If we have a string, we need to find the slice that matches it
-            slice_ = next(s for s in self.slices if self.content[s.slice_] == slice_)
-
-        if slice_ in self.slices:
-            # Let the content update handle reconciling the other slices
-            self.content = self.content[: slice_.start] + self.content[slice_.stop :]
-
-        return slice_
-
-    @t.overload
-    def add_slice(
-        self,
-        slice_: MessageSlice,
-    ) -> "MessageSlice": ...
-
-    @t.overload
-    def add_slice(
-        self,
-        slice_: str | Model,
-        type: SliceType | None = None,
-        *,
-        obj: SliceObj | None = None,
-        metadata: dict[str, t.Any] | None = None,
-        replace_content: bool = False,
-    ) -> "MessageSlice": ...
-
-    def add_slice(
-        self,
-        slice_: MessageSlice | str | Model,
-        type: SliceType | None = None,
-        *,
-        obj: SliceObj | None = None,
-        metadata: dict[str, t.Any] | None = None,
-        replace_content: bool = False,
-    ) -> "MessageSlice":
-        """
-        Add a new tracked slice to the message, either to existing content or by inserting new
-        content. If `replace_content` is `True`, the content of the message will be replaced with
-        the new slice content. Otherwise, if the slice is a string or Model, it will be
-        appended to the existing content. If the slice is a `MessageSlice`, it will be
-        added directly to the message's slices and assumed to be part of the existing content.
-
-        Args:
-            slice_: The slice to add. Can be a `MessageSlice`, a string, or a Model.
-            type: The type of the slice. If not provided, it will be inferred from the slice.
-            obj: The object associated with the slice, if any.
-            metadata: Additional metadata for the slice.
-            replace_content: If `True`, replaces the content of the message with the new slice.
-
-        Returns:
-            The added `MessageSlice` object.
-        """
-        if replace_content:
-            self.content = ""
-
-        if isinstance(slice_, Model):
-            obj = obj or slice_
-            slice_ = slice_.to_pretty_xml()
-
-        if isinstance(slice_, str):
-            self.content_parts.append(
-                ContentText(text=slice_),
-            )
-            start = self.content.rfind(slice_)
-            slice_ = MessageSlice(
-                type=type or "text",
-                obj=obj,
-                start=start,
-                stop=start + len(slice_) + 1,
-                metadata=metadata,
-            )
-
-        # Check if we have this slice already
-        if not any(
-            existing.slice_ == slice_.slice_ and existing.type == slice_.type
-            for existing in self.slices
-        ):
-            self.slices.append(slice_)
-
-        return slice_
-
-    def clone(self) -> "Message":
-        """Creates a copy of the message."""
-        return Message(
-            role=self.role,
-            content=copy.deepcopy(self.content_parts),
-            slices=copy.deepcopy(self.slices),
-            tool_calls=copy.deepcopy(self.tool_calls),
-            tool_call_id=self.tool_call_id,
-            metadata=copy.deepcopy(self.metadata),
-            compatibility_flags=copy.deepcopy(self.compatibility_flags),
-        )
-
     def meta(self, **kwargs: t.Any) -> "Message":
         """
         Updates the metadata of the message with the provided key-value pairs.
@@ -775,43 +1120,12 @@ class Message(BaseModel):
         new.content = truncate_string(new.content, max_length, suf=suffix)
         return new
 
-    def strip(self, obj: SliceType | type[t.Any]) -> list[MessageSlice]:
-        """
-        Removes and returns all slices of the specified type from the message.
-
-        Args:
-            obj: The type of slice to remove. Can be a `SliceType` or a model class.
-                If a model class is provided, it will remove all slices
-                that have a model of that type.
-
-        Returns:
-            A list of removed slices.
-        """
-        removed: list[MessageSlice] = []
-        # Walk in reverse so we don't upset the indices of slices as we remove them
-        for slice_ in sorted(self.slices, key=lambda s: s.start, reverse=True):
-            if (isinstance(obj, str) and slice_.type == obj) or (
-                isinstance(obj, type) and slice_.obj and isinstance(slice_.obj, obj)
-            ):
-                self.remove_slice(slice_)
-                removed.append(slice_)
-
-        self.content = self.content.strip()
-
-        return removed
-
     @property
-    @te.deprecated(".models is deprecated, iterate through .slices instead", category=None)
     def models(self) -> list[Model]:
         """
-        Deprecated - iterate through .slices instead
+        Returns a list of all models available in slices of the message.
         """
-        warnings.warn(
-            ".models is deprecated, iterate through .slices instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return []
+        return [slice_.obj for slice_ in self.slices if isinstance(slice_.obj, Model)]
 
     @property
     @te.deprecated(".parts is deprecated, iterate through .slices instead", category=None)
@@ -934,7 +1248,7 @@ class Message(BaseModel):
             fail_on_missing=fail_on_missing,
         )
         for model, slice_ in parsed:
-            self.add_slice(
+            self._add_slice(
                 MessageSlice(
                     type="model",
                     obj=model,

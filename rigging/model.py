@@ -402,8 +402,31 @@ class Model(BaseXmlModel):
     # parse for all the edge cases -> see the note above
     # about migrating from pydantic-xml
 
+    @t.overload
     @classmethod
-    def from_text(cls, content: str) -> list[tuple[te.Self, slice]]:
+    def from_text(
+        cls,
+        content: str,
+        *,
+        return_errors: t.Literal[False] = False,
+    ) -> list[tuple[te.Self, slice]]: ...
+
+    @t.overload
+    @classmethod
+    def from_text(
+        cls,
+        content: str,
+        *,
+        return_errors: t.Literal[True],
+    ) -> list[tuple[te.Self | Exception, slice]]: ...
+
+    @classmethod
+    def from_text(
+        cls,
+        content: str,
+        *,
+        return_errors: bool = False,
+    ) -> list[tuple[te.Self, slice]] | list[tuple[te.Self | Exception, slice]]:
         """
         The core parsing method which attempts to extract and parse as many
         valid instances of a model from semi-structured text.
@@ -438,8 +461,7 @@ class Model(BaseXmlModel):
 
         sorted_matches = sorted(matches, key=lambda m: len(m.group(5)), reverse=True)
 
-        extracted: list[tuple[te.Self, slice]] = []
-        exceptions: list[Exception] = []
+        extracted: list[tuple[te.Self | Exception, slice]] = []
         for match in sorted_matches:
             full_text, start_tag, _, inner_with_end_tag, inner = match.groups()
 
@@ -497,17 +519,22 @@ class Model(BaseXmlModel):
 
                 extracted.append((model, slice_))
             except Exception as e:  # noqa: BLE001
-                exceptions.append(e)
+                extracted.append((e, slice_))
                 continue
 
-        # TODO: This is poor form atm, but the exception stacking
-        # and final error should involve some careful thought
-
-        if not extracted:
-            raise exceptions[0]
-
         # sort back to original order
-        return sorted(extracted, key=lambda x: x[1].start)
+        extracted.sort(key=lambda x: x[1].start)
+
+        if not return_errors and (
+            first_error := next((m for m, _ in extracted if isinstance(m, Exception)), None)
+        ):
+            raise first_error
+
+        return (
+            extracted
+            if return_errors
+            else [(m, s) for m, s in extracted if not isinstance(m, Exception)]
+        )
 
     @classmethod
     def one_from_text(
@@ -805,7 +832,7 @@ def make_from_signature(
 
 
 class ErrorModel(Model, tag="error"):
-    type: str = element(default="Exception")
+    type: str = attr(default="Exception")
     content: str
 
     @field_validator("content", mode="before")

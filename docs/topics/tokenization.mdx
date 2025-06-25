@@ -1,0 +1,354 @@
+---
+title: "Tokenization"
+description: "Convert chats to training-ready token sequences with preserved structure"
+public: true
+---
+
+Rigging's tokenization system is the **bridge between structured conversations and machine learning-ready data**. It converts chat conversations into token sequences while preserving all the structural information from [message slices](/topics/message-slicing) and [transforms](/topics/transforms), enabling you to create high-quality training datasets where you can track exactly which tokens correspond to tool calls, model outputs, reasoning steps, or any other structured content.
+
+Unlike basic tokenization approaches that flatten conversations into plain text, Rigging maintains the **semantic structure** throughout the process. This means you can apply different learning signals to tool calls versus reasoning steps, build attention masks that focus on specific content types, or extract training examples with precise metadata—all while supporting any tokenizer architecture from Hugging Face transformers to custom implementations.
+
+## Basic Usage
+
+The tokenization process follows a simple pattern: get a tokenizer for your target model, then convert your chat to tokens. The result is a `TokenizedChat` object that preserves all the structure while providing training-ready token sequences:
+
+```python
+import rigging as rg
+
+# Create a simple conversation
+chat = (
+    await rg.get_generator("gpt-4")
+    .chat("What's 2+2?")
+    .run()
+)
+
+# Tokenize the conversation
+tokenizer = rg.get_tokenizer("unsloth/Meta-Llama-3.1-8B-Instruct")  # (1)!
+tokenized = await tokenizer.tokenize_chat(chat)  # (2)!
+
+print(tokenized.text)  # (3)!
+
+# <|begin_of_text|><|start_header_id|>system<|end_header_id|>
+
+# Cutting Knowledge Date: December 2023
+# Today Date: 26 Jul 2024
+
+# <|eot_id|><|start_header_id|>user<|end_header_id|>
+
+# What's 2+2?<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+# 4<|eot_id|>
+
+print(len(tokenized.tokens)) # 45
+print(len(tokenized.slices)) # 2
+
+# Each slice maps to specific tokens
+for slice_ in tokenized.slices:  # (4)!
+    if slice_.type == "message":
+        token_range = tokenized.tokens[slice_.start:slice_.end]
+        slice_text = tokenizer.decode(token_range)
+        print(f"{slice_.metadata['role']}: {slice_text}")
+
+# user: What's 2+2?
+# assistant: 4
+```
+
+1. Get a tokenizer instance - can be any Hugging Face model or custom tokenizer
+2. Convert the chat to tokens while preserving all slice structure
+3. Access the formatted text, token sequence, and preserved slices
+4. Iterate through slices to see how structure maps to token ranges
+
+<Note>
+**TokenizedChat Structure**
+
+The `TokenizedChat` object contains three key components:
+- `text` - The formatted conversation string (using the model's chat template)
+- `tokens` - The token sequence as a list of integers
+- `slices` - Token-mapped slices preserving all original metadata and structure
+</Note>
+
+## Tokenizer Identifiers
+
+Like generators, tokenizers use identifier strings for easy configuration:
+
+```
+<provider>!<model>,<**kwargs>
+```
+
+The provider is optional and defaults to `transformers`. Here is an example:
+
+```python
+import rigging as rg
+
+# Hugging Face models (most common)
+qwen = rg.get_tokenizer("Qwen/Qwen2-7B-Instruct")
+
+print(f"{qwen!r})
+
+# TransformersTokenizer(model='Qwen/Qwen2-7B-Instruct', apply_chat_template_kwargs={}, encode_kwargs={}, decode_kwargs={})
+```
+
+## Core Methods
+
+All tokenizers provide these essential methods:
+
+```python
+import rigging as rg
+
+tokenizer = rg.get_tokenizer("Qwen/Qwen2-7B-Instruct")
+
+chat = rg.Chat([
+    rg.Message("user", "Hello world"),
+    rg.Message("assistant", "Hello world")
+])
+
+# Format chat to text using model's chat template
+print(tokenizer.format_chat(chat))
+
+# <|im_start|>system
+# You are a helpful assistant.<|im_end|>
+# <|im_start|>user
+# Hello world<|im_end|>
+# <|im_start|>assistant
+# Hello world<|im_end|>
+
+# Encode text to tokens
+print(tokenizer.encode("Hello world")) # [9707, 1879]
+
+# Decode tokens to text
+print(tokenizer.decode([9707, 1879])) # "Hello world"
+
+# Full tokenization with structure preservation
+tokenized = await tokenizer.tokenize_chat(chat)
+print(tokenized.slices)
+
+# [
+#   TokenSlice(start=14, end=16, type='message', obj=Message(role='user', content='Hello world'), metadata={'role': 'user'}),
+#   TokenSlice(start=21, end=23, type='message', obj=Message(role='assistant', content='Hello world'), metadata={'role': 'assistant'})
+# ]
+```
+
+## Slice Preservation
+
+The key feature is preserving message slices through tokenization:
+
+```python
+import rigging as rg
+
+# Start with a message containing slices
+message = rg.Message("assistant", "The answer is 42. This calculation is correct.")
+
+# Add metadata to slices
+answer_slice = message.mark_slice(
+    "42",
+    metadata={"confidence": 0.95, "type": "numerical"}
+)
+verification_slice = message.mark_slice(
+    "This calculation is correct",
+    metadata={"confidence": 0.8, "type": "verification"}
+)
+
+chat = rg.Chat([message])
+
+# Tokenize preserves slice metadata
+tokenizer = rg.get_tokenizer("Qwen/Qwen2-7B-Instruct")
+tokenized = await tokenizer.tokenize_chat(chat)
+
+# Metadata survives tokenization
+for slice_ in tokenized.slices:
+    if slice_.metadata and "confidence" in slice_.metadata:
+        token_text = tokenizer.decode(tokenized.tokens[slice_.start:slice_.end])
+        print(f"{token_text} ({slice_.metadata['confidence']})")
+
+# 42 (0.95)
+# This calculation is correct (0.8)
+```
+
+## Transform Integration
+
+One of the most powerful features is how tokenization works seamlessly with [transforms](/topics/transforms) to create **model-specific training data**. This is especially important for models that need custom tool calling formats or special token arrangements.
+
+### Example: Qwen Tool Integration
+
+Here's a practical example of preparing tool-enabled conversations for Qwen models, which use a specific tool calling format:
+
+```python
+import rigging as rg
+
+# Multi-turn conversation with reasoning and tool calls
+messages = [
+    {"role": "system", "content": "You are a helpful assistant."},
+    {"role": "user", "content": "What is 2 + 2?"},
+    {"role": "assistant", "content": "2 + 2 = 4."},
+    {"role": "user", "content": "Explain why."},
+    {"role": "assistant", "content": "User wants to know the reasoning behind the answer. Search for a good explanation",
+     "tool_calls": [{"id": "tool1", "function": {"name": "search", "arguments": "{\"query\": \"Why is 2 + 2 = 4?\"}"}}]},  # (2)!
+    {"role": "tool", "tool_call_id": "tool1", "content": "The sum of two and two is four because it is a basic arithmetic operation."},
+]
+
+tools = [
+    rg.tools.ToolDefinition(
+    function=rg.tools.FunctionDefinition(
+        name="search",
+        description="Search for information on the web.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query to perform."
+                }
+            },
+            "required": ["query"]
+        }
+    )
+)]
+
+chat = rg.Chat(messages, params=rg.GenerateParams(tools=tools))
+
+# Create Qwen-specific tool transform
+qwen_tool_transform = rg.transform.make_tools_to_json_transform(
+    "json-with-tag",
+    tool_responses_as_user_messages=False,
+    tool_call_tag="tool_call"
+)
+
+# Tokenize with the transform applied
+tokenizer = rg.get_tokenizer("Qwen/Qwen3-8B")
+tokenized = await chat.to_tokens(tokenizer, transform=qwen_tool_transform)
+
+print(tokenized.text)
+
+# <|im_start|>system
+# You are a helpful assistant.
+
+# # Tools
+
+# You may call one or more functions to assist with the user query. Don't make assumptions about what values to plug into functions.
+
+# <tools>
+# {"type":"function","function":{...
+# </tools>
+
+# To call a function, respond with the following format:
+
+# <tool_call>
+# {"name": <function-name>, "arguments": <args-dict>}
+# </tool_call>
+# <|im_end|>
+# <|im_start|>user
+# What is 2 + 2?<|im_end|>
+# <|im_start|>assistant
+# 2 + 2 = 4.<|im_end|>
+# <|im_start|>user
+# Explain why.<|im_end|>
+# <|im_start|>assistant
+# User wants to know the reasoning behind the answer. Search for a good explanation
+# <tool_call id="tool1">{"name": "search", "arguments": {"query": "Why is 2 + 2 = 4?"}}</tool_call><|im_end|>
+# <|im_start|>user
+# <tool_response>
+# The sum of two and two is four because it is a basic arithmetic operation.
+# </tool_response><|im_end|>
+
+# Show how tool calls are preserved in token space
+for slice_ in tokenized.slices:
+    if slice_.type == "tool_call":
+        tokens = tokenized.tokens[slice_.start:slice_.end]
+        tool_text = tokenizer.decode(tokens)
+        print(f"Tool call tokens: {tool_text}")
+        print(f"Metadata: {slice_.metadata}")
+
+# Tool call tokens: <tool_call id="tool1">{"name": "search", "arguments": {"query": "Why is 2 + 2 = 4?"}}</tool_call>
+# Metadata: {'id': 'tool1'}
+```
+
+<Tip>
+Different models have different preferences for tool calling formats. The transform system lets you adapt the same conversation data for any target model. You can think of this as a combination of:
+
+1. Adapting any metadata like tool calls, tool definitions, or reasoning data into message content
+2. Formatting the structured messages into a raw text string
+3. Tokenizing that text string
+</Tip>
+
+### Example: Llama 3 Tool Integration
+
+For comparison, here's a more traditional tool calling example:
+
+```python
+import rigging as rg
+
+@rg.tool
+def calculate(expression: str) -> str:
+    """Evaluate a mathematical expression."""
+    return str(eval(expression))
+
+# Generate conversation with tool use
+chat = (
+    await rg.get_generator("gpt-4o")
+    .chat("Calculate 15 * 233 + 7 / 14")
+    .using(calculate)  # (1)!
+    .run()
+)
+
+# Tokenize preserves tool call structure
+tokenizer = rg.get_tokenizer("unsloth/Meta-Llama-3.1-8B-Instruct")  # (2)!
+tokenized = await chat.to_tokens(tokenizer, transform="json-with-tag")  # (3)!
+
+# Tool calls are precisely tracked in tokens
+for slice_ in tokenized.slices:  # (4)!
+    if slice_.type in ["tool_call", "tool_response"]:
+        print(slice_)
+
+# TokenSlice(start=164, end=218, type='tool_call', obj=ToolCall(...), metadata={'id': 'call_9pJ5mTxmcRaAr9QyjBFlxtk9'})
+# TokenSlice(start=223, end=257, type='tool_response', obj=ToolResponse(...), metadata={'id': 'call_9pJ5mTxmcRaAr9QyjBFlxtk9'})
+```
+
+1. Generate conversation with Rigging's automatic tool transform application
+2. Use the same tokenizer as the generation model for consistency
+3. Standard tokenization - no custom transform needed since tools were applied during generation
+4. Tool call slices automatically preserve metadata like function names and IDs
+
+## Custom Tokenizers
+
+While Rigging works with any Hugging Face tokenizer out of the box, you can build **custom tokenizers** by extending the base class. This is useful for specialized formatting requirements, custom chat templates, or when working with proprietary tokenizers:
+
+```python
+import rigging as rg
+
+class InstructionTokenizer(rg.tokenizer.Tokenizer):  # (1)!
+    """Custom tokenizer for instruction-following datasets."""
+
+    def format_chat(self, chat: rg.Chat) -> str:  # (2)!
+        formatted = ""
+
+        for message in chat.all:
+            if message.role == "user":
+                formatted += f"<|user|>\n{message.content}\n<|end|>\n"
+            elif message.role == "assistant":
+                formatted += f"<|assistant|>\n{message.content}\n<|end|>\n"
+            elif message.role == "tool":
+                formatted += f"<|tool_result|>\n{message.content}\n<|end|>\n"  # (3)!
+
+        return formatted
+
+    def encode(self, text: str) -> list[int]:  # (4)!
+        # Your tokenizer implementation
+        return your_tokenizer.encode(text)
+
+    def decode(self, tokens: list[int]) -> str:  # (5)!
+        return your_tokenizer.decode(tokens)
+
+# Register and use custom tokenizer
+rg.register_tokenizer("instruction", InstructionTokenizer)  # (6)!
+tokenizer = rg.get_tokenizer("instruction!your-model")  # (7)!
+
+tokenized = await tokenizer.tokenize_chat(chat)
+```
+
+1. Extend the base Tokenizer class to implement custom behavior
+2. Override `format_chat` to define how conversations are converted to text
+3. Handle different message roles with custom formatting (tool results, system messages, etc.)
+4. Implement encoding - can wrap an existing tokenizer or use custom logic
+5. Implement decoding to convert tokens back to text
+6. Register your custom tokenizer with a provider name
+7. Use the custom tokenizer like any other with the identifier string format

@@ -6,12 +6,13 @@ import json
 import typing as t
 from pathlib import Path
 
-from elasticsearch import AsyncElasticsearch
 from mypy_boto3_s3 import S3Client
 
 from rigging.data import chats_to_elastic, flatten_chats, s3_object_exists
 
 if t.TYPE_CHECKING:
+    from elasticsearch import AsyncElasticsearch
+
     from rigging.chat import Chat, WatchChatCallback
 
 
@@ -79,7 +80,7 @@ def write_messages_to_jsonl(file: str | Path, *, replace: bool = False) -> "Watc
 
 
 def write_chats_to_elastic(
-    client: AsyncElasticsearch,
+    client: "AsyncElasticsearch",
     index: str,
     *,
     create_index: bool = True,

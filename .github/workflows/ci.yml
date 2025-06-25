@@ -41,7 +41,9 @@ jobs:
       run: poetry run ruff check --output-format=github rigging
 
     - name: Typecheck
+      if: always()
       run: poetry run mypy rigging
 
     - name: Test
+      if: always()
       run: poetry run pytest

@@ -1,0 +1,486 @@
+---
+title: "Message Transforms"
+description: "Preprocess and postprocess messages with transform pipelines"
+public: true
+---
+
+Transforms are Rigging's **message processing engine**, providing a powerful pipeline system that lets you modify messages and generation parameters before they reach the model, then optionally post-process the results. They're the backbone of Rigging's flexibility—enabling everything from custom message formats and training data preparation to seamless compatibility with any model architecture.
+
+Think of transforms as **bidirectional converters** that can reshape conversations for specific models, inject context dynamically, apply formatting rules, and then restore or further process the results. Whether you're adapting conversations for fine-tuning, implementing custom tool calling formats, or building sophisticated preprocessing pipelines, transforms give you complete control over how your data flows through the generation process.
+
+Rigging uses transforms extensively under the hood (especially for [tool calling modes](/topics/tools)), but the real power comes when you build custom transforms tailored to your specific requirements.
+
+## Basic Usage
+
+Every transform follows a consistent **three-phase protocol** that makes them predictable and composable:
+
+**Transform Protocol:**
+1. **Pre-processing** - Modify messages and generation parameters
+2. **Generation** - Model processes the transformed content
+3. **Post-processing** - Optional cleanup or further transformation of results
+
+The transform function signature is straightforward - it receives the current messages and parameters, then returns the modified versions along with an optional post-processing function:
+
+```python
+import rigging as rg
+
+async def my_transform(
+    messages: list[rg.Message],
+    params: rg.GenerateParams
+) -> tuple[list[rg.Message], rg.GenerateParams, rg.PostTransform | None]:  # (1)!
+    suffix = " - Talk like a pirate!"
+
+    # Modify messages before generation
+    for message in [m for m in messages if m.role == "user"]:  # (2)!
+        message.content = f"{message.content}{suffix}"
+
+    # Optional: return a function to undo changes
+    async def post_transform(chat: rg.Chat) -> rg.Chat:  # (3)!
+        print(f"Pre:\n{chat.conversation}")
+
+        for message in chat.all:
+            message.content = message.content.replace(suffix, "")
+
+        print(f"Post:\n{chat.conversation}")
+        return chat
+
+    return messages, params, post_transform  # (4)!
+
+# Apply in a chat pipeline
+chat = (
+    await rg.get_generator("gpt-4")
+    .chat("Hello, how are you?")
+    .transform(my_transform)  # (5)!
+    .run()
+)
+
+# Pre:
+# [user]: Hello, how are you? - Talk like a pirate!
+
+# [assistant]: Arr matey! I be shipshape and Bristol fashion, ...
+
+# Post:
+# [user]: Hello, how are you?
+
+# [assistant]: Arr matey! I be shipshape and Bristol fashion, ...
+```
+
+1. Transform signature: takes messages and params, returns modified versions plus optional post-processor
+2. Pre-processing: modify only user messages in this example
+3. Post-processing function: receives the complete Chat after generation
+4. Return the modified messages, params, and post-processor
+5. Apply the transform to the pipeline - it runs automatically during generation
+
+<Note>
+**Transform Mutability**
+
+Transforms can modify messages **in-place** (as shown above) or create new message objects. Both approaches work, but in-place modification is more memory efficient for large conversations.
+</Note>
+
+## Tool Transforms Under the Hood
+
+When you use [tools](/topics/tools) with the `mode` parameter, Rigging automatically applies sophisticated transforms that handle the **entire tool calling lifecycle**. These built-in transforms are prime examples of the power of the transform system—they seamlessly convert between native Python function calls and model-specific formats.
+
+**Tool Transform Process:**
+1. **System Injection** - Adds tool definitions and usage instructions to system messages
+2. **Format Conversion** - Transforms native `ToolCall` objects to JSON/XML representations
+3. **Response Parsing** - Converts model outputs back to structured `ToolCall` objects
+4. **State Restoration** - Removes injected content and restores original message structure
+
+```python
+import rigging as rg
+
+@rg.tool
+def get_weather(city: str) -> str:
+    return f"Weather in {city}: 72°F and sunny"
+
+# Rigging automatically uses transforms based on mode
+chat = (
+    await rg.get_generator("meta-llama/llama-3.1-8b")  # (1)!
+    .chat("What's the weather in Paris?")
+    .using(get_weather, mode="json-with-tag")  # (2)!
+    .run()
+)
+```
+
+1. Models without native function calling need transform-based tool support
+2. Rigging automatically applies `tools_to_json_with_tag_transform` based on the mode
+
+**Transform-Based Tool Modes:**
+- `"json-with-tag"` - JSON wrapped in XML tags (most reliable for open source models)
+- `"json"` - Raw JSON format (compact but can be harder to parse)
+- `"json-in-xml"` - XML structure with JSON parameters
+- `"xml"` - Pure XML format (verbose but very explicit)
+
+<CodeGroup>
+```python mode="json"
+# Model sees and generates:
+{
+  "name": "get_weather",
+  "arguments": {"city": "Paris"}
+}
+```
+
+```python mode="json-with-tag"
+# Model sees and generates:
+<tool-call>
+{
+  "name": "get_weather",
+  "arguments": {"city": "Paris"}
+}
+</tool-call>
+```
+
+```python mode="json-in-xml"
+# Model sees and generates:
+<tool-call name="get_weather">
+{"city": "Paris"}
+</tool-call>
+```
+
+```python mode="xml"
+# Model sees and generates:
+<rg-tool-call name="get_weather">
+<city>Paris</city>
+</rg-tool-call>
+```
+</CodeGroup>
+
+### Manual Transform Application
+
+You can apply tool transforms manually to existing conversations, which is particularly useful for **training data preparation** or **format standardization**. This lets you convert conversations that used native function calling into text-based formats for fine-tuning:
+
+```python
+import rigging as rg
+
+def add_numbers(a: int, b: int) -> int:
+    """Adds two numbers together."""
+    return a + b
+
+chat = (
+    await rg.get_generator("openai/gpt-4o-mini")
+    .chat("What is 2 + 3?")
+    .using(add_numbers) # Pass the function directly
+    .run()
+)
+
+# Transform the chat to JSON with tool tags
+transformed = await chat.transform(  # (1)!
+    rg.transform.tools_to_json_transform  # (2)!
+)
+
+print(transformed.conversation)
+
+# [system]: # Tools
+
+# You may call one or more functions to assist with the user query. Don't make assumptions about what values to plug into functions.
+
+# <tools>
+# {"type":"function","function":{"name":"add_numbers","description":"Adds two numbers together.","parameters":{"additionalProperties":false,"properties":{"a":{"title":"A","type":"integer"},"b":{"title":"B","type":"integer"}},"required":["a","b"],"type":"object"}}}
+# </tools>
+
+# To call a function, respond with the following format:
+
+# {"name": <function-name>, "arguments": <args-dict>}
+
+# [user]: What is 2 + 3?
+
+# [assistant]: {"name": "add_numbers", "parameters": {"a": 2, "b": 3}}
+
+# [user]: <tool-response id="call_BzyKRU20SyyQvVjBjmsOqkji">5</tool-response>
+
+# [assistant]: 2 + 3 equals 5.
+```
+
+1. Apply transforms to existing chats after generation
+2. Use the built-in JSON transform for training data preparation
+
+<Tip>
+**Transform vs Pipeline Application**
+
+- **Pipeline**: `.transform()` on `ChatPipeline` applies during generation
+- **Chat**: `.transform()` on `Chat` applies to existing conversations
+- Both use the same transform functions but at different stages of the workflow
+</Tip>
+
+## Custom Transforms
+
+Creating your own transforms unlocks the full power of Rigging's message processing system. Custom transforms enable use cases like dynamic context injection, format adaptation, parameter tuning, and sophisticated preprocessing pipelines.
+
+**Common Transform Patterns:**
+- **Context Enhancement** - Add dynamic information to messages
+- **Format Adaptation** - Convert between different message formats
+- **Parameter Tuning** - Adjust generation parameters based on content
+- **Content Filtering** - Remove or modify sensitive information
+- **Training Preparation** - Add special tokens or formatting for fine-tuning
+
+### Message Preprocessing
+
+The most common transform pattern is modifying message content before it reaches the model:
+
+```python
+import rigging as rg
+
+async def add_context_transform(
+    messages: list[rg.Message],
+    params: rg.GenerateParams
+) -> tuple[list[rg.Message], rg.GenerateParams, None]:
+    # Add context to user messages
+    for message in messages:
+        if message.role == "user":  # (1)!
+            context = get_current_context()  # (2)!
+            message.content = f"Context: {context}\n\n{message.content}"  # (3)!
+
+    return messages, params, None  # (4)!
+
+chat = (
+    await rg.get_generator("gpt-4")
+    .chat("Help me with this task")
+    .transform(add_context_transform)
+    .run()
+)
+```
+
+1. Target only user messages for context injection
+2. Fetch dynamic context from your application (database, API, etc.)
+3. Prepend context while preserving original message structure
+4. No post-processing needed for simple content modification
+
+### Parameter Modification
+
+Transforms can dynamically adjust generation parameters based on message content, enabling **adaptive generation strategies**:
+
+```python
+async def creative_boost_transform(
+    messages: list[rg.Message],
+    params: rg.GenerateParams
+) -> tuple[list[rg.Message], rg.GenerateParams, None]:
+    # Boost creativity for brainstorming
+    if any("brainstorm" in msg.content.lower() for msg in messages):  # (1)!
+        params.temperature = min((params.temperature or 0.7) + 0.3, 1.0)  # (2)!
+
+    return messages, params, None
+```
+
+1. Check if any message contains brainstorming keywords
+2. Safely increase temperature while respecting the 1.0 maximum limit
+
+<Note>
+**Parameter Safety**
+
+When modifying generation parameters, always handle `None` values gracefully and respect parameter constraints (like temperature ∈ [0, 1]). The original params object may have `None` values for unset parameters.
+</Note>
+
+### Reversible Transforms
+
+One of the most powerful features of the transform system is **bidirectional processing**. Post-transforms let you restore original content, apply additional processing, or implement sophisticated clean-up logic. This is essential for privacy-preserving workflows, debugging, and training data preparation:
+
+```python
+async def anonymize_transform(
+    messages: list[rg.Message],
+    params: rg.GenerateParams
+) -> tuple[list[rg.Message], rg.GenerateParams, rg.PostTransform]:
+
+    # Store mapping for restoration
+    name_mapping = {}  # (1)!
+
+    for message in messages:
+        # Replace names with placeholders
+        anonymized_content, mapping = replace_names_with_placeholders(message.content)  # (2)!
+        name_mapping.update(mapping)
+        message.content = anonymized_content
+
+    async def restore_names(chat: rg.Chat) -> rg.Chat:  # (3)!
+        # Put real names back in the response
+        for message in chat.all:  # (4)!
+            message.content = restore_names_from_mapping(message.content, name_mapping)
+        return chat
+
+    return messages, params, restore_names  # (5)!
+```
+
+1. Store the mapping between real names and placeholders for later restoration
+2. Your custom function to detect and replace names (could use NER, regex, etc.)
+3. Post-transform function receives the complete Chat after generation
+4. Process all messages in the conversation, including the model's response
+5. Return the post-transform function as the third element
+
+<Warning>
+**State Capture in Post-Transforms**
+
+Post-transform functions capture variables from their enclosing scope. Be careful with large objects or sensitive data that might be held in memory longer than expected.
+</Warning>
+
+## Training Data Preparation
+
+Transforms excel at preparing conversations for **model fine-tuning and training**. They can add special tokens, format conversations for specific architectures, and work seamlessly with Rigging's [tokenization system](/topics/tokenization) to preserve [message slices](/topics/message-slicing) throughout the process:
+
+```python
+import rigging as rg
+
+async def training_format_transform(
+    messages: list[rg.Message],
+    params: rg.GenerateParams
+) -> tuple[list[rg.Message], rg.GenerateParams, None]:
+
+    # Add special tokens for training
+    for message in messages:
+        if message.role == "user":  # (1)!
+            message.content = f"<|user|>\n{message.content}<|end|>"
+        elif message.role == "assistant":  # (2)!
+            message.content = f"<|assistant|>\n{message.content}<|end|>"
+
+    return messages, params, None
+
+# Use with tokenization
+tokenizer = rg.get_tokenizer("gpt2")
+tokenized = await tokenizer.tokenize_chat(  # (3)!
+    chat,
+    transform=training_format_transform
+)
+```
+
+1. Add role-specific tokens for user messages
+2. Format assistant messages with appropriate tokens
+3. Tokenization preserves slices even after transformation
+
+<Tip>
+**Transform + Tokenization Pipeline**
+
+When you apply transforms during tokenization, the system processes them in this order:
+1. Apply transform to modify message content
+2. Tokenize the transformed content
+3. Map original message slices to token positions
+
+This ensures that training signals and annotations survive the entire pipeline.
+</Tip>
+
+## Slice Preservation
+
+One of Rigging's most sophisticated features is how transforms **automatically preserve [message slices](/topics/message-slicing)** when modifying content. The slice system intelligently updates positions to stay aligned with the transformed text, ensuring that parsed models, tool calls, and metadata remain properly linked:
+
+```python
+import rigging as rg
+
+async def slice_aware_transform(
+    messages: list[rg.Message],
+    params: rg.GenerateParams
+) -> tuple[list[rg.Message], rg.GenerateParams, None]:
+
+    for message in messages:
+        # Check existing slices
+        for slice_info in message.slices:  # (1)!
+            slice_content = message.content[slice_info.slice_]
+            print(f"Found {slice_info.type}: {slice_content}")
+
+        # Modify content - slices automatically adjust
+        message.content = f"[PROCESSED] {message.content}"  # (2)!
+
+    return messages, params, None
+```
+
+1. Access existing slices to understand what's already annotated
+2. When content changes, slice positions automatically recalculate
+
+<Note>
+**Slice Position Updates**
+
+Slice positions automatically update when you modify message content. The system uses intelligent text matching to maintain the connection between slices and their content, ensuring that parsed models, tool calls, and metadata stay linked to the right text even after transformation.
+</Note>
+
+## Use Cases and Best Practices
+
+Transforms enable sophisticated message processing patterns across many domains:
+
+### Fine-Tuning Data Preparation
+
+```python
+async def fine_tuning_transform(
+    messages: list[rg.Message],
+    params: rg.GenerateParams
+) -> tuple[list[rg.Message], rg.GenerateParams, None]:
+
+    # Add instruction formatting
+    for message in messages:
+        if message.role == "system":
+            message.content = f"### Instruction\n{message.content}"
+        elif message.role == "user":
+            message.content = f"### Input\n{message.content}"
+        elif message.role == "assistant":
+            message.content = f"### Response\n{message.content}"
+
+    return messages, params, None
+
+# Prepare datasets with consistent formatting
+training_chats = []
+for raw_chat in dataset:
+    formatted = await raw_chat.transform(fine_tuning_transform)
+    training_chats.append(formatted)
+```
+
+### Multi-Model Adaptation
+
+```python
+async def model_specific_transform(
+    messages: list[rg.Message],
+    params: rg.GenerateParams,
+    model_type: str
+) -> tuple[list[rg.Message], rg.GenerateParams, None]:
+
+    if model_type == "claude":
+        # Claude prefers Human/Assistant formatting
+        for message in messages:
+            if message.role == "user":
+                message.content = f"Human: {message.content}"
+            elif message.role == "assistant":
+                message.content = f"Assistant: {message.content}"
+
+    elif model_type == "llama":
+        # Llama uses specific instruction formatting
+        for message in messages:
+            if message.role == "system":
+                message.content = f"<<SYS>>\n{message.content}\n<</SYS>>"
+
+    return messages, params, None
+```
+
+### Privacy and Security
+
+```python
+async def privacy_transform(
+    messages: list[rg.Message],
+    params: rg.GenerateParams
+) -> tuple[list[rg.Message], rg.GenerateParams, rg.PostTransform]:
+
+    sensitive_patterns = {
+        r'\b\d{3}-\d{2}-\d{4}\b': '[SSN]',  # Social Security Numbers
+        r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b': '[EMAIL]',  # Emails
+        r'\b\d{16}\b': '[CARD]'  # Credit card numbers
+    }
+
+    original_content = {}
+
+    for message in messages:
+        original_content[id(message)] = message.content
+        for pattern, replacement in sensitive_patterns.items():
+            message.content = re.sub(pattern, replacement, message.content)
+
+    async def restore_content(chat: rg.Chat) -> rg.Chat:
+        # Restore original content for storage/logging
+        for message in chat.all:
+            if id(message) in original_content:
+                message.content = original_content[id(message)]
+        return chat
+
+    return messages, params, restore_content
+```
+
+<Warning>
+**Security Considerations**
+
+When implementing privacy transforms, be extra careful about:
+- **Memory leaks** - Sensitive data captured in closures
+- **Logging** - Ensure logs don't contain sensitive information
+- **Error handling** - Exceptions might expose original content
+- **State management** - Clean up sensitive data after use
+</Warning>

@@ -18,7 +18,6 @@ from datetime import datetime
 from typing import runtime_checkable
 from uuid import UUID, uuid4
 
-from elasticsearch import AsyncElasticsearch
 from loguru import logger
 from pydantic import (
     BaseModel,
@@ -30,7 +29,7 @@ from pydantic import (
     computed_field,
 )
 
-from rigging.error import MaxDepthError, PipelineWarning, UnknownToolError
+from rigging.error import MaxDepthError, PipelineWarning
 from rigging.generator import GenerateParams, Generator, get_generator
 from rigging.generator.base import StopReason, Usage
 from rigging.message import (
@@ -38,17 +37,20 @@ from rigging.message import (
     Message,
     MessageDict,
     Messages,
+    MessageSlice,
+    SliceType,
 )
 from rigging.message import (
     inject_system_content as inject_system_content_into_messages,
 )
 from rigging.model import Model, ModelT, SystemErrorModel, ValidationErrorModel
-from rigging.tokenize import TokenizedChat
-from rigging.tools.base import Tool, ToolCall, ToolChoice, ToolMode
+from rigging.tokenizer import TokenizedChat, Tokenizer, get_tokenizer
+from rigging.tools import Tool, ToolCall, ToolChoice, ToolMode
 from rigging.tracing import Span, tracer
 from rigging.transform import (
     PostTransform,
     Transform,
+    get_transform,
     make_tools_to_xml_transform,
     tools_to_json_in_xml_transform,
     tools_to_json_transform,
@@ -57,6 +59,8 @@ from rigging.transform import (
 from rigging.util import flatten_list, get_qualified_name
 
 if t.TYPE_CHECKING:
+    from elasticsearch import AsyncElasticsearch
+
     from rigging.data import ElasticOpType
     from rigging.prompt import Prompt
 
@@ -153,6 +157,7 @@ class Chat(BaseModel):
         generated: Messages | None = None,
         generator: Generator | None = None,
         pipeline: "ChatPipeline | None" = None,
+        params: GenerateParams | None = None,
         **kwargs: t.Any,
     ):
         """
@@ -179,6 +184,7 @@ class Chat(BaseModel):
             messages=Message.fit_as_list(messages),
             generated=Message.fit_as_list(generated) if generated is not None else [],
             generator=generator,
+            params=params,
             **kwargs,
         )
 
@@ -217,13 +223,45 @@ class Chat(BaseModel):
 
     @property
     def message_dicts(self) -> list[MessageDict]:
+        """Returns the chat as a minimal message dictionaries."""
+        return [t.cast("MessageDict", m.to_openai()) for m in self.all]
+
+    @property
+    def message_metadata(self) -> dict[str, t.Any]:
+        """Returns a merged dictionary of metadata from all messages in the chat."""
+        metadata: dict[str, t.Any] = {}
+        for message in self.all:
+            if message.metadata:
+                metadata.update(message.metadata)
+        return metadata
+
+    def message_slices(
+        self,
+        slice_type: SliceType | None = None,
+        filter_fn: t.Callable[[MessageSlice], bool] | None = None,
+        *,
+        reverse: bool = False,
+    ) -> list[MessageSlice]:
         """
-        Returns the chat as a minimal message dictionaries.
+        Get all slices across all messages with optional filtering.
+
+        See Message.find_slices() for more information.
+
+        Args:
+            slice_type: Filter by slice type
+            filter_fn: A function to filter slices. If provided, only slices for which
+                `filter_fn(slice)` returns True will be included.
+            reverse: If True, the slices will be returned in reverse order.
 
         Returns:
-            The MessageDict list
+            List of all matching slices across all messages
         """
-        return [t.cast("MessageDict", m.to_openai()) for m in self.all]
+        all_slices = []
+        for message in self.messages:
+            all_slices.extend(
+                message.find_slices(slice_type=slice_type, filter_fn=filter_fn, reverse=reverse),
+            )
+        return all_slices
 
     def meta(self, **kwargs: t.Any) -> "Chat":
         """
@@ -384,7 +422,7 @@ class Chat(BaseModel):
     async def to_elastic(
         self,
         index: str,
-        client: AsyncElasticsearch,
+        client: "AsyncElasticsearch",
         *,
         op_type: "ElasticOpType" = "index",
         create_index: bool = True,
@@ -422,36 +460,41 @@ class Chat(BaseModel):
 
     async def to_tokens(
         self,
-        tokenizer_id: str,
-        tokenizer_kwargs: dict[str, t.Any] | None = None,
-        *,
-        apply_chat_template_kwargs: dict[str, t.Any] | None = None,
-        encode_kwargs: dict[str, t.Any] | None = None,
-        decode_kwargs: dict[str, t.Any] | None = None,
+        tokenizer: str | Tokenizer,
+        transform: str | Transform | None = None,
     ) -> TokenizedChat:
         """
         Converts the chat messages to a list of tokenized messages.
 
+        Args:
+            tokenizer: The tokenizer to use for tokenization. Can be a string identifier or a Tokenizer instance.
+            transform: An optional transform to apply to the chat before tokenization. Can be a well-known transform
+                identifier or a Transform instance.
+
         Returns:
             The serialized chat as a list of token lists.
         """
-        from rigging.data import chats_to_tokens
-        from rigging.tokenize import get_tokenizer
 
-        if tokenizer_kwargs is None:
-            tokenizer_kwargs = {}
+        if isinstance(tokenizer, str):
+            tokenizer = get_tokenizer(tokenizer)
 
-        tokenizer = get_tokenizer(tokenizer_id, **tokenizer_kwargs)
+        if not isinstance(tokenizer, Tokenizer):
+            raise TypeError(
+                f"Expected a Tokenizer instance, got {type(tokenizer).__name__}",
+            )
 
-        return await chats_to_tokens(
-            self,
-            tokenizer,
-            apply_chat_template_kwargs=apply_chat_template_kwargs,
-            encode_kwargs=encode_kwargs,
-            decode_kwargs=decode_kwargs,
-        )
+        if isinstance(transform, str):
+            transform = get_transform(transform)
 
-    async def transform(self, transform: Transform) -> "Chat":
+        if transform and not isinstance(transform, Transform):
+            raise TypeError(
+                f"Expected a Transform instance, got {type(transform).__name__}",
+            )
+
+        chat = await self.transform(transform) if transform else self
+        return await tokenizer.tokenize_chat(chat)
+
+    async def transform(self, transform: Transform | str) -> "Chat":
         """
         Applies a transform to the chat.
 
@@ -461,6 +504,8 @@ class Chat(BaseModel):
         Returns:
             A new chat with the transform applied to its messages and parameters.
         """
+        if isinstance(transform, str):
+            transform = get_transform(transform)
         messages = [m.clone() for m in self.messages]
         params = self.params.clone() if self.params else GenerateParams()
         messages, params, _ = await transform(self.messages, params)
@@ -497,7 +542,7 @@ class ChatList(list[Chat]):
     async def to_elastic(
         self,
         index: str,
-        client: AsyncElasticsearch,
+        client: "AsyncElasticsearch",
         *,
         op_type: "ElasticOpType" = "index",
         create_index: bool = True,
@@ -541,38 +586,27 @@ class ChatList(list[Chat]):
 
     async def to_tokens(
         self,
-        tokenizer_id: str,
-        tokenizer_kwargs: dict[str, t.Any] | None = None,
-        *,
-        apply_chat_template_kwargs: dict[str, t.Any] | None = None,
-        encode_kwargs: dict[str, t.Any] | None = None,
-        decode_kwargs: dict[str, t.Any] | None = None,
+        tokenizer: str | Tokenizer,
+        transform: str | Transform | None = None,
     ) -> list[TokenizedChat]:
         """
-        Converts the chat list to a list of tokenized messages.
+        Converts the chat list to a list of tokenized chats.
+
+        Args:
+            tokenizer: The tokenizer to use for tokenization. Can be a string identifier or a Tokenizer instance.
+            transform: An optional transform to apply to each chat before tokenization. Can be a well-known transform
+                identifier or a Transform instance.
 
         Returns:
-            The serialized chat list as a list of token lists.
+            A list of tokenized chats.
         """
+        # Resolve the tokenizer first so we don't duplicate effort
+        if isinstance(tokenizer, str):
+            tokenizer = get_tokenizer(tokenizer)
 
-        from rigging.data import chats_to_tokens
-        from rigging.tokenize import get_tokenizer
-
-        if tokenizer_kwargs is None:
-            tokenizer_kwargs = {}
-
-        tokenizer = get_tokenizer(tokenizer_id, **tokenizer_kwargs)
-
-        return [
-            await chats_to_tokens(
-                chat,
-                tokenizer,
-                apply_chat_template_kwargs=apply_chat_template_kwargs,
-                encode_kwargs=encode_kwargs,
-                decode_kwargs=decode_kwargs,
-            )
-            for chat in self
-        ]
+        return await asyncio.gather(
+            *(chat.to_tokens(tokenizer, transform) for chat in self),
+        )
 
 
 # Callbacks
@@ -1247,10 +1281,15 @@ class ChatPipeline:
 
         Note:
             By default, the tool mode is set to "auto" which will attempt to use
-            api function calling if available, otherwise it will fallback to `xml`.
+            api function calling if available, otherwise it will fallback to json arguments
+            wrapped in xml tags.
 
         Args:
-            *tools: The tools to be added to the pipeline.
+            *tools: The tools to be added to the pipeline, these can be either:
+                - A Tool instance (e.g., Tool.from_callable() or @tool decorator).
+                - A callable function that can be converted to a Tool.
+                - An instance of a class with @tool_method decorated methods.
+                - A sequence of any of the above.
             mode: The tool calling mode to use (e.g., "xml", "json-with-tag", "json-in-xml", "api") - default is "auto".
             choice: The API tool choice to use. This is only relevant when using the "api" tool mode.
             max_depth: The maximum depth for recursive tool calls (this is shared between all tools).
@@ -1278,13 +1317,24 @@ class ChatPipeline:
         if len(tools) == 0:
             return self
 
-        new_tools = [
-            tool if isinstance(tool, Tool) else Tool.from_callable(tool)
-            for tool in flatten_list(list(tools))  # in case the user gave us lists
-        ]
+        _tools: list[Tool[..., t.Any]] = []
+        for tool in flatten_list(list(tools)):
+            interior_tools = [
+                val
+                for _, val in inspect.getmembers(
+                    tool,
+                    predicate=lambda x: isinstance(x, Tool),
+                )
+            ]
+            if interior_tools:
+                _tools.extend(interior_tools)
+            elif not isinstance(tool, Tool):
+                _tools.append(Tool.from_callable(tool))
+            else:
+                _tools.append(tool)
 
         existing_names = {tool.name for tool in self.tools}
-        new_names = {tool.name for tool in new_tools}
+        new_names = {tool.name for tool in _tools}
         for name in existing_names & new_names:
             warnings.warn(
                 f"Overwriting existing tool '{name}'.",
@@ -1292,7 +1342,7 @@ class ChatPipeline:
                 stacklevel=2,
             )
 
-        self.tools = [tool for tool in self.tools if tool.name not in new_names] + new_tools
+        self.tools = [tool for tool in self.tools if tool.name not in new_names] + _tools
 
         self.then_callbacks = [
             (callback, max_depth)
@@ -1385,9 +1435,15 @@ class ChatPipeline:
         next_pipeline = self.clone(chat=chat, callbacks=[self._then_tools])
 
         async def _process_tool_call(tool_call: ToolCall) -> bool:
-            tool = next((t for t in self.tools if t.name == tool_call.name), None)
-            if tool is None:
-                raise UnknownToolError(tool_call.name)
+            if (tool := next((t for t in self.tools if t.name == tool_call.name), None)) is None:
+                next_pipeline.add(
+                    Message.from_model(
+                        SystemErrorModel(
+                            content=f"Tool '{tool_call.name}' not found.",
+                        ),
+                    ),
+                )
+                return False
 
             message, stop = await tool.handle_tool_call(tool_call)
             next_pipeline.add(message)
@@ -1414,7 +1470,10 @@ class ChatPipeline:
         return next_pipeline.step()
 
     async def _then_parse(self, chat: Chat) -> PipelineStepContextManager | None:
-        next_pipeline = self.clone(chat=chat, callbacks=[self._then_parse])
+        if chat.error:  # If we have an error, we should not attempt to parse.
+            return None
+
+        next_pipeline = self.clone(chat=chat)
 
         try:
             chat.last.parse_many(*self.until_types)

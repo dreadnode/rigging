@@ -6,65 +6,539 @@ title: rigging.tokenizer
 ::: rigging.tokenizer
 */}
 
+Tokenizers encode chats and associated message data into tokens for training and inference.
+
+TokenSlice
+----------
+
+```python
+TokenSlice(
+    start: int,
+    end: int,
+    type: SliceType,
+    obj: SliceObj | None = None,
+    metadata: dict[str, Any] | None = None,
+)
+```
+
+Represents a slice of tokens within a tokenized chat.
+
+### end
+
+```python
+end: int
+```
+
+The ending index of the slice in the token list.
+
+### metadata
+
+```python
+metadata: dict[str, Any] | None = None
+```
+
+Additional metadata associated with this slice, if any.
+
+### obj
+
+```python
+obj: SliceObj | None = None
+```
+
+The original object this slice corresponds to, if any.
+
+### start
+
+```python
+start: int
+```
+
+The starting index of the slice in the token list.
+
+### type
+
+```python
+type: SliceType
+```
+
+The type of the slice (e.g. message, tool\_call, etc.).
+
+TokenizedChat
+-------------
+
+```python
+TokenizedChat(
+    text: str,
+    tokens: list[int],
+    slices: list[TokenSlice],
+    obj: Chat | None = None,
+    metadata: dict[str, Any] | None = None,
+)
+```
+
+A tokenized representation of a chat, containing the full text,
+token list, and structured slices of tokens.
+
+### metadata
+
+```python
+metadata: dict[str, Any] | None = None
+```
+
+Additional metadata associated with the tokenized chat, if any.
+
+### obj
+
+```python
+obj: Chat | None = None
+```
+
+The original chat object, if available.
+
+### slices
+
+```python
+slices: list[TokenSlice]
+```
+
+Structured slices of tokens, each representing a part of the chat.
+
+### text
+
+```python
+text: str
+```
+
+The full text of the chat, formatted as a single string.
+
+### tokens
+
+```python
+tokens: list[int]
+```
+
+The list of tokens representing the chat text.
+
+Tokenizer
+---------
+
+Base class for all rigging tokenizers.
+
+This class provides common functionality and methods for tokenizing chats.
+
+### model
+
+```python
+model: str
+```
+
+The model name to be used by the tokenizer.
+
+### decode
+
+```python
+decode(tokens: list[int]) -> str
+```
+
+Decodes a list of tokens back into a string.
+
+**Parameters:**
+
+* **`tokens`**
+  (`list[int]`)
+  –The list of tokens to decode.
+
+**Returns:**
+
+* `str`
+  –The decoded string.
+
+<Accordion title="Source code in rigging/tokenizer/base.py" icon="code">
+```python
+def decode(self, tokens: list[int]) -> str:
+    """
+    Decodes a list of tokens back into a string.
+
+    Args:
+        tokens: The list of tokens to decode.
+
+    Returns:
+        The decoded string.
+    """
+    raise NotImplementedError(
+        f"{self.__class__.__name__}.decode() must be implemented by subclasses.",
+    )
+```
+
+
+</Accordion>
+
+### encode
+
+```python
+encode(text: str) -> list[int]
+```
+
+Encodes the given text into a list of tokens.
+
+**Parameters:**
+
+* **`text`**
+  (`str`)
+  –The text to encode.
+
+**Returns:**
+
+* `list[int]`
+  –A list of tokens representing the encoded text.
+
+<Accordion title="Source code in rigging/tokenizer/base.py" icon="code">
+```python
+def encode(self, text: str) -> list[int]:
+    """
+    Encodes the given text into a list of tokens.
+
+    Args:
+        text: The text to encode.
+
+    Returns:
+        A list of tokens representing the encoded text.
+    """
+    raise NotImplementedError(
+        f"{self.__class__.__name__}.encode() must be implemented by subclasses.",
+    )
+```
+
+
+</Accordion>
+
+### format\_chat
+
+```python
+format_chat(chat: Chat) -> str
+```
+
+Formats the chat into a string representation.
+
+**Parameters:**
+
+* **`chat`**
+  (`Chat`)
+  –The chat object to format.
+
+**Returns:**
+
+* `str`
+  –A string representation of the chat.
+
+<Accordion title="Source code in rigging/tokenizer/base.py" icon="code">
+```python
+def format_chat(self, chat: "Chat") -> str:
+    """
+    Formats the chat into a string representation.
+
+    Args:
+        chat: The chat object to format.
+
+    Returns:
+        A string representation of the chat.
+    """
+    raise NotImplementedError(
+        f"{self.__class__.__name__}.format_chat() must be implemented by subclasses.",
+    )
+```
+
+
+</Accordion>
+
+### tokenize\_chat
+
+```python
+tokenize_chat(chat: Chat) -> TokenizedChat
+```
+
+Transform a chat into a tokenized format with structured slices.
+
+**Parameters:**
+
+* **`chat`**
+  (`Chat`)
+  –The chat object to tokenize.
+
+**Returns:**
+
+* `TokenizedChat`
+  –A TokenizedChat object containing the tokenized chat data.
+
+<Accordion title="Source code in rigging/tokenizer/base.py" icon="code">
+```python
+async def tokenize_chat(self, chat: "Chat") -> TokenizedChat:
+    """
+    Transform a chat into a tokenized format with structured slices.
+
+    Args:
+        chat: The chat object to tokenize.
+
+    Returns:
+        A TokenizedChat object containing the tokenized chat data.
+    """
+    chat_text = self.format_chat(chat)
+    chat_tokens = self.encode(chat_text)
+
+    slices: list[TokenSlice] = []
+    search_start = 0
+
+    # Process messages in order
+    for message in chat.all:
+        # Find this message
+        if not (match := self._find_in_tokens(message.content, chat_tokens, 0, search_start)):
+            warnings.warn(
+                f"Warning: Could not find message '{message.content[:50]}...' in chat tokens",
+                TokenizerWarning,
+                stacklevel=2,
+            )
+            continue
+
+        msg_start, msg_end = match
+        msg_metadata = message.metadata or {}
+        msg_metadata["role"] = message.role
+        if message.tool_call_id:
+            msg_metadata["tool_call_id"] = message.tool_call_id
+
+        # Add message slice
+        slices.append(
+            TokenSlice(
+                start=msg_start,
+                end=msg_end,
+                type="message",
+                obj=message,
+                metadata=msg_metadata,
+            ),
+        )
+
+        # Find parts within this message
+        message_tokens = chat_tokens[msg_start:msg_end]
+        part_search_start = 0
+
+        # Process message slices in order
+        for slice_ in message.slices:
+            part_text = message.content[slice_.slice_]
+            part_match = self._find_in_tokens(
+                part_text,
+                message_tokens,
+                msg_start,
+                part_search_start,
+            )
+            if not part_match:
+                warnings.warn(
+                    f"Warning: Could not find part '{part_text[:50]}...' in message tokens",
+                    TokenizerWarning,
+                    stacklevel=2,
+                )
+                continue
+
+            part_start, part_end = part_match
+            slices.append(
+                TokenSlice(
+                    start=part_start,
+                    end=part_end,
+                    type=slice_.type,
+                    obj=slice_.obj,
+                    metadata=slice_.metadata,
+                ),
+            )
+
+            # Continue searching after this part
+            part_search_start = part_end - msg_start
+
+        # Continue searching after this message
+        search_start = msg_end
+
+    slices.sort(key=lambda s: s.start)
+
+    return TokenizedChat(
+        text=chat_text,
+        tokens=chat_tokens,
+        slices=slices,
+        obj=chat,
+        metadata=chat.metadata,
+    )
+```
+
+
+</Accordion>
+
 get\_tokenizer
 --------------
 
 ```python
-get_tokenizer(
-    tokenizer_id: str, **tokenizer_kwargs: Any
-) -> t.Any
+get_tokenizer(identifier: str) -> Tokenizer
 ```
 
-Get the tokenizer from transformers model identifier, or from an already loaded tokenizer.
+Get a tokenizer by an identifier string. Uses Transformers by default.
+
+Identifier strings are formatted like `<provider>!<model>,<**kwargs>`
+
+(provider is optional and defaults to `transformers` if not specified)
+
+**Examples:**
+
+* "meta-llama/Meta-Llama-3-8B-Instruct" -> `TransformersTokenizer(model="`meta-llama/Meta-Llama-3-8B-Instruct")`
+* "transformers!microsoft/Phi-4-mini-instruct" -> `TransformersTokenizer(model="microsoft/Phi-4-mini-instruct")`
 
 **Parameters:**
 
-* **`tokenizer_id`**
+* **`identifier`**
   (`str`)
-  –The model identifier (string) or an already loaded tokenizer.
-* **`tokenizer_kwargs`**
-  (`Any`, default:
-  `{}`
-  )
-  –Additional keyword arguments for the tokenizer initialization.
+  –The identifier string to use to get a tokenizer.
 
 **Returns:**
 
-* `Any`
-  –An instance of `AutoTokenizer`.
+* `Tokenizer`
+  –The tokenizer object.
 
-<Accordion title="Source code in rigging/tokenize/tokenizer.py" icon="code">
+**Raises:**
+
+* `InvalidTokenizerError`
+  –If the identifier is invalid.
+
+<Accordion title="Source code in rigging/tokenizer/base.py" icon="code">
 ```python
-def get_tokenizer(
-    tokenizer_id: str,
-    **tokenizer_kwargs: t.Any,
-) -> t.Any:
+@lru_cache(maxsize=128)
+def get_tokenizer(identifier: str) -> Tokenizer:
     """
-    Get the tokenizer from transformers model identifier, or from an already loaded tokenizer.
+    Get a tokenizer by an identifier string. Uses Transformers by default.
+
+    Identifier strings are formatted like `<provider>!<model>,<**kwargs>`
+
+    (provider is optional and defaults to `transformers` if not specified)
+
+    Examples:
+        - "meta-llama/Meta-Llama-3-8B-Instruct" -> `TransformersTokenizer(model="`meta-llama/Meta-Llama-3-8B-Instruct")`
+        - "transformers!microsoft/Phi-4-mini-instruct" -> `TransformersTokenizer(model="microsoft/Phi-4-mini-instruct")`
 
     Args:
-        tokenizer_id: The model identifier (string) or an already loaded tokenizer.
-        tokenizer_kwargs: Additional keyword arguments for the tokenizer initialization.
+        identifier: The identifier string to use to get a tokenizer.
 
     Returns:
-        An instance of `AutoTokenizer`.
+        The tokenizer object.
+
+    Raises:
+        InvalidTokenizerError: If the identifier is invalid.
     """
-    try:
-        from transformers import AutoTokenizer
 
-        tokenizer = AutoTokenizer.from_pretrained(
-            tokenizer_id,
-            **tokenizer_kwargs,
-        )
-        logger.success(f"Loaded tokenizer for model '{tokenizer_id}'")
+    provider: str = next(iter(g_tokenizers.keys()))
+    model: str = identifier
 
-    except Exception as e:
-        # Catch all exceptions to handle any issues with loading the tokenizer
-        raise RuntimeError(
-            f"Failed to load tokenizer for model '{tokenizer_id}': {e}",
-        ) from e
+    if not identifier:
+        raise InvalidTokenizerError(identifier)
 
-    return tokenizer
+    # Split provider, model, and kwargs
+
+    if "!" in identifier:
+        try:
+            provider, model = identifier.split("!")
+        except Exception as e:
+            raise InvalidTokenizerError(identifier) from e
+
+    if provider not in g_tokenizers:
+        raise InvalidTokenizerError(identifier)
+
+    if not isinstance(g_tokenizers[provider], type):
+        lazy_generator = t.cast("LazyTokenizer", g_tokenizers[provider])
+        g_tokenizers[provider] = lazy_generator()
+
+    generator_cls = t.cast("type[Tokenizer]", g_tokenizers[provider])
+
+    kwargs: dict[str, t.Any] = {}
+    if "," in model:
+        try:
+            model, kwargs_str = model.split(",", 1)
+            kwargs = dict(arg.split("=", 1) for arg in kwargs_str.split(","))
+        except Exception as e:
+            raise InvalidTokenizerError(identifier) from e
+
+    # Decode any base64 values if present
+    def decode_value(value: str) -> t.Any:
+        if value.startswith("base64:"):
+            with contextlib.suppress(Exception):
+                decoded = base64.b64decode(value[7:])
+                return TypeAdapter(t.Any).validate_json(decoded)
+        return value
+
+    kwargs = {k: decode_value(v) for k, v in kwargs.items()}
+
+    # Do some subtle type conversion
+    for k, v in kwargs.items():
+        if not isinstance(v, str):
+            continue
+
+        try:
+            kwargs[k] = float(v)
+            continue
+        except ValueError:
+            pass
+
+        try:
+            kwargs[k] = int(v)
+            continue
+        except ValueError:
+            pass
+
+        if isinstance(v, str) and v.lower() in ["true", "false"]:
+            kwargs[k] = v.lower() == "true"
+
+    return generator_cls(model=model, **kwargs)
+```
+
+
+</Accordion>
+
+register\_tokenizer
+-------------------
+
+```python
+register_tokenizer(
+    provider: str,
+    tokenizer_cls: type[Tokenizer] | LazyTokenizer,
+) -> None
+```
+
+Register a tokenizer class for a provider id.
+
+This let's you use [rigging.tokenizer.get\_tokenizer][] with a custom tokenizer class.
+
+**Parameters:**
+
+* **`provider`**
+  (`str`)
+  –The name of the provider.
+* **`tokenizer_cls`**
+  (`type[Tokenizer] | LazyTokenizer`)
+  –The tokenizer class to register.
+
+**Returns:**
+
+* `None`
+  –None
+
+<Accordion title="Source code in rigging/tokenizer/base.py" icon="code">
+```python
+def register_tokenizer(provider: str, tokenizer_cls: type[Tokenizer] | LazyTokenizer) -> None:
+    """
+    Register a tokenizer class for a provider id.
+
+    This let's you use [rigging.tokenizer.get_tokenizer][] with a custom tokenizer class.
+
+    Args:
+        provider: The name of the provider.
+        tokenizer_cls: The tokenizer class to register.
+
+    Returns:
+        None
+    """
+    global g_tokenizers  # noqa: PLW0602
+    g_tokenizers[provider] = tokenizer_cls
 ```
 
 

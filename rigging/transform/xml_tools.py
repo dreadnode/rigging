@@ -202,14 +202,13 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
 
         for message in messages:
             if message.role == "tool":
-                message.add_slice(
+                message.replace_with_slice(
                     ToolResponse(
                         id=message.tool_call_id or "",
                         result=message.content,
                     ),
-                    type="tool_response",
+                    "tool_response",
                     metadata={"id": message.tool_call_id or ""},
-                    replace_content=True,
                 )
                 message.role = "user"
                 message.tool_call_id = None
@@ -255,13 +254,13 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
                                 stacklevel=2,
                             )
 
-                    message.add_slice(
+                    message.append_slice(
                         XmlToolCall(
                             id=tool_call.id,
                             name=tool_call.function.name,
-                            parameters=tool_call.function.arguments,
+                            parameters=parameters,
                         ),
-                        type="tool_call",
+                        "tool_call",
                         obj=tool_call,
                         metadata={"id": tool_call.id or ""},
                     )
@@ -269,10 +268,10 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
                 message.tool_calls = None  # Clear tool calls after rendering
 
         # Update generate params and save any existing tool params
-
+        existing_stop = params.stop or []
         if add_tool_stop_token:
             params.stop = params.stop or []
-            params.stop.append(f"</{TOOL_CALL_TAG}>")
+            params.stop = list(set(existing_stop) | {f"</{TOOL_CALL_TAG}>"})
 
         existing_tool_definitions = params.tools
         params.tools = None
@@ -305,7 +304,7 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
                     if slice_.type == "tool_call" and isinstance(slice_.obj, ToolCall):
                         message.tool_calls = message.tool_calls or []
                         message.tool_calls.append(slice_.obj)
-                        message.remove_slice(slice_)
+                        message.remove_slices(slice_)
 
                 # Otherwise, find any new tool calls in the content
 
@@ -315,6 +314,7 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
                 message.tool_calls = []
                 for native_call in tool_calls:
                     arguments = native_call.parameters
+                    arguments_dict: dict[str, t.Any] | None = None
 
                     tool = next(
                         (t for t in tools if t.name == native_call.name),
@@ -326,18 +326,12 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
                             ToolWarning,
                             stacklevel=2,
                         )
-
-                    arguments_dict: dict[str, t.Any] | None = None
-
-                    if tool is not None:
+                    else:
                         try:
-                            parsed = tool.model.from_text(
+                            if parsed := tool.model.from_text(
                                 tool.model.xml_start_tag() + arguments + tool.model.xml_end_tag(),
-                            )
-
-                            if parsed:
+                            ):
                                 arguments_dict = parsed[0][0].model_dump(mode="json")
-
                         except Exception as e:  # noqa: BLE001
                             warnings.warn(
                                 f"Failed to parse tool call for '{native_call.name}' with arguments ({e}):\n{arguments}",
@@ -350,11 +344,11 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
                     if arguments_dict is None:
                         try:
                             arguments_dict = xmltodict.parse(
-                                arguments,
-                            )
-                        except Exception:  # noqa: BLE001
+                                f"<content>{arguments}</content>",
+                            )["content"]
+                        except Exception as e:  # noqa: BLE001
                             warnings.warn(
-                                f"Failed to parse tool call for '{native_call.name}' with arguments:\n{arguments}",
+                                f"Failed to parse tool call for '{native_call.name}' with arguments using xmltodict ({e}):\n{arguments}",
                                 ToolWarning,
                                 stacklevel=2,
                             )
@@ -372,7 +366,7 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
                         ),
                     )
 
-                message.strip(XmlToolCall)
+                message.remove_slices(XmlToolCall)
 
             # Convert our tool responses
             # TODO: handle cased where multiple tool responses are present
@@ -390,6 +384,7 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
             chat.params = chat.params or GenerateParams()
             chat.params.tools = existing_tool_definitions
             chat.params.tool_choice = existing_tool_choice
+            chat.params.stop = existing_stop
 
             # Strip the system message part
 

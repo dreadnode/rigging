@@ -88,7 +88,24 @@ Model
 ### from\_text
 
 ```python
-from_text(content: str) -> list[tuple[te.Self, slice]]
+from_text(
+    content: str, *, return_errors: Literal[False] = False
+) -> list[tuple[te.Self, slice]]
+```
+
+```python
+from_text(
+    content: str, *, return_errors: Literal[True]
+) -> list[tuple[te.Self | Exception, slice]]
+```
+
+```python
+from_text(
+    content: str, *, return_errors: bool = False
+) -> (
+    list[tuple[te.Self, slice]]
+    | list[tuple[te.Self | Exception, slice]]
+)
 ```
 
 The core parsing method which attempts to extract and parse as many
@@ -102,7 +119,7 @@ valid instances of a model from semi-structured text.
 
 **Returns:**
 
-* `list[tuple[Self, slice]]`
+* `list[tuple[Self, slice]] | list[tuple[Self | Exception, slice]]`
   –A list of tuples containing the extracted models and their corresponding slices.
 
 **Raises:**
@@ -115,7 +132,12 @@ valid instances of a model from semi-structured text.
 <Accordion title="Source code in rigging/model.py" icon="code">
 ```python
 @classmethod
-def from_text(cls, content: str) -> list[tuple[te.Self, slice]]:
+def from_text(
+    cls,
+    content: str,
+    *,
+    return_errors: bool = False,
+) -> list[tuple[te.Self, slice]] | list[tuple[te.Self | Exception, slice]]:
     """
     The core parsing method which attempts to extract and parse as many
     valid instances of a model from semi-structured text.
@@ -150,8 +172,7 @@ def from_text(cls, content: str) -> list[tuple[te.Self, slice]]:
 
     sorted_matches = sorted(matches, key=lambda m: len(m.group(5)), reverse=True)
 
-    extracted: list[tuple[te.Self, slice]] = []
-    exceptions: list[Exception] = []
+    extracted: list[tuple[te.Self | Exception, slice]] = []
     for match in sorted_matches:
         full_text, start_tag, _, inner_with_end_tag, inner = match.groups()
 
@@ -209,17 +230,22 @@ def from_text(cls, content: str) -> list[tuple[te.Self, slice]]:
 
             extracted.append((model, slice_))
         except Exception as e:  # noqa: BLE001
-            exceptions.append(e)
+            extracted.append((e, slice_))
             continue
 
-    # TODO: This is poor form atm, but the exception stacking
-    # and final error should involve some careful thought
-
-    if not extracted:
-        raise exceptions[0]
-
     # sort back to original order
-    return sorted(extracted, key=lambda x: x[1].start)
+    extracted.sort(key=lambda x: x[1].start)
+
+    if not return_errors and (
+        first_error := next((m for m, _ in extracted if isinstance(m, Exception)), None)
+    ):
+        raise first_error
+
+    return (
+        extracted
+        if return_errors
+        else [(m, s) for m, s in extracted if not isinstance(m, Exception)]
+    )
 ```
 
 
