@@ -7,7 +7,7 @@ from functools import lru_cache
 
 from pydantic import BaseModel, TypeAdapter
 
-from rigging.error import InvalidGeneratorError, InvalidTokenizerError, TokenizerWarning
+from rigging.error import InvalidTokenizerError, TokenizerWarning
 
 if t.TYPE_CHECKING:
     from rigging.chat import Chat
@@ -284,7 +284,7 @@ def get_tokenizer(identifier: str) -> Tokenizer:
             model, kwargs_str = model.split(",", 1)
             kwargs = dict(arg.split("=", 1) for arg in kwargs_str.split(","))
         except Exception as e:
-            raise InvalidGeneratorError(identifier) from e
+            raise InvalidTokenizerError(identifier) from e
 
     # Decode any base64 values if present
     def decode_value(value: str) -> t.Any:
