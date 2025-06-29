@@ -2577,6 +2577,119 @@ async def step_many(
 
 </Accordion>
 
+### task
+
+```python
+task(label: str, **attributes: Any) -> _PipelineTaskFactory
+```
+
+Returns a factory for creating `dreadnode.Task` objects from this pipeline.
+
+This is the entry point for integrating a Rigging pipeline with the
+Dreadnode tracing and experimentation framework. It allows you to
+convert a pipeline's `run`, `run_many`, or `run_batch` methods into
+`dreadnode.Task`s that can be executed, scored, and compared.
+
+This method requires an active dreadnode run.
+
+**Parameters:**
+
+* **`label`**
+  (`str`)
+  –The label for the dreadnode task(s). This is used to group
+  and identify related runs in the Dreadnode UI.
+* **`**attributes`**
+  (`Any`, default:
+  `{}`
+  )
+  –Additional key-value attributes to attach to the task span.
+
+**Returns:**
+
+* `_PipelineTaskFactory`
+  –A factory object with methods like `.run()`, `.run_many()`, which in
+* `_PipelineTaskFactory`
+  –turn return a configured `dreadnode.Task`.
+
+Example
+
+> > > Create a task from the pipeline's .run() method
+> > > ===============================================
+> > >
+> > > my\_task = pipeline.as\_task(label="test-prompt").run(scorers=[...])
+> > >
+> > > Execute the task
+> > > ================
+> > >
+> > > result\_span = await my\_task.run()
+> > >
+> > > Execute the task 10 times and get the best 3
+> > > ============================================
+> > >
+> > > best\_chats = await my\_task.top\_n(10, 3, as\_outputs=True)
+
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def task(
+    self,
+    label: str,
+    **attributes: t.Any,
+) -> "_PipelineTaskFactory":
+    """
+    Returns a factory for creating `dreadnode.Task` objects from this pipeline.
+
+    This is the entry point for integrating a Rigging pipeline with the
+    Dreadnode tracing and experimentation framework. It allows you to
+    convert a pipeline's `run`, `run_many`, or `run_batch` methods into
+    `dreadnode.Task`s that can be executed, scored, and compared.
+
+    This method requires an active dreadnode run.
+
+    Args:
+        label: The label for the dreadnode task(s). This is used to group
+               and identify related runs in the Dreadnode UI.
+        **attributes: Additional key-value attributes to attach to the task span.
+
+    Returns:
+        A factory object with methods like `.run()`, `.run_many()`, which in
+        turn return a configured `dreadnode.Task`.
+
+    Example:
+        >>> # Create a task from the pipeline's .run() method
+        >>> my_task = pipeline.as_task(label="test-prompt").run(scorers=[...])
+        >>>
+        >>> # Execute the task
+        >>> result_span = await my_task.run()
+        >>>
+        >>> # Execute the task 10 times and get the best 3
+        >>> best_chats = await my_task.top_n(10, 3, as_outputs=True)
+
+    """
+    global _is_dreadnode_run_active
+
+    # We cache the check to avoid repeated imports
+    if _is_dreadnode_run_active is None:
+        try:
+            from dreadnode.tracing.span import current_run_span
+
+            _is_dreadnode_run_active = lambda: current_run_span.get() is not None
+        except ImportError:
+            _is_dreadnode_run_active = lambda: False
+
+    if not _is_dreadnode_run_active():
+        raise RuntimeError(
+            "The `.task()` method requires an active dreadnode run. "
+            "Please wrap your execution in `with dreadnode.run(...)` "
+            "or call it from a function decorated with `@dreadnode.task`.",
+        )
+
+    return _PipelineTaskFactory(self, label, **attributes)
+```
+
+
+</Accordion>
+
 ### then
 
 ```python

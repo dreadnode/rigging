@@ -59,10 +59,13 @@ from rigging.transform import (
 from rigging.util import flatten_list, get_qualified_name
 
 if t.TYPE_CHECKING:
+    from dreadnode.task import Task
     from elasticsearch import AsyncElasticsearch
 
     from rigging.data import ElasticOpType
     from rigging.prompt import Prompt
+
+_is_dreadnode_run_active = None
 
 P = t.ParamSpec("P")
 R = t.TypeVar("R")
@@ -781,6 +784,98 @@ def _wrap_watch_callback(callback: WatchChatCallback) -> WatchChatCallback:
 # Pipeline
 
 
+class _PipelineTaskFactory:
+    """
+    (Internal) Provides methods to convert a ChatPipeline into various dreadnode.Tasks.
+    """
+
+    def __init__(self, pipeline: "ChatPipeline", label: str, **task_attributes: t.Any):
+        self._pipeline = pipeline.clone()
+        self._label = label
+        self._task_attributes = task_attributes
+
+    def _create_task(self, func: t.Callable, default_name: str, **kwargs: t.Any) -> "Task":
+        """Internal helper to build a Task using the dreadnode.task factory."""
+        import dreadnode
+
+        final_attributes = self._task_attributes.copy()
+        final_attributes.update(kwargs.pop("attributes", {}))
+
+        task_factory = dreadnode.task(
+            name=kwargs.pop("name", default_name),
+            label=self._label,
+            scorers=kwargs.pop("scorers", []) or [],
+            attributes=final_attributes,
+            log_output=True,  # maybe add to self._auto_log_output?
+            log_inputs=False,  # maybe look at func signature to determine this?
+            **kwargs,
+        )
+
+        return task_factory(func)
+
+    def run(self, **task_kwargs: t.Any) -> "Task":
+        """Creates a dreadnode.Task that executes `pipeline.run()`."""
+
+        async def _execute(
+            *,
+            on_failed: t.Optional["FailMode"] = None,
+            allow_failed: bool = False,
+        ) -> "Chat":
+            from dreadnode.tracing.span import current_task_span
+            from opentelemetry.trace import StatusCode
+
+            span = current_task_span.get()
+            # Clone again for idempotency on retries within a dreadnode run
+            pipeline = self._pipeline.clone()
+
+            try:
+                chat = await pipeline.run(on_failed=on_failed, allow_failed=allow_failed)
+
+                # span.log_output("final_chat", chat.model_dump())
+                if chat.failed:
+                    exc = chat.error or RuntimeError("Pipeline failed without a specific error")
+                    span.record_exception(exc)
+                    span.set_status(StatusCode.ERROR, str(exc))
+                return chat
+            except Exception as e:
+                if span:
+                    span.record_exception(e)  # Good practice to record it anyway
+                raise
+
+        default_name = "ChatPipeline.run"
+        return self._create_task(_execute, default_name, **task_kwargs)
+
+    def run_many(self, **task_kwargs: t.Any) -> "Task":
+        """Creates a dreadnode.Task that executes `pipeline.run_many()`."""
+
+        async def _execute(
+            count: int,
+            *,
+            params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
+            on_failed: t.Optional["FailMode"] = None,
+        ) -> "ChatList":
+            pipeline = self._pipeline.clone()
+            return await pipeline.run_many(count=count, params=params, on_failed=on_failed)
+
+        default_name = f"ChatPipeline.run_many with {self._pipeline.generator.to_identifier()}"
+        return self._create_task(_execute, default_name, **task_kwargs)
+
+    def run_batch(self, **task_kwargs: t.Any) -> "Task":
+        """Creates a dreadnode.Task that executes `pipeline.run_batch()`."""
+
+        async def _execute(
+            many: t.Any,
+            params: t.Sequence[t.Optional["GenerateParams"]] | None = None,
+            *,
+            on_failed: t.Optional["FailMode"] = None,
+        ) -> "ChatList":
+            pipeline = self._pipeline.clone()
+            return await pipeline.run_batch(many=many, params=params, on_failed=on_failed)
+
+        default_name = f"ChatPipeline.run_batch with {self._pipeline.generator.to_identifier()}"
+        return self._create_task(_execute, default_name, **task_kwargs)
+
+
 class ChatPipeline:
     """
     Pipeline to manipulate and produce chats.
@@ -1425,6 +1520,61 @@ class ChatPipeline:
         self.then_callbacks.append((self._then_parse, max_depth))
 
         return self
+
+    def task(
+        self,
+        label: str,
+        **attributes: t.Any,
+    ) -> "_PipelineTaskFactory":
+        """
+        Returns a factory for creating `dreadnode.Task` objects from this pipeline.
+
+        This is the entry point for integrating a Rigging pipeline with the
+        Dreadnode tracing and experimentation framework. It allows you to
+        convert a pipeline's `run`, `run_many`, or `run_batch` methods into
+        `dreadnode.Task`s that can be executed, scored, and compared.
+
+        This method requires an active dreadnode run.
+
+        Args:
+            label: The label for the dreadnode task(s). This is used to group
+                   and identify related runs in the Dreadnode UI.
+            **attributes: Additional key-value attributes to attach to the task span.
+
+        Returns:
+            A factory object with methods like `.run()`, `.run_many()`, which in
+            turn return a configured `dreadnode.Task`.
+
+        Example:
+            >>> # Create a task from the pipeline's .run() method
+            >>> my_task = pipeline.as_task(label="test-prompt").run(scorers=[...])
+            >>>
+            >>> # Execute the task
+            >>> result_span = await my_task.run()
+            >>>
+            >>> # Execute the task 10 times and get the best 3
+            >>> best_chats = await my_task.top_n(10, 3, as_outputs=True)
+
+        """
+        global _is_dreadnode_run_active
+
+        # We cache the check to avoid repeated imports
+        if _is_dreadnode_run_active is None:
+            try:
+                from dreadnode.tracing.span import current_run_span
+
+                _is_dreadnode_run_active = lambda: current_run_span.get() is not None
+            except ImportError:
+                _is_dreadnode_run_active = lambda: False
+
+        if not _is_dreadnode_run_active():
+            raise RuntimeError(
+                "The `.task()` method requires an active dreadnode run. "
+                "Please wrap your execution in `with dreadnode.run(...)` "
+                "or call it from a function decorated with `@dreadnode.task`.",
+            )
+
+        return _PipelineTaskFactory(self, label, **attributes)
 
     # Internal callbacks for handling tools and parsing
 
