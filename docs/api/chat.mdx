@@ -1910,11 +1910,6 @@ def map(
         ~~~
     """
     for callback in callbacks:
-        if not asyncio.iscoroutinefunction(callback):
-            raise TypeError(
-                f"Callback '{get_qualified_name(callback)}' must be an async function",
-            )
-
         if allow_duplicates:
             continue
 
@@ -2661,11 +2656,6 @@ def then(
         ~~~
     """
     for callback in callbacks:
-        if not asyncio.iscoroutinefunction(callback):
-            raise TypeError(
-                f"Callback '{get_qualified_name(callback)}' must be an async function",
-            )
-
         if allow_duplicates:
             continue
 

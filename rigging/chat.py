@@ -618,7 +618,7 @@ class _ThenChatCallback(t.Protocol):
         self,
         chat: Chat,
         /,
-    ) -> t.Awaitable[Chat | None]: ...
+    ) -> t.Awaitable[Chat | None] | Chat | None: ...
 
 
 @runtime_checkable
@@ -642,7 +642,7 @@ class _MapChatCallback(t.Protocol):
         self,
         chats: list[Chat],
         /,
-    ) -> t.Awaitable[list[Chat]]: ...
+    ) -> t.Awaitable[list[Chat]] | list[Chat]: ...
 
 
 @runtime_checkable
@@ -773,7 +773,9 @@ def _wrap_watch_callback(callback: WatchChatCallback) -> WatchChatCallback:
             chat_count=len(chats),
             chat_ids=[str(c.uuid) for c in chats],
         ):
-            await callback(chats)
+            result = callback(chats)
+            if inspect.isawaitable(result):
+                await result
 
     return traced_watch_callback
 
@@ -1100,11 +1102,6 @@ class ChatPipeline:
             ```
         """
         for callback in callbacks:
-            if not asyncio.iscoroutinefunction(callback):
-                raise TypeError(
-                    f"Callback '{get_qualified_name(callback)}' must be an async function",
-                )
-
             if allow_duplicates:
                 continue
 
@@ -1147,11 +1144,6 @@ class ChatPipeline:
             ```
         """
         for callback in callbacks:
-            if not asyncio.iscoroutinefunction(callback):
-                raise TypeError(
-                    f"Callback '{get_qualified_name(callback)}' must be an async function",
-                )
-
             if allow_duplicates:
                 continue
 
@@ -1565,9 +1557,8 @@ class ChatPipeline:
                 exit_stack.push_async_callback(complete)
 
                 result = callback(state.chat)
-
                 if inspect.isawaitable(result):
-                    result = await result  # type: ignore [assignment]
+                    result = await result
 
                 if result is None or isinstance(result, Chat):
                     state.chat = result or state.chat
