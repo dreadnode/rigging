@@ -398,18 +398,18 @@ lxml = ["lxml"]
 
 [[package]]
 name = "boto3"
-version = "1.38.46"
+version = "1.39.3"
 description = "The AWS SDK for Python"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "boto3-1.38.46-py3-none-any.whl", hash = "sha256:9c8e88a32a6465e5905308708cff5b17547117f06982908bdfdb0108b4a65079"},
-    {file = "boto3-1.38.46.tar.gz", hash = "sha256:d1ca2b53138afd0341e1962bd52be6071ab7a63c5b4f89228c5ef8942c40c852"},
+    {file = "boto3-1.39.3-py3-none-any.whl", hash = "sha256:056cfa2440fe1a157a7c2be897c749c83e1a322144aa4dad889f2fca66571019"},
+    {file = "boto3-1.39.3.tar.gz", hash = "sha256:0a367106497649ae3d8a7b571b8c3be01b7b935a0fe303d4cc2574ed03aecbb4"},
 ]
 
 [package.dependencies]
-botocore = ">=1.38.46,<1.39.0"
+botocore = ">=1.39.3,<1.40.0"
 jmespath = ">=0.7.1,<2.0.0"
 s3transfer = ">=0.13.0,<0.14.0"
 
@@ -850,14 +850,14 @@ xray = ["mypy-boto3-xray (>=1.38.0,<1.39.0)"]
 
 [[package]]
 name = "botocore"
-version = "1.38.46"
+version = "1.39.3"
 description = "Low-level, data-driven core of boto 3."
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "botocore-1.38.46-py3-none-any.whl", hash = "sha256:89ca782ffbf2e8769ca9c89234cfa5ca577f1987d07d913ee3c68c4776b1eb5b"},
-    {file = "botocore-1.38.46.tar.gz", hash = "sha256:8798e5a418c27cf93195b077153644aea44cb171fcd56edc1ecebaa1e49e226e"},
+    {file = "botocore-1.39.3-py3-none-any.whl", hash = "sha256:66a81cfac18ad5e9f47696c73fdf44cdbd8f8ca51ab3fca1effca0aabf61f02f"},
+    {file = "botocore-1.39.3.tar.gz", hash = "sha256:da8f477e119f9f8a3aaa8b3c99d9c6856ed0a243680aa3a3fbbfc15a8d4093fb"},
 ]
 
 [package.dependencies]
@@ -1419,10 +1419,9 @@ files = [
 name = "elastic-transport"
 version = "8.17.1"
 description = "Transport classes and utilities shared among Python Elastic client libraries"
-optional = true
+optional = false
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "extra == \"all\""
 files = [
     {file = "elastic_transport-8.17.1-py3-none-any.whl", hash = "sha256:192718f498f1d10c5e9aa8b9cf32aed405e469a7f0e9d6a8923431dbb2c59fb8"},
     {file = "elastic_transport-8.17.1.tar.gz", hash = "sha256:5edef32ac864dca8e2f0a613ef63491ee8d6b8cfb52881fa7313ba9290cac6d2"},
@@ -1439,10 +1438,9 @@ develop = ["aiohttp", "furo", "httpx", "opentelemetry-api", "opentelemetry-sdk",
 name = "elasticsearch"
 version = "8.18.1"
 description = "Python client for Elasticsearch"
-optional = true
+optional = false
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "extra == \"all\""
 files = [
     {file = "elasticsearch-8.18.1-py3-none-any.whl", hash = "sha256:1a8c8b5ec3ce5be88f96d2f898375671648e96272978bce0dee3137d9326aabb"},
     {file = "elasticsearch-8.18.1.tar.gz", hash = "sha256:998035f17a8c1fba7ae26b183dca797dcf95db86da6a7ecba56d31afc40f07c7"},
@@ -1461,6 +1459,21 @@ orjson = ["orjson (>=3)"]
 pyarrow = ["pyarrow (>=1)"]
 requests = ["requests (>=2.4.0,!=2.32.2,<3.0.0)"]
 vectorstore-mmr = ["numpy (>=1)", "simsimd (>=3)"]
+
+[[package]]
+name = "eval-type-backport"
+version = "0.2.2"
+description = "Like `typing._eval_type`, but lets older Python versions use newer typing features."
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "eval_type_backport-0.2.2-py3-none-any.whl", hash = "sha256:cb6ad7c393517f476f96d456d0412ea80f0a8cf96f6892834cd9340149111b0a"},
+    {file = "eval_type_backport-0.2.2.tar.gz", hash = "sha256:f0576b4cf01ebb5bd358d02314d31846af5e07678387486e2c798af0e7d849c1"},
+]
+
+[package.extras]
+tests = ["pytest"]
 
 [[package]]
 name = "exceptiongroup"
@@ -6944,11 +6957,11 @@ test = ["big-O", "importlib_resources ; python_version < \"3.9\"", "jaraco.funct
 type = ["pytest-mypy"]
 
 [extras]
-all = ["accelerate", "aiodocker", "asyncssh", "click", "elasticsearch", "httpx", "transformers", "vllm", "websockets"]
+all = ["accelerate", "aiodocker", "asyncssh", "click", "httpx", "transformers", "vllm", "websockets"]
 examples = ["aiodocker", "asyncssh", "click", "httpx", "websockets"]
 tracing = []
 
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "70c9b2fdea3938a6ed1aa0a1316aaadf2d0a0633fbed8340bdf29d3f35337511"
+content-hash = "3b7e5e8f839ebd658e8a20272b3e50342c2b6958c4960131a2eedc280b6bba61"
