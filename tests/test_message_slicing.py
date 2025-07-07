@@ -953,7 +953,13 @@ def test_slice_with_empty_string_target() -> None:
     """Test marking slice with empty string target."""
     message = Message("assistant", "Some content here")
 
-    slice_obj = message.mark_slice("")
+    # Expect a "Empty string target provided" warning
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        slice_obj = message.mark_slice("")
+        assert len(w) == 1
+        assert issubclass(w[-1].category, MessageWarning)
+        assert "Empty string target provided" in str(w[-1].message)
 
     # Empty string should not create a valid slice
     assert slice_obj is None
