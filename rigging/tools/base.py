@@ -11,6 +11,7 @@ import warnings
 from dataclasses import dataclass, field
 from functools import cached_property
 
+import dreadnode as dn
 import typing_extensions as te
 from pydantic import BaseModel, TypeAdapter, ValidationError, field_validator
 from pydantic_xml import attr
@@ -23,7 +24,6 @@ from rigging.model import (
     make_from_schema,
     make_from_signature,
 )
-from rigging.tracing import tracer
 from rigging.util import deref_json
 
 if t.TYPE_CHECKING:
@@ -351,7 +351,7 @@ class Tool(t.Generic[P, R]):
 
         from rigging.message import ContentText, ContentTypes, Message
 
-        with tracer.span(f"Tool {self.name}()", name=self.name) as span:
+        with dn.span(f"Tool {self.name}()", tool_name=self.name) as span:
             if tool_call.name != self.name:
                 warnings.warn(
                     f"Tool call name mismatch: {tool_call.name} != {self.name}",

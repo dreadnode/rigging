@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import runtime_checkable
 from uuid import UUID, uuid4
 
+import dreadnode as dn
 from loguru import logger
 from pydantic import (
     BaseModel,
@@ -46,7 +47,6 @@ from rigging.message import (
 from rigging.model import Model, ModelT, SystemErrorModel, ValidationErrorModel
 from rigging.tokenizer import TokenizedChat, Tokenizer, get_tokenizer
 from rigging.tools import Tool, ToolCall, ToolChoice, ToolMode
-from rigging.tracing import Span, tracer
 from rigging.transform import (
     PostTransform,
     Transform,
@@ -767,7 +767,7 @@ def _wrap_watch_callback(callback: WatchChatCallback) -> WatchChatCallback:
     callback_name = get_qualified_name(callback)
 
     async def traced_watch_callback(chats: list[Chat]) -> None:
-        with tracer.span(
+        with dn.span(
             f"Watch with {callback_name}()",
             callback=callback_name,
             chat_count=len(chats),
@@ -1548,7 +1548,7 @@ class ChatPipeline:
             state.completed = True
             state.ready_event.set()
 
-        with tracer.span(
+        with dn.span(
             f"Then with {callback_name}()",
             callback=callback_name,
             chat_id=str(state.chat.uuid),
@@ -1592,7 +1592,6 @@ class ChatPipeline:
 
     async def _step(  # noqa: PLR0915, PLR0912
         self,
-        span: Span,
         messages: list[list[Message]],
         params: list[GenerateParams],
         on_failed: FailMode,
@@ -1653,9 +1652,6 @@ class ChatPipeline:
         # on all of them.
 
         except Exception as error:  # noqa: BLE001
-            span.set_attribute("failed", True)
-            span.set_attribute("error", error)
-
             chats = ChatList(
                 [
                     Chat(
@@ -1724,7 +1720,6 @@ class ChatPipeline:
 
         # Yield what we generated
 
-        span.set_attribute("chats", chats)
         current_step = PipelineStep(
             state="generated",
             chats=chats,
@@ -1740,16 +1735,12 @@ class ChatPipeline:
                 or not any(isinstance(chat.error, t) for t in self.errors_to_catch)
                 or any(isinstance(chat.error, t) for t in self.errors_to_exclude)
             ):
-                span.set_attribute("error", chat.error)
-                span.set_attribute("failed", True)
                 raise chat.error
 
         # Chat cleanup
 
         if on_failed == "skip":
             chats = ChatList([chat for chat in chats if not chat.failed])
-
-        span.set_attribute("chats", chats)
 
         if len(chats) == 0 or all(chat.failed for chat in chats):
             yield PipelineStep(
@@ -1818,7 +1809,6 @@ class ChatPipeline:
 
             chats = ChatList([state.chat for state in states if state.chat])
 
-            span.set_attribute("chats", chats)
             current_step = PipelineStep(
                 state="callback",
                 chats=chats,
@@ -1831,8 +1821,6 @@ class ChatPipeline:
 
         if on_failed == "skip":
             chats = ChatList([chat for chat in chats if not chat.failed])
-
-        span.set_attribute("chats", chats)
 
         if len(chats) == 0 or all(chat.failed for chat in chats):
             yield PipelineStep(
@@ -1847,7 +1835,7 @@ class ChatPipeline:
         for map_callback, max_depth in self.map_callbacks:
             callback_name = get_qualified_name(map_callback)
 
-            with tracer.span(
+            with dn.span(
                 f"Map with {callback_name}()",
                 callback=callback_name,
                 chat_count=len(chats),
@@ -1893,7 +1881,6 @@ class ChatPipeline:
                     ):
                         chats = ChatList(chats_or_generator)
 
-                span.set_attribute("chats", chats)
                 current_step = PipelineStep(
                     state="callback",
                     chats=chats,
@@ -1905,7 +1892,6 @@ class ChatPipeline:
         if on_failed == "skip":
             chats = ChatList([chat for chat in chats if not chat.failed])
 
-        span.set_attribute("chats", chats)
         yield PipelineStep(
             state="final",
             chats=chats,
@@ -1941,15 +1927,10 @@ class ChatPipeline:
         messages = [self.chat.all]
         params = self._fit_params(1, [self.params])
 
-        with tracer.span(
-            f"Chat with {self.generator.to_identifier()}",
-            generator_id=self.generator.to_identifier(),
-            params=self.params.to_dict() if self.params is not None else {},
-        ) as span:
-            async with aclosing(
-                self._step(span, messages, params, on_failed),
-            ) as generator:
-                yield generator
+        async with aclosing(
+            self._step(messages, params, on_failed),
+        ) as generator:
+            yield generator
 
     async def run(
         self,
@@ -1978,9 +1959,19 @@ class ChatPipeline:
             on_failed = "include" if allow_failed else self.on_failed
 
         last: PipelineStep | None = None
-        async with self.step(on_failed=on_failed) as steps:
-            async for step in steps:
-                last = step
+
+        with dn.task_span(
+            f"Chat with {self.generator.to_identifier()}",
+            generator_id=self.generator.to_identifier(),
+        ):
+            dn.log_input("")
+            try:
+                async with self.step(on_failed=on_failed) as steps:
+                    async for step in steps:
+                        last = step
+            finally:
+                if last is not None:
+                    dn.log_output("chats", last.chats)
 
         if last is None or last.state != "final":
             raise RuntimeError("The pipeline did not complete successfully")
@@ -2018,7 +2009,7 @@ class ChatPipeline:
         messages = [self.chat.all] * count
         params = self._fit_params(count, params)
 
-        with tracer.span(
+        with dn.span(
             f"Chat with {self.generator.to_identifier()} (x{count})",
             count=count,
             generator_id=self.generator.to_identifier(),
@@ -2109,7 +2100,7 @@ class ChatPipeline:
 
         params = self._fit_params(count, params)
 
-        with tracer.span(
+        with dn.span(
             f"Chat batch with {self.generator.to_identifier()} ({count})",
             count=count,
             generator_id=self.generator.to_identifier(),
@@ -2193,7 +2184,7 @@ class ChatPipeline:
             sub.generator = generator
             coros.append(sub.run(allow_failed=(on_failed != "raise")))
 
-        with tracer.span(f"Chat over {len(coros)} generators", count=len(coros)):
+        with dn.task_span(f"Chat over {len(coros)} generators", count=len(coros)):
             return ChatList(await asyncio.gather(*coros))
 
     # Prompt binding

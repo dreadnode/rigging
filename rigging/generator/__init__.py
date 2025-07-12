@@ -2,6 +2,8 @@
 Generators produce completions for a given set of messages or text.
 """
 
+import typing as t
+
 from rigging.generator.base import (
     GeneratedMessage,
     GeneratedText,
@@ -68,5 +70,12 @@ __all__ = [
     "get_generator",
     "get_identifier",
     "register_generator",
-    # TODO: We can't add VLLM and Transformers here because they are lazy loaded
 ]
+
+
+def __getattr__(name: str) -> t.Any:
+    if name == "VLLMGenerator":
+        return get_vllm_lazy()
+    if name == "TransformersGenerator":
+        return get_transformers_lazy()
+    raise AttributeError(f"module {__name__} has no attribute {name}")

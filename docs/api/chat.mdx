@@ -2069,9 +2069,19 @@ async def run(
         on_failed = "include" if allow_failed else self.on_failed
 
     last: PipelineStep | None = None
-    async with self.step(on_failed=on_failed) as steps:
-        async for step in steps:
-            last = step
+
+    with dn.task_span(
+        f"Chat with {self.generator.to_identifier()}",
+        generator_id=self.generator.to_identifier(),
+    ):
+        dn.log_input("")
+        try:
+            async with self.step(on_failed=on_failed) as steps:
+                async for step in steps:
+                    last = step
+        finally:
+            if last is not None:
+                dn.log_output("chats", last.chats)
 
     if last is None or last.state != "final":
         raise RuntimeError("The pipeline did not complete successfully")
@@ -2314,7 +2324,7 @@ async def run_over(
         sub.generator = generator
         coros.append(sub.run(allow_failed=(on_failed != "raise")))
 
-    with tracer.span(f"Chat over {len(coros)} generators", count=len(coros)):
+    with dn.task_span(f"Chat over {len(coros)} generators", count=len(coros)):
         return ChatList(await asyncio.gather(*coros))
 ```
 
@@ -2374,15 +2384,10 @@ async def step(
     messages = [self.chat.all]
     params = self._fit_params(1, [self.params])
 
-    with tracer.span(
-        f"Chat with {self.generator.to_identifier()}",
-        generator_id=self.generator.to_identifier(),
-        params=self.params.to_dict() if self.params is not None else {},
-    ) as span:
-        async with aclosing(
-            self._step(span, messages, params, on_failed),
-        ) as generator:
-            yield generator
+    async with aclosing(
+        self._step(messages, params, on_failed),
+    ) as generator:
+        yield generator
 ```
 
 
@@ -2482,7 +2487,7 @@ async def step_batch(
 
     params = self._fit_params(count, params)
 
-    with tracer.span(
+    with dn.span(
         f"Chat batch with {self.generator.to_identifier()} ({count})",
         count=count,
         generator_id=self.generator.to_identifier(),
@@ -2557,7 +2562,7 @@ async def step_many(
     messages = [self.chat.all] * count
     params = self._fit_params(count, params)
 
-    with tracer.span(
+    with dn.span(
         f"Chat with {self.generator.to_identifier()} (x{count})",
         count=count,
         generator_id=self.generator.to_identifier(),

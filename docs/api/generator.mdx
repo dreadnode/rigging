@@ -1055,6 +1055,163 @@ min_delay_between_requests: float = 0.0
 Minimum time (ms) between each request.
 This is useful to set when you run into API limits at a provider.
 
+TransformersGenerator
+---------------------
+
+Generator backed by the Transformers library for local model loading.
+
+<Warning>
+The use of Transformers requires the `transformers` package to be installed directly or by
+installing rigging as `rigging[all]`.
+</Warning>
+
+<Warning>
+The `transformers` library is expansive with many different models, tokenizers,
+options, constructors, etc. We do our best to implement a consistent interface,
+but there may be limitations. Where needed, use
+[`.from_obj()`][rigging.generator.transformers\_.TransformersGenerator.from\_obj].
+</Warning>
+
+<Note>
+This generator doesn't leverage any async capabilities.
+</Note>
+
+<Note>
+The model load into memory will occur lazily when the first generation is requested.
+If you'd want to force this to happen earlier, you can use the
+[`.load()`][rigging.generator.Generator.load] method.
+
+To unload, call [`.unload()`][rigging.generator.Generator.unload].
+</Note>
+
+### device\_map
+
+```python
+device_map: str = 'auto'
+```
+
+Device map passed to [`AutoModelForCausalLM.from_pretrained`](https://huggingface.co/docs/transformers/v4.41.0/en/model_doc/auto)
+
+### llm
+
+```python
+llm: AutoModelForCausalLM
+```
+
+The underlying `AutoModelForCausalLM` instance.
+
+### load\_in\_4bit
+
+```python
+load_in_4bit: bool = False
+```
+
+Load in 4 bit passed to [`AutoModelForCausalLM.from_pretrained`](https://huggingface.co/docs/transformers/v4.41.0/en/model_doc/auto)
+
+### load\_in\_8bit
+
+```python
+load_in_8bit: bool = False
+```
+
+Load in 8 bit passed to [`AutoModelForCausalLM.from_pretrained`](https://huggingface.co/docs/transformers/v4.41.0/en/model_doc/auto)
+
+### pipeline
+
+```python
+pipeline: TextGenerationPipeline
+```
+
+The underlying `TextGenerationPipeline` instance.
+
+### tokenizer
+
+```python
+tokenizer: AutoTokenizer
+```
+
+The underlying `AutoTokenizer` instance.
+
+### torch\_dtype
+
+```python
+torch_dtype: str = 'auto'
+```
+
+Torch dtype passed to [`AutoModelForCausalLM.from_pretrained`](https://huggingface.co/docs/transformers/v4.41.0/en/model_doc/auto)
+
+### trust\_remote\_code
+
+```python
+trust_remote_code: bool = False
+```
+
+Trust remote code passed to [`AutoModelForCausalLM.from_pretrained`](https://huggingface.co/docs/transformers/v4.41.0/en/model_doc/auto)
+
+### from\_obj
+
+```python
+from_obj(
+    model: Any,
+    tokenizer: AutoTokenizer,
+    *,
+    pipeline: TextGenerationPipeline | None = None,
+    params: GenerateParams | None = None,
+) -> TransformersGenerator
+```
+
+Create a new instance of TransformersGenerator from an already loaded model and tokenizer.
+
+**Parameters:**
+
+* **`model`**
+  (`Any`)
+  –The loaded model for text generation.
+* **`tokenizer`**
+  –The tokenizer associated with the model.
+* **`pipeline`**
+  (`TextGenerationPipeline | None`, default:
+  `None`
+  )
+  –The text generation pipeline. Defaults to None.
+
+**Returns:**
+
+* `TransformersGenerator`
+  –The TransformersGenerator instance.
+
+<Accordion title="Source code in rigging/generator/transformers_.py" icon="code">
+```python
+@classmethod
+def from_obj(
+    cls,
+    model: t.Any,
+    tokenizer: AutoTokenizer,
+    *,
+    pipeline: TextGenerationPipeline | None = None,
+    params: GenerateParams | None = None,
+) -> "TransformersGenerator":
+    """
+    Create a new instance of TransformersGenerator from an already loaded model and tokenizer.
+
+    Args:
+        model: The loaded model for text generation.
+        tokenizer : The tokenizer associated with the model.
+        pipeline: The text generation pipeline. Defaults to None.
+
+    Returns:
+        The TransformersGenerator instance.
+    """
+    instance = cls(model=model, params=params or GenerateParams())
+    instance._llm = model
+    instance._tokenizer = tokenizer
+    instance._pipeline = pipeline
+    return instance
+```
+
+
+</Accordion>
+
 Usage
 -----
 
@@ -1083,6 +1240,128 @@ total_tokens: int
 ```
 
 The total number of tokens processed.
+
+VLLMGenerator
+-------------
+
+Generator backed by the vLLM library for local model loading.
+
+Find more information about supported models and formats [in their docs.](https://docs.vllm.ai/en/latest/index.html)
+
+<Warning>
+The use of VLLM requires the `vllm` package to be installed directly or by
+installing rigging as `rigging[all]`.
+</Warning>
+
+<Note>
+This generator doesn't leverage any async capabilities.
+</Note>
+
+<Note>
+The model load into memory will occur lazily when the first generation is requested.
+If you'd want to force this to happen earlier, you can use the
+[`.load()`][rigging.generator.Generator.load] method.
+
+To unload, call [`.unload()`][rigging.generator.Generator.unload].
+</Note>
+
+### dtype
+
+```python
+dtype: str = 'auto'
+```
+
+Tensor dtype passed to [`vllm.LLM`](https://docs.vllm.ai/en/latest/offline_inference/llm.html)
+
+### enforce\_eager
+
+```python
+enforce_eager: bool = False
+```
+
+Eager enforcement passed to [`vllm.LLM`](https://docs.vllm.ai/en/latest/offline_inference/llm.html)
+
+### gpu\_memory\_utilization
+
+```python
+gpu_memory_utilization: float = 0.9
+```
+
+Memory utilization passed to [`vllm.LLM`](https://docs.vllm.ai/en/latest/offline_inference/llm.html)
+
+### llm
+
+```python
+llm: LLM
+```
+
+The underlying [`vLLM model`](https://docs.vllm.ai/en/latest/offline_inference/llm.html) instance.
+
+### quantization
+
+```python
+quantization: str | None = None
+```
+
+Quantiziation passed to [`vllm.LLM`](https://docs.vllm.ai/en/latest/offline_inference/llm.html)
+
+### trust\_remote\_code
+
+```python
+trust_remote_code: bool = False
+```
+
+Trust remote code passed to [`vllm.LLM`](https://docs.vllm.ai/en/latest/offline_inference/llm.html)
+
+### from\_obj
+
+```python
+from_obj(
+    model: str,
+    llm: LLM,
+    *,
+    params: GenerateParams | None = None,
+) -> VLLMGenerator
+```
+
+Create a generator from an existing vLLM instance.
+
+**Parameters:**
+
+* **`llm`**
+  (`LLM`)
+  –The vLLM instance to create the generator from.
+
+**Returns:**
+
+* `VLLMGenerator`
+  –The VLLMGenerator instance.
+
+<Accordion title="Source code in rigging/generator/vllm_.py" icon="code">
+```python
+@classmethod
+def from_obj(
+    cls,
+    model: str,
+    llm: vllm.LLM,
+    *,
+    params: GenerateParams | None = None,
+) -> "VLLMGenerator":
+    """Create a generator from an existing vLLM instance.
+
+    Args:
+        llm: The vLLM instance to create the generator from.
+
+    Returns:
+        The VLLMGenerator instance.
+    """
+    generator = cls(model=model, params=params or GenerateParams())
+    generator._llm = llm
+    return generator
+```
+
+
+</Accordion>
 
 chat
 ----

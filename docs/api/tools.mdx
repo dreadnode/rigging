@@ -153,7 +153,7 @@ async def handle_tool_call(  # noqa: PLR0912
 
     from rigging.message import ContentText, ContentTypes, Message
 
-    with tracer.span(f"Tool {self.name}()", name=self.name) as span:
+    with dn.span(f"Tool {self.name}()", tool_name=self.name) as span:
         if tool_call.name != self.name:
             warnings.warn(
                 f"Tool call name mismatch: {tool_call.name} != {self.name}",

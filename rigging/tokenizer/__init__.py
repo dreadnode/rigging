@@ -2,6 +2,8 @@
 Tokenizers encode chats and associated message data into tokens for training and inference.
 """
 
+import typing as t
+
 from rigging.tokenizer.base import (
     TokenizedChat,
     Tokenizer,
@@ -31,3 +33,9 @@ __all__ = [
     "get_tokenizer",
     "register_tokenizer",
 ]
+
+
+def __getattr__(name: str) -> t.Any:
+    if name == "TransformersTokenizer":
+        return get_transformers_lazy()
+    raise AttributeError(f"module {__name__} has no attribute {name}")

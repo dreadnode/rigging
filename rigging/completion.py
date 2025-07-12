@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import runtime_checkable
 from uuid import UUID, uuid4
 
+import dreadnode as dn
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
@@ -18,7 +19,6 @@ from rigging.error import CompletionExhaustedMaxRoundsError
 from rigging.generator import GenerateParams, Generator, get_generator
 from rigging.generator.base import GeneratedText, StopReason, Usage
 from rigging.parsing import parse_many
-from rigging.tracing import Span, tracer
 from rigging.util import get_qualified_name
 
 if t.TYPE_CHECKING:
@@ -574,7 +574,7 @@ class CompletionPipeline:
         def wrap_watch_callback(callback: WatchCompletionCallback) -> WatchCompletionCallback:
             async def traced_watch_callback(completions: list[Completion]) -> None:
                 callback_name = get_qualified_name(callback)
-                with tracer.span(
+                with dn.span(
                     f"Watch with {callback_name}()",
                     callback=callback_name,
                     competion_count=len(completions),
@@ -633,7 +633,7 @@ class CompletionPipeline:
 
         for map_callback in self.map_callbacks:
             callback_name = get_qualified_name(map_callback)
-            with tracer.span(
+            with dn.span(
                 f"Map with {callback_name}()",
                 callback=callback_name,
                 completion_count=len(completions),
@@ -649,7 +649,7 @@ class CompletionPipeline:
             callback_name = get_qualified_name(callback)
 
             async def traced_then_callback(completion: Completion) -> Completion | None:
-                with tracer.span(
+                with dn.span(
                     f"Then with {callback_name}()",
                     callback=callback_name,
                     completion_id=str(completion.uuid),
@@ -729,7 +729,7 @@ class CompletionPipeline:
 
     async def _run(  # noqa: PLR0912
         self,
-        span: Span,
+        span: dn.Span,
         states: list[RunState],
         on_failed: "FailMode",
         batch_mode: bool = False,  # noqa: FBT001, FBT002
@@ -841,7 +841,7 @@ class CompletionPipeline:
         on_failed = on_failed or self.on_failed
         states = self._initialize_states(1)
 
-        with tracer.span(
+        with dn.span(
             f"Completion with {self.generator.to_identifier()}",
             generator_id=self.generator.to_identifier(),
             params=self.params.to_dict() if self.params is not None else {},
@@ -873,7 +873,7 @@ class CompletionPipeline:
         on_failed = on_failed or self.on_failed
         states = self._initialize_states(count, params)
 
-        with tracer.span(
+        with dn.span(
             f"Completion with {self.generator.to_identifier()} (x{count})",
             count=count,
             generator_id=self.generator.to_identifier(),
@@ -913,7 +913,7 @@ class CompletionPipeline:
         for state in states:
             next(state.processor)
 
-        with tracer.span(
+        with dn.span(
             f"Completion batch with {self.generator.to_identifier()} ({len(states)})",
             count=len(states),
             generator_id=self.generator.to_identifier(),
@@ -957,6 +957,6 @@ class CompletionPipeline:
             sub.generator = generator
             coros.append(sub.run(allow_failed=(on_failed != "raise")))
 
-        with tracer.span(f"Completion over {len(coros)} generators", count=len(coros)):
+        with dn.span(f"Completion over {len(coros)} generators", count=len(coros)):
             completions = await asyncio.gather(*coros)
             return await self._post_run(completions, on_failed)

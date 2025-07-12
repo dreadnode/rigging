@@ -897,7 +897,7 @@ async def run(
     on_failed = on_failed or self.on_failed
     states = self._initialize_states(1)
 
-    with tracer.span(
+    with dn.span(
         f"Completion with {self.generator.to_identifier()}",
         generator_id=self.generator.to_identifier(),
         params=self.params.to_dict() if self.params is not None else {},
@@ -978,7 +978,7 @@ async def run_batch(
     for state in states:
         next(state.processor)
 
-    with tracer.span(
+    with dn.span(
         f"Completion batch with {self.generator.to_identifier()} ({len(states)})",
         count=len(states),
         generator_id=self.generator.to_identifier(),
@@ -1047,7 +1047,7 @@ async def run_many(
     on_failed = on_failed or self.on_failed
     states = self._initialize_states(count, params)
 
-    with tracer.span(
+    with dn.span(
         f"Completion with {self.generator.to_identifier()} (x{count})",
         count=count,
         generator_id=self.generator.to_identifier(),
@@ -1133,7 +1133,7 @@ async def run_over(
         sub.generator = generator
         coros.append(sub.run(allow_failed=(on_failed != "raise")))
 
-    with tracer.span(f"Completion over {len(coros)} generators", count=len(coros)):
+    with dn.span(f"Completion over {len(coros)} generators", count=len(coros)):
         completions = await asyncio.gather(*coros)
         return await self._post_run(completions, on_failed)
 ```
