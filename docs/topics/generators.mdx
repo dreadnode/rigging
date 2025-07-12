@@ -25,6 +25,10 @@ Much like database connection strings, Rigging generators can be represented as 
 The provider is optional and Rigging will fallback to  [`litellm`](https://github.com/BerriAI/litellm)/`LiteLLMGenerator` by default.
 You can view the [LiteLLM docs](https://docs.litellm.ai/docs/) for more information about supported model providers and parameters.
 
+<Note>
+Throughout our code, we frequently use these generator identifiers as CLI arguments, environment variables, and API parameters. They work like database connection strings and are super convenient for passing around complex configurations. They are also used to serialize generators to storage, so you can save and load them easily.
+</Note>
+
 Here are some examples of valid identifiers:
 
 ```text
@@ -103,7 +107,7 @@ You'll find that the exception consistency inside LiteLLM can be quite poor. Dif
 
 ## Local Models
 
-We have experimental support for both [`vLLM`](https://docs.vllm.ai/en/latest/) and [`transformers`](https://huggingface.co/docs/transformers/index) generators for loading and running local models. In general vLLM is more consistent with Rigging's preferred API, but the dependency requirements are heavier.
+We have experimental support for both [`vLLM`](https://docs.vllm.ai/en/latest/) and [`transformers`](https://huggingface.co/docs/transformers/index) generators for loading and running models **directly in the same Python process**. In general vLLM is more consistent with Rigging's preferred API, but the dependency requirements are heavier.
 
 Where needed, you can wrap an existing model into a rigging generator by using the `VLLMGenerator.from_obj()` or `TransformersGenerator.from_obj()` methods. These are helpful for any picky model construction that might not play well with our rigging constructors.
 
@@ -111,7 +115,8 @@ Where needed, you can wrap an existing model into a rigging generator by using t
 The use of these local generators requires the `vllm` and `transformers` packages to be installed. You can use `rigging[all]` to install them all at once, or pick your preferred package individually.
 </Note>
 
-```python
+<CodeGroup>
+```python Auto Construction
 import rigging as rg
 
 tiny_llama = rg.get_generator(
@@ -125,16 +130,155 @@ llama_3 = rg.get_generator(
 )
 ```
 
-See more about them below:
+```python Manual Construction
+import rigging as rg
+import transformers as tf
 
-- `vLLMGenerator`
-- `TransformersGenerator`
+model = tf.AutoModelForCausalLM.from_pretrained(
+    "meta-llama/Meta-Llama-3-8B-Instruct",
+    trust_remote_code=True,
+)
+tokenizer = tf.AutoTokenizer.from_pretrained(
+    "meta-llama/Meta-Llama-3-8B-Instruct",
+    trust_remote_code=True,
+)
+
+llama_3 = rg.generator.TransformersGenerator.from_obj(
+    model=model,
+    tokenizer=tokenizer,
+)
+```
+</CodeGroup>
 
 <Tip>
 **Loading and Unloading**
 
 You can use the `Generator.load` and `Generator.unload` methods to better control memory usage. Local providers typically are lazy and load the model into memory only when first needed.
 </Tip>
+
+## Self-Hosted Models
+
+In addition to loading models directly inside the Python process, you often want to access models via some self-hosted server like [**Ollama**](https://ollama.com/) or [**vLLM**](https://docs.vllm.ai/en/latest/). Using self-hosted models is well supported in the LiteLLM ecosystem, and usually just requires some consideration for the API base URL and API key. Beyond specific servers, many services expose models in the "openai-compatible" format, which can be used with the `openai/` LiteLLM prefix (usually just `openai/<model>,api_base=http://...,api_key=...`).
+
+- https://docs.litellm.ai/docs/providers/vllm
+- https://docs.litellm.ai/docs/providers/ollama
+- https://docs.litellm.ai/docs/providers/openai_compatible
+
+### Self-Hosted Ollama
+
+We'll load the `qwen3:0.6b` model from Ollama, and the ollama server will host the model on `http://localhost:11434` by default.
+
+```bash
+$ ollama run qwen3:0.6b
+...
+
+$ ollama ps                                                                                                                       docker-desktop
+NAME          ID              SIZE      PROCESSOR    UNTIL
+qwen3:0.6b    7df6b6e09427    2.3 GB    100% GPU     4 minutes from now
+```
+
+Using this model in Rigging is as simple as using the `ollama/` or `ollama_chat/` prefixes:
+
+```python
+import rigging as rg
+
+qwen = rg.get_generator("ollama/qwen3:0.6b")
+
+chat = await qwen.chat("Hello!").run()
+print(chat.conversation)
+
+# [user]: Hello!
+
+# [assistant]: <think>
+# Okay, the user said "Hello!" so I need to respond appropriately. Let me start by acknowledging their greeting.
+# A simple "Hello!" is good, but maybe add a friendly note to make it more engaging. I should keep it short and positive.
+# Let me check if there's any specific context I should consider, but since there's no additional info, just a standard
+# greeting should work. Make sure the response is welcoming and open-ended.
+# </think>
+
+# Hello! How can I assist you today? 😊
+```
+
+<Note>
+If you are running the Ollama server somewhere besides localhost, just pass the `api_base` to the generator:
+
+```python
+qwen = rg.get_generator(
+  "ollama/qwen3:0.6b,api_base=http://remote-server:11434"
+)
+```
+</Note>
+
+### Self-Hosted vLLM Server
+
+vLLM ships with it's own [openai-compatible server](https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html) using the `vllm serve` command. LiteLLM uses the `hosted_vllm/` prefix to connect there, otherwise you can use the `openai/` prefix noted below.
+
+<CodeGroup>
+```bash Direct
+$ vllm serve --model Qwen/Qwen3-0.6B
+```
+
+```bash Docker
+$ docker run --runtime nvidia --gpus all \
+    -v ~/.cache/huggingface:/root/.cache/huggingface \
+    -p 8000:8000 \
+    vllm/vllm-openai \
+    --model Qwen/Qwen3-0.6B
+```
+</CodeGroup>
+
+Rigging can now use the vLLM model for Chat or Completions:
+
+```python
+import rigging as rg
+
+qwen = rg.get_generator("hosted_vllm/Qwen/Qwen3-0.6B,api_base=http://<server>:8000/v1")
+
+chat = await qwen.chat("Hello!").run()
+print(chat.conversation)
+
+# [user]: Hello!
+
+# [assistant]: <think>
+# Okay, the user said "Hello!" so I need to respond appropriately. Let me start by acknowledging their greeting.
+# A simple "Hello!" is good, but maybe add a friendly note to make it more engaging. I should keep it short and positive.
+# Let me check if there's any specific context I should consider, but since there's no additional info, just a standard
+# greeting should work. Make sure the response is welcoming and open-ended.
+# </think>
+
+# Hello! How can I assist you today? 😊
+```
+
+### Self-Hosted OpenAI-Compatible Server
+
+For most other self-hosted models, the server will expose OpenAI-compatible endpoints, and you can use the `openai/` prefix for LiteLLM as noted in [their docs](https://docs.litellm.ai/docs/providers/openai_compatible):
+
+<Info>
+Selecting openai as the provider routes your request to an OpenAI-compatible endpoint using the upstream official OpenAI Python API library.
+
+This library requires an API key for all requests, either through the api_key parameter or the OPENAI_API_KEY environment variable.
+
+If you don't want to provide a fake API key in each request, consider using a provider that directly matches your OpenAI-compatible endpoint, such as `hosted_vllm` or `llamafile`.
+</Info>
+
+```python
+import rigging as rg
+
+gen = rg.get_generator("openai/<model>,api_base=http://<server>/v1"
+
+chat = await gen.chat("Hello").run()
+print(chat.conversation)
+```
+
+<Note>
+You can also use the `openai/` prefix along with `api_key=` and `api_base=` for vLLM:
+
+```python
+gen = rg.get_generator(
+  "openai/<model>,api_base=http://localhost:8000/v1,api_key=sk-none"
+)
+```
+</Note>
 
 ## Overload Generation Params
 
