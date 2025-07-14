@@ -383,6 +383,9 @@ class Tool(t.Generic[P, R]):
                     result = self.fn(**kwargs)  # type: ignore [call-arg]
                     if inspect.isawaitable(result):
                         result = await result
+
+                    if isinstance(result, Stop):
+                        raise result  # noqa: TRY301
                 except Stop as e:
                     result = f"<{TOOL_STOP_TAG}>{e.message}</{TOOL_STOP_TAG}>"
                     span.set_attribute("stop", True)
