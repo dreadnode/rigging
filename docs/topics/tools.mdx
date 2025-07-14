@@ -229,7 +229,7 @@ The `max_depth` parameter limits how many levels deep tool calls can go. If a to
 
 ### Stopping Tool Calls
 
-You may want to use a particular tool, or catch a condition inside a tool, and indicate to any pipelines that it should stop going back to the model for more calls. You can do this by raising a `rigging.Stop` exception with a message to the model.
+You may want to use a particular tool, or catch a condition inside a tool, and indicate to any pipelines that it should stop going back to the model for more calls. You can do this by raising or returning a `rigging.Stop` exception with a message to be passed back to the model for context.
 
 ```python
 import rigging as rg
@@ -240,7 +240,7 @@ def execute_code(code: str) -> str:
     ...
 
     if "<flag>" in output: # Stop the model from executing more code
-        raise rg.Stop(f"Task finished")
+        return rg.Stop(f"Task finished") # or `raise rg.Stop("Task finished")`
 
     return output
 
@@ -251,6 +251,10 @@ chat = (
     .run()
 )
 ```
+
+<Tip>
+Returning the `rg.Stop` exception instead of raising it is helpful if you don't want any surrounding code (decorators that wrap the tool function) to catch the exception, alter it, or behave as if a typical exception occurred.
+</Tip>
 
 <Note>
 This stop indication won't completely halt the pipeline, but it will let it continue to any additional parsing mechanics or custom callbacks which follow tool calling.

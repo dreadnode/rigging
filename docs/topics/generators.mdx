@@ -8,13 +8,35 @@ Underlying LLMs (or any function which completes text) is represented as a gener
 
 ## Identifiers
 
-Much like database connection strings, Rigging generators can be represented as strings which define what provider, model, API key, generation params, etc should be used. They are formatted as follows:
+Much like database connection strings, Rigging generators can be represented as strings which define what provider, model, API key, generation params, etc should be used.
+
+<Note>
+Throughout our code, we frequently use these generator identifiers as CLI arguments, environment variables, and API parameters. They are convenient for passing around complex configurations without having to represent model configurations in multiple places. They are also used to serialize generators to storage when chats are stored, so you can save and load them easily without having to reconfigure the generator each time.
+</Note>
+
+Here are some examples of valid identifiers:
+
+```text
+gpt-4.1
+openai/o3-mini
+gemini/gemini-2.5-pro
+claude-4-sonnet-latest
+vllm_hosted/meta-llama/Llama-3.1-8B-Instruct
+ollama/qwen3
+
+openai/gpt-4,api_key=sk-1234
+anthropic/claude-3-7-haiku-latest,stop=output:;---,seed=1337
+together_ai/meta-llama/Llama-3-70b-chat-hf
+openai/google/gemma-7b,api_base=https://integrate.api.nvidia.com/v1
+```
+
+Identifiers are formally defined as follows:
 
 ```
 <provider>!<model>,<**kwargs>
 ```
 
-- `provider` maps to a particular subclass of `Generator`.
+- `provider` maps to a particular subclass of `Generator` (optional).
 - `model` is a any `str` value, typically used by the provider to indicate a specific LLM to target.
 - `kwargs` are used to carry:
     1. API key (`,api_key=...`) or the base URL (`,api_base=...`) for the model provider.
@@ -22,23 +44,8 @@ Much like database connection strings, Rigging generators can be represented as 
     1. Additional provider-specific attributes to set on the constructed generator class. For instance, you
     can set the `LiteLLMGenerator.max_connections`property by passing `,max_connections=` in the identifier string.
 
-The provider is optional and Rigging will fallback to  [`litellm`](https://github.com/BerriAI/litellm)/`LiteLLMGenerator` by default.
+The provider is optional and Rigging will fallback to [`litellm`](https://github.com/BerriAI/litellm)/`LiteLLMGenerator` by default.
 You can view the [LiteLLM docs](https://docs.litellm.ai/docs/) for more information about supported model providers and parameters.
-
-<Note>
-Throughout our code, we frequently use these generator identifiers as CLI arguments, environment variables, and API parameters. They work like database connection strings and are super convenient for passing around complex configurations. They are also used to serialize generators to storage, so you can save and load them easily.
-</Note>
-
-Here are some examples of valid identifiers:
-
-```text
-gpt-3.5-turbo,temperature=0.5
-openai/gpt-4,api_key=sk-1234
-litellm!claude-3-sonnet-2024022
-anthropic/claude-2.1,stop=output:;---,seed=1337
-together_ai/meta-llama/Llama-3-70b-chat-hf
-openai/google/gemma-7b,api_base=https://integrate.api.nvidia.com/v1
-```
 
 Building generators from string identifiers is optional, but a convenient way to represent complex LLM configurations.
 
