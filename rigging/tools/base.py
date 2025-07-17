@@ -13,7 +13,7 @@ from functools import cached_property
 
 import dreadnode as dn
 import typing_extensions as te
-from pydantic import BaseModel, TypeAdapter, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, field_validator
 from pydantic_xml import attr
 
 from rigging.error import Stop, ToolDefinitionError, ToolWarning
@@ -103,6 +103,8 @@ class FunctionCall(BaseModel):
 
 
 class ToolCall(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"rigging.type": "tool_call"})
+
     id: str
     type: t.Literal["function"] = "function"
     function: FunctionCall
@@ -351,7 +353,12 @@ class Tool(t.Generic[P, R]):
 
         from rigging.message import ContentText, ContentTypes, Message
 
-        with dn.span(f"Tool {self.name}()", tool_name=self.name) as span:
+        with dn.task_span(
+            f"tool - {self.name}",
+            attributes={"tool_name": self.name, "rigging.type": "tool"},
+        ) as task:
+            dn.log_input("tool_call", tool_call)
+
             if tool_call.name != self.name:
                 warnings.warn(
                     f"Tool call name mismatch: {tool_call.name} != {self.name}",
@@ -361,7 +368,7 @@ class Tool(t.Generic[P, R]):
                 return Message.from_model(SystemErrorModel(content="Invalid tool call.")), True
 
             if hasattr(tool_call, "id") and isinstance(tool_call.id, str):
-                span.set_attribute("tool_call_id", tool_call.id)
+                task.set_attribute("tool_call_id", tool_call.id)
 
             result: t.Any
             stop = False
@@ -372,8 +379,9 @@ class Tool(t.Generic[P, R]):
                 kwargs = json.loads(tool_call.function.arguments)
                 if self._type_adapter is not None:
                     kwargs = self._type_adapter.validate_python(kwargs)
-                span.set_attribute("arguments", kwargs)
+                dn.log_inputs(**kwargs)
             except (json.JSONDecodeError, ValidationError) as e:
+                task.set_exception(e)
                 result = ErrorModel.from_exception(e)
 
             # Call the function
@@ -385,17 +393,18 @@ class Tool(t.Generic[P, R]):
                         result = await result
                 except Stop as e:
                     result = f"<{TOOL_STOP_TAG}>{e.message}</{TOOL_STOP_TAG}>"
-                    span.set_attribute("stop", True)
+                    task.set_attribute("stop", True)
                     stop = True
                 except Exception as e:
                     if self.catch is True or (
                         not isinstance(self.catch, bool) and isinstance(e, tuple(self.catch))
                     ):
+                        task.set_exception(e)
                         result = ErrorModel.from_exception(e)
                     else:
                         raise
 
-            span.set_attribute("result", result)
+            dn.log_output("output", result)
 
         message = Message(role="tool", tool_call_id=tool_call.id)
 

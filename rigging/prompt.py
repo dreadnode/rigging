@@ -561,7 +561,12 @@ class Prompt(t.Generic[P, R]):
         try:
             # A bit weird, but we need from_chat to properly handle
             # wrapping Chat output types inside lists/dataclasses
-            self.output.from_chat(chat)
+            with dn.task_span(
+                f"prompt parse - {self.output.tag}",
+                attributes={"rigging.type": "prompt.parse"},
+            ):
+                dn.log_input("message", chat.last)
+                self.output.from_chat(chat)
         except ValidationError as e:
             next_pipeline.add(
                 Message.from_model(
@@ -836,10 +841,36 @@ class Prompt(t.Generic[P, R]):
             raise NotImplementedError(
                 "pipeline.on_failed='skip' cannot be used for prompt methods that return one object",
             )
+        if pipeline.on_failed == "include" and not isinstance(self.output, ChatOutput):
+            raise NotImplementedError(
+                "pipeline.on_failed='include' cannot be used with prompts that process outputs",
+            )
 
         async def run(*args: P.args, **kwargs: P.kwargs) -> R:
-            results = await self.bind_many(pipeline)(1, *args, **kwargs)
-            return results[0]
+            name = get_qualified_name(self.func) if self.func else "<generated>"
+            with dn.task_span(
+                f"prompt - {name}",
+                attributes={"prompt_name": name, "rigging.type": "prompt.run"},
+            ):
+                dn.log_inputs(**self._bind_args(*args, **kwargs))
+                content = self.render(*args, **kwargs)
+                _pipeline = (
+                    pipeline.fork(content)
+                    .using(*self.tools, max_depth=self.max_tool_rounds)
+                    .then(self._then_parse, max_depth=self.max_parsing_rounds, as_task=False)
+                    .then(*self.then_callbacks)
+                    .map(*self.map_callbacks)
+                    .watch(*self.watch_callbacks)
+                    .with_(self.params)
+                )
+
+                if self.system_prompt:
+                    _pipeline.chat.inject_system_content(self.system_prompt)
+
+                chat = await _pipeline.run()
+                output = self.process(chat)
+                dn.log_output("output", output)
+                return output
 
         run.__signature__ = self.__signature__  # type: ignore [attr-defined]
         run.__name__ = self.__name__
@@ -878,17 +909,17 @@ class Prompt(t.Generic[P, R]):
 
         async def run_many(count: int, /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
             name = get_qualified_name(self.func) if self.func else "<generated>"
-            with dn.span(
-                f"Prompt {name}()" if count == 1 else f"Prompt {name}() (x{count})",
-                count=count,
-                prompt_name=name,
-                arguments=self._bind_args(*args, **kwargs),
+            with dn.task_span(
+                f"prompt - {name} (x{count})",
+                label=f"prompt_{name}",
+                attributes={"prompt_name": name, "rigging.type": "prompt.run_many"},
             ) as span:
+                dn.log_inputs(**self._bind_args(*args, **kwargs))
                 content = self.render(*args, **kwargs)
                 _pipeline = (
                     pipeline.fork(content)
                     .using(*self.tools, max_depth=self.max_tool_rounds)
-                    .then(self._then_parse, max_depth=self.max_parsing_rounds)
+                    .then(self._then_parse, max_depth=self.max_parsing_rounds, as_task=False)
                     .then(*self.then_callbacks)
                     .map(*self.map_callbacks)
                     .watch(*self.watch_callbacks)
@@ -899,12 +930,13 @@ class Prompt(t.Generic[P, R]):
                     _pipeline.chat.inject_system_content(self.system_prompt)
 
                 chats = await _pipeline.run_many(count)
-
-                results = [self.process(chat) for chat in chats]
-                span.set_attribute("results", results)
-                return results
+                outputs = [self.process(chat) for chat in chats]
+                span.log_output("outputs", outputs)
+                return outputs
 
         run_many.__rg_prompt__ = self  # type: ignore [attr-defined]
+        run_many.__name__ = self.__name__
+        run_many.__doc__ = self.__doc__
 
         return run_many
 
@@ -957,7 +989,7 @@ class Prompt(t.Generic[P, R]):
             _pipeline = (
                 pipeline.fork(content)
                 .using(*self.tools, max_depth=self.max_tool_rounds)
-                .then(self._then_parse, max_depth=self.max_parsing_rounds)
+                .then(self._then_parse, max_depth=self.max_parsing_rounds, as_task=False)
                 .then(*self.then_callbacks)
                 .map(*self.map_callbacks)
                 .watch(*self.watch_callbacks)

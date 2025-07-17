@@ -405,7 +405,9 @@ class Message(BaseModel):
         `content_parts` to `content` for compatibility.
     """
 
-    model_config = ConfigDict(serialize_by_alias=True)
+    model_config = ConfigDict(
+        serialize_by_alias=True, json_schema_extra={"rigging.type": "message"}
+    )
 
     uuid: UUID = Field(default_factory=uuid4, repr=False)
     """The unique identifier for the message."""

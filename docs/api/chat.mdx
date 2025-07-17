@@ -1274,14 +1274,16 @@ def __init__(
     """How to handle failures in the pipeline unless overridden in calls."""
     self.caching: CacheMode | None = None
     """How to handle cache_control entries on messages."""
+    self.task_name: str = generator.to_identifier(short=True)
+    """The name of the pipeline task, used for logging and debugging."""
 
     self.until_types: list[type[Model]] = []
     self.tools: list[Tool[..., t.Any]] = []
     self.tool_mode: ToolMode = "auto"
     self.inject_tool_prompt = True
     self.add_tool_stop_token = True
-    self.then_callbacks: list[tuple[ThenChatCallback, int]] = []
-    self.map_callbacks: list[tuple[MapChatCallback, int]] = []
+    self.then_callbacks: list[tuple[ThenChatCallback, int, bool]] = []
+    self.map_callbacks: list[tuple[MapChatCallback, int, bool]] = []
     self.watch_callbacks: list[WatchChatCallback] = watch_callbacks or []
     self.transforms: list[Transform] = []
 ```
@@ -1355,6 +1357,14 @@ params = params
 ```
 
 The parameters for generating messages.
+
+### task\_name
+
+```python
+task_name: str = to_identifier(short=True)
+```
+
+The name of the pipeline task, used for logging and debugging.
 
 ### add
 
@@ -1725,6 +1735,7 @@ def clone(
         new.errors_to_catch = self.errors_to_catch.copy()
         new.errors_to_exclude = self.errors_to_exclude.copy()
         new.caching = self.caching
+        new.task_name = self.task_name
 
         new.watch_callbacks = self.watch_callbacks.copy()
 
@@ -1736,18 +1747,18 @@ def clone(
             return new
 
         new.then_callbacks = [
-            (callback, max_depth)
+            (callback, max_depth, as_task)
             if not hasattr(callback, "__self__")
             or not isinstance(callback.__self__, ChatPipeline)
-            else (types.MethodType(callback.__func__, new), max_depth)  # type: ignore [union-attr]
-            for callback, max_depth in self.then_callbacks.copy()
+            else (types.MethodType(callback.__func__, new), max_depth, as_task)  # type: ignore [union-attr]
+            for callback, max_depth, as_task in self.then_callbacks.copy()
         ]
         new.map_callbacks = [
-            (callback, max_depth)
+            (callback, max_depth, as_task)
             if not hasattr(callback, "__self__")
             or not isinstance(callback.__self__, ChatPipeline)
-            else (types.MethodType(callback.__func__, new), max_depth)  # type: ignore [union-attr]
-            for callback, max_depth in self.map_callbacks.copy()
+            else (types.MethodType(callback.__func__, new), max_depth, as_task)  # type: ignore [union-attr]
+            for callback, max_depth, as_task in self.map_callbacks.copy()
         ]
         new.transforms = [
             callback
@@ -1759,13 +1770,13 @@ def clone(
 
         if not isinstance(callbacks, bool):
             new.then_callbacks = [
-                (callback, max_depth)
-                for callback, max_depth in self.then_callbacks
+                (callback, max_depth, as_task)
+                for callback, max_depth, as_task in self.then_callbacks
                 if callback in callbacks
             ]
             new.map_callbacks = [
-                (callback, max_depth)
-                for callback, max_depth in self.map_callbacks
+                (callback, max_depth, as_task)
+                for callback, max_depth, as_task in self.map_callbacks
                 if callback in callbacks
             ]
             new.transforms = [callback for callback in self.transforms if callback in callbacks]
@@ -1833,6 +1844,7 @@ map(
     *callbacks: MapChatCallback,
     max_depth: int = DEFAULT_MAX_DEPTH,
     allow_duplicates: bool = False,
+    as_task: bool = True,
 ) -> ChatPipeline
 ```
 
@@ -1861,6 +1873,11 @@ the final return value from the pipeline.
   `False`
   )
   –Whether to allow (seemingly) duplicate callbacks to be added.
+* **`as_task`**
+  (`bool`, default:
+  `True`
+  )
+  –Whether to create a task for this callback.
 
 **Returns:**
 
@@ -1884,6 +1901,7 @@ def map(
     *callbacks: MapChatCallback,
     max_depth: int = DEFAULT_MAX_DEPTH,
     allow_duplicates: bool = False,
+    as_task: bool = True,
 ) -> "ChatPipeline":
     """
     Registers a callback to be executed after the generation process completes.
@@ -1897,6 +1915,7 @@ def map(
         callbacks: The callback function to be executed.
         max_depth: The maximum depth to allow recursive pipeline calls during this callback.
         allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
+        as_task: Whether to create a task for this callback.
 
     Returns:
         The updated pipeline.
@@ -1918,7 +1937,7 @@ def map(
                 f"Callback '{get_qualified_name(callback)}' is already registered.",
             )
 
-    self.map_callbacks.extend([(callback, max_depth) for callback in callbacks])
+    self.map_callbacks.extend([(callback, max_depth, as_task) for callback in callbacks])
     return self
 ```
 
@@ -1959,6 +1978,44 @@ def meta(self, **kwargs: t.Any) -> "ChatPipeline":
         The updated pipeline.
     """
     self.metadata.update(kwargs)
+    return self
+```
+
+
+</Accordion>
+
+### name
+
+```python
+name(name: str) -> ChatPipeline
+```
+
+Sets the name of the pipeline.
+
+**Parameters:**
+
+* **`name`**
+  (`str`)
+  –The name to set for the pipeline.
+
+**Returns:**
+
+* `ChatPipeline`
+  –The updated pipeline.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def name(self, name: str) -> "ChatPipeline":
+    """
+    Sets the name of the pipeline.
+
+    Args:
+        name: The name to set for the pipeline.
+
+    Returns:
+        The updated pipeline.
+    """
+    self.task_name = name
     return self
 ```
 
@@ -2015,6 +2072,7 @@ def prompt(self, func: t.Callable[P, t.Coroutine[None, None, R]]) -> "Prompt[P, 
 ```python
 run(
     *,
+    name: str | None = None,
     on_failed: FailMode | None = None,
     allow_failed: bool = False,
 ) -> Chat
@@ -2045,6 +2103,7 @@ Execute the generation process for a single message.
 async def run(
     self,
     *,
+    name: str | None = None,
     on_failed: FailMode | None = None,
     allow_failed: bool = False,
 ) -> Chat:
@@ -2068,26 +2127,44 @@ async def run(
     if on_failed is None:
         on_failed = "include" if allow_failed else self.on_failed
 
-    last: PipelineStep | None = None
+    if on_failed == "skip":
+        raise ValueError(
+            "Cannot use 'skip' mode with single message generation (pass allow_failed=True or on_failed='include'/'raise')",
+        )
 
+    messages = [self.chat.all]
+    params = self._fit_params(1, [self.params])
+
+    last: PipelineStep | None = None
     with dn.task_span(
-        f"Chat with {self.generator.to_identifier()}",
-        generator_id=self.generator.to_identifier(),
-    ):
-        dn.log_input("")
+        name or f"pipeline - {self.task_name}",
+        label=name or f"pipeline_{self.task_name}",
+        attributes={"rigging.type": "chat_pipeline.run"},
+    ) as task:
+        dn.log_inputs(
+            messages=messages[0],
+            params=params[0],
+            generator_id=self.generator.to_identifier(),
+        )
+
         try:
-            async with self.step(on_failed=on_failed) as steps:
+            async with aclosing(
+                self._step(messages, params, on_failed),
+            ) as steps:
                 async for step in steps:
                     last = step
         finally:
-            if last is not None:
-                dn.log_output("chats", last.chats)
+            if last is not None and last.chats:
+                dn.log_output("chat", last.chats[-1])
 
-    if last is None or last.state != "final":
-        raise RuntimeError("The pipeline did not complete successfully")
+                # TODO: Remove once Strikes UI is ported
+                task.set_attribute("chats", last.chats)
 
-    if not last.chats:
-        raise RuntimeError("The pipeline process did not produce any chats")
+        if last is None or last.state != "final":
+            raise RuntimeError("The pipeline did not complete successfully")
+
+        if not last.chats:
+            raise RuntimeError("The pipeline process did not produce any chats")
 
     return last.chats[-1]
 ```
@@ -2107,6 +2184,7 @@ run_batch(
     | str,
     params: Sequence[GenerateParams | None] | None = None,
     *,
+    name: str | None = None,
     on_failed: FailMode | None = None,
 ) -> ChatList
 ```
@@ -2150,6 +2228,7 @@ async def run_batch(
     | str,
     params: t.Sequence[GenerateParams | None] | None = None,
     *,
+    name: str | None = None,
     on_failed: FailMode | None = None,
 ) -> ChatList:
     """
@@ -2166,14 +2245,37 @@ async def run_batch(
     Returns:
         A list of generatated Chats.
     """
+    on_failed = on_failed or self.on_failed
+    count, messages, params = self._fit_batch_args(many, params)
 
     last: PipelineStep | None = None
-    async with self.step_batch(many, params=params, on_failed=on_failed) as steps:
-        async for step in steps:
-            last = step
+    with dn.task_span(
+        name or f"pipeline - {self.task_name} (batch x{count})",
+        label=name or f"pipeline_batch_{self.task_name}",
+        attributes={"rigging.type": "chat_pipeline.run_batch"},
+    ) as task:
+        dn.log_inputs(
+            count=count,
+            messages=messages,
+            params=params,
+            generator_id=self.generator.to_identifier(),
+        )
 
-    if last is None or last.state != "final":
-        raise ValueError("The generation process did not complete successfully")
+        try:
+            async with aclosing(
+                self._step(messages, params, on_failed),
+            ) as steps:
+                async for step in steps:
+                    last = step
+        finally:
+            if last is not None:
+                dn.log_output("chats", last.chats)
+
+                # TODO: Remove once Strikes UI is ported
+                task.set_attribute("chats", last.chats)
+
+        if last is None or last.state != "final":
+            raise RuntimeError("The pipeline did not complete successfully")
 
     return last.chats
 ```
@@ -2188,6 +2290,7 @@ run_many(
     count: int,
     *,
     params: Sequence[GenerateParams | None] | None = None,
+    name: str | None = None,
     on_failed: FailMode | None = None,
 ) -> ChatList
 ```
@@ -2213,7 +2316,7 @@ Executes the generation process in parallel over the same input.
 **Returns:**
 
 * `ChatList`
-  –A list of generatated Chats.
+  –A list of generated Chats.
 
 <Accordion title="Source code in rigging/chat.py" icon="code">
 ```python
@@ -2222,6 +2325,7 @@ async def run_many(
     count: int,
     *,
     params: t.Sequence[GenerateParams | None] | None = None,
+    name: str | None = None,
     on_failed: FailMode | None = None,
 ) -> ChatList:
     """
@@ -2233,16 +2337,44 @@ async def run_many(
         on_failed: The behavior when a message fails to generate.
 
     Returns:
-        A list of generatated Chats.
+        A list of generated Chats.
     """
+    if count < 1:
+        raise ValueError("Count must be greater than 0")
+
+    on_failed = on_failed or self.on_failed
+
+    messages = [self.chat.all] * count
+    params = self._fit_params(count, params)
 
     last: PipelineStep | None = None
-    async with self.step_many(count, params=params, on_failed=on_failed) as steps:
-        async for step in steps:
-            last = step
+    with dn.task_span(
+        name or f"pipeline - {self.task_name} (x{count})",
+        label=name or f"pipeline_many_{self.task_name}",
+        attributes={"rigging.type": "chat_pipeline.run_many"},
+    ) as task:
+        dn.log_inputs(
+            count=count,
+            messages=messages[0],
+            params=params[0],
+            generator_id=self.generator.to_identifier(),
+        )
 
-    if last is None or last.state != "final":
-        raise ValueError("The generation process did not complete successfully")
+        try:
+            async with aclosing(
+                self._step(messages, params, on_failed),
+            ) as steps:
+                async for step in steps:
+                    last = step
+        finally:
+            if last is not None:
+                dn.log_output("chats", last.chats)
+
+                # TODO: Remove once Strikes UI is ported
+                task.set_attribute("chats", last.chats)
+
+        if last is None or last.state != "final":
+            raise RuntimeError("The pipeline did not complete successfully")
 
     return last.chats
 ```
@@ -2324,7 +2456,15 @@ async def run_over(
         sub.generator = generator
         coros.append(sub.run(allow_failed=(on_failed != "raise")))
 
-    with dn.task_span(f"Chat over {len(coros)} generators", count=len(coros)):
+    short_generators = [g.to_identifier(short=True) for g in _generators]
+    task_name = "iterate - " + ", ".join(short_generators)
+
+    with dn.task_span(
+        task_name,
+        label="iterate_over",
+        attributes={"rigging.type": "chat_pipeline.run_over"},
+    ):
+        dn.log_input("generators", [g.to_identifier() for g in _generators])
         return ChatList(await asyncio.gather(*coros))
 ```
 
@@ -2466,37 +2606,12 @@ async def step_batch(
         Pipeline steps.
     """
     on_failed = on_failed or self.on_failed
+    _, messages, params = self._fit_batch_args(many, params)
 
-    # Get the maximum of either incoming messages or params
-
-    count = max(len(many), len(params) if params is not None else 0)
-
-    # If we have less messages than params, we need to either:
-    # 1. Error because we have >1 messages that we can't reasonably
-    #    zip with our parameters of a different length
-    # 2. Duplicate a single message we have len(params) times as the
-    #    user is just batching only over parameters
-
-    messages = [[*self.chat.all, *Message.fit_as_list(m)] for m in many]
-    if len(messages) < count:
-        if len(messages) != 1:
-            raise ValueError(
-                f"Can't fit {len(messages)} messages to {count} params",
-            )
-        messages = messages * count
-
-    params = self._fit_params(count, params)
-
-    with dn.span(
-        f"Chat batch with {self.generator.to_identifier()} ({count})",
-        count=count,
-        generator_id=self.generator.to_identifier(),
-        params=self.params.to_dict() if self.params is not None else {},
-    ) as span:
-        async with aclosing(
-            self._step(span, messages, params, on_failed),
-        ) as generator:
-            yield generator
+    async with aclosing(
+        self._step(messages, params, on_failed),
+    ) as generator:
+        yield generator
 ```
 
 
@@ -2562,16 +2677,10 @@ async def step_many(
     messages = [self.chat.all] * count
     params = self._fit_params(count, params)
 
-    with dn.span(
-        f"Chat with {self.generator.to_identifier()} (x{count})",
-        count=count,
-        generator_id=self.generator.to_identifier(),
-        params=self.params.to_dict() if self.params is not None else {},
-    ) as span:
-        async with aclosing(
-            self._step(span, messages, params, on_failed),
-        ) as generator:
-            yield generator
+    async with aclosing(
+        self._step(messages, params, on_failed),
+    ) as generator:
+        yield generator
 ```
 
 
@@ -2584,6 +2693,7 @@ then(
     *callbacks: ThenChatCallback,
     max_depth: int = DEFAULT_MAX_DEPTH,
     allow_duplicates: bool = False,
+    as_task: bool = True,
 ) -> ChatPipeline
 ```
 
@@ -2612,6 +2722,11 @@ from the pipeline.
   `False`
   )
   –Whether to allow (seemingly) duplicate callbacks to be added.
+* **`as_task`**
+  (`bool`, default:
+  `True`
+  )
+  –Whether to create a task for this callback.
 
 **Returns:**
 
@@ -2635,6 +2750,7 @@ def then(
     *callbacks: ThenChatCallback,
     max_depth: int = DEFAULT_MAX_DEPTH,
     allow_duplicates: bool = False,
+    as_task: bool = True,
 ) -> "ChatPipeline":
     """
     Registers one or many callbacks to be executed after the generation process completes.
@@ -2648,6 +2764,7 @@ def then(
         callbacks: The callback functions to be added.
         max_depth: The maximum depth to allow recursive pipeline calls during this callback.
         allow_duplicates: Whether to allow (seemingly) duplicate callbacks to be added.
+        as_task: Whether to create a task for this callback.
 
     Returns:
         The updated pipeline.
@@ -2669,7 +2786,7 @@ def then(
                 f"Callback '{get_qualified_name(callback)}' is already registered.",
             )
 
-    self.then_callbacks.extend([(callback, max_depth) for callback in callbacks])
+    self.then_callbacks.extend([(callback, max_depth, as_task) for callback in callbacks])
     return self
 ```
 
@@ -2872,11 +2989,11 @@ def until_parsed_as(
 
     max_depth = max_rounds or max_depth
     self.then_callbacks = [
-        (callback, max_depth)
-        for callback, max_depth in self.then_callbacks
+        (callback, max_depth, as_task)
+        for callback, max_depth, as_task in self.then_callbacks
         if callback != self._then_parse
     ]
-    self.then_callbacks.append((self._then_parse, max_depth))
+    self.then_callbacks.append((self._then_parse, max_depth, False))
 
     return self
 ```
@@ -3042,13 +3159,13 @@ def using(
     self.tools = [tool for tool in self.tools if tool.name not in new_names] + _tools
 
     self.then_callbacks = [
-        (callback, max_depth)
-        for callback, max_depth in self.then_callbacks
+        (callback, max_depth, as_task)
+        for callback, max_depth, as_task in self.then_callbacks
         if callback != self._then_tools  # Always remove to update max_depth
     ]
     self.then_callbacks.insert(
         0,  # make sure this is first
-        (self._then_tools, max_depth),
+        (self._then_tools, max_depth, False),
     )
 
     if mode is not None:

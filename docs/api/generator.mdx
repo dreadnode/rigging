@@ -773,7 +773,11 @@ async def supports_function_calling(self) -> bool | None:
 ### to\_identifier
 
 ```python
-to_identifier(params: GenerateParams | None = None) -> str
+to_identifier(
+    params: GenerateParams | None = None,
+    *,
+    short: bool = False,
+) -> str
 ```
 
 Converts the generator instance back into a rigging identifier string.
@@ -795,7 +799,7 @@ This calls [rigging.generator.get\_identifier][] with the current instance.
 
 <Accordion title="Source code in rigging/generator/base.py" icon="code">
 ```python
-def to_identifier(self, params: GenerateParams | None = None) -> str:
+def to_identifier(self, params: GenerateParams | None = None, *, short: bool = False) -> str:
     """
     Converts the generator instance back into a rigging identifier string.
 
@@ -807,7 +811,7 @@ def to_identifier(self, params: GenerateParams | None = None) -> str:
     Returns:
         The identifier string.
     """
-    return get_identifier(self, params)
+    return get_identifier(self, params, short=short)
 ```
 
 
@@ -1620,6 +1624,8 @@ get\_identifier
 get_identifier(
     generator: Generator,
     params: GenerateParams | None = None,
+    *,
+    short: bool = False,
 ) -> str
 ```
 
@@ -1647,7 +1653,9 @@ The `extra` parameter field is not currently supported in identifiers.
 
 <Accordion title="Source code in rigging/generator/base.py" icon="code">
 ```python
-def get_identifier(generator: Generator, params: GenerateParams | None = None) -> str:
+def get_identifier(
+    generator: Generator, params: GenerateParams | None = None, *, short: bool = False
+) -> str:
     """
     Converts the generator instance back into a rigging identifier string.
 
@@ -1667,7 +1675,10 @@ def get_identifier(generator: Generator, params: GenerateParams | None = None) -
         for name, klass in g_generators.items()
         if isinstance(klass, type) and isinstance(generator, klass)
     )
-    identifier = f"{provider}!{generator.model}"
+    identifier = f"{provider}!{generator.model}" if provider != "litellm" else generator.model
+
+    if short:
+        return identifier
 
     identifier_extra = generator.model_dump(
         exclude_unset=True,

@@ -36,8 +36,7 @@ click = { version = "^8.1.7", optional = true }
 httpx = { version = "^0.28.0", optional = true }
 aiodocker = { version = "^0.22.2", optional = true }
 websockets = { version = "^13.0", optional = true }
-dreadnode = {path = "/Users/nick/code/sdk", develop = true}
-
+dreadnode = ">=1.11.1"
 
 [tool.poetry.extras]
 tracing = ["logfire"]

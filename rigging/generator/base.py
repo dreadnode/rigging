@@ -144,7 +144,7 @@ class GenerateParams(BaseModel):
         Use the `extra` field to pass additional parameters to the API.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"rigging.type": "generate_params"})
 
     temperature: float | None = None
     """The sampling temperature."""
@@ -295,6 +295,8 @@ GeneratedT = t.TypeVar("GeneratedT", Message, str)
 class GeneratedMessage(BaseModel):
     """A generated message with additional generation information."""
 
+    model_config = ConfigDict(json_schema_extra={"rigging.type": "generated_message"})
+
     message: Message
     """The generated message."""
 
@@ -358,6 +360,8 @@ class Generator(BaseModel):
     - `generate_texts`: Process a batch of texts.
     """
 
+    model_config = ConfigDict(json_schema_extra={"rigging.type": "generator"})
+
     model: str
     """The model name to be used by the generator."""
     api_key: str | None = Field(None, exclude=True)
@@ -368,7 +372,7 @@ class Generator(BaseModel):
     _watch_callbacks: list["WatchChatCallback | WatchCompletionCallback"] = []
     _wrap: t.Callable[[CallableT], CallableT] | None = None
 
-    def to_identifier(self, params: GenerateParams | None = None) -> str:
+    def to_identifier(self, params: GenerateParams | None = None, *, short: bool = False) -> str:
         """
         Converts the generator instance back into a rigging identifier string.
 
@@ -380,7 +384,7 @@ class Generator(BaseModel):
         Returns:
             The identifier string.
         """
-        return get_identifier(self, params)
+        return get_identifier(self, params, short=short)
 
     def watch(
         self,
@@ -645,7 +649,9 @@ def complete(
     return generator.complete(text, params)
 
 
-def get_identifier(generator: Generator, params: GenerateParams | None = None) -> str:
+def get_identifier(
+    generator: Generator, params: GenerateParams | None = None, *, short: bool = False
+) -> str:
     """
     Converts the generator instance back into a rigging identifier string.
 
@@ -665,7 +671,10 @@ def get_identifier(generator: Generator, params: GenerateParams | None = None) -
         for name, klass in g_generators.items()
         if isinstance(klass, type) and isinstance(generator, klass)
     )
-    identifier = f"{provider}!{generator.model}"
+    identifier = f"{provider}!{generator.model}" if provider != "litellm" else generator.model
+
+    if short:
+        return identifier
 
     identifier_extra = generator.model_dump(
         exclude_unset=True,

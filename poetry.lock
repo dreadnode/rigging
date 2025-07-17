@@ -1430,31 +1430,28 @@ files = [
 
 [[package]]
 name = "dreadnode"
-version = "1.10.0"
+version = "1.11.1"
 description = "Dreadnode SDK"
 optional = false
-python-versions = ">=3.10,<3.14"
+python-versions = "<3.14,>=3.10"
 groups = ["main"]
-files = []
-develop = true
+files = [
+    {file = "dreadnode-1.11.1-py3-none-any.whl", hash = "sha256:a2514dd448d9cd96799181736a9b04e2ed825cf008ea888dbf9643948b5bf806"},
+    {file = "dreadnode-1.11.1.tar.gz", hash = "sha256:90406dd2ca02575551c1f89027ecec8ab3b34571962b1f92f46cf274279d013a"},
+]
 
 [package.dependencies]
-coolname = "^2.2.0"
+coolname = ">=2.2.0,<3.0.0"
 fsspec = {version = ">=2023.1.0,<=2025.3.0", extras = ["s3"]}
-httpx = "^0.28.0"
+httpx = ">=0.28.0,<0.29.0"
 logfire = ">=3.5.3,<=3.20.0"
-pandas = "^2.2.3"
-pydantic = "^2.9.2"
-python-ulid = "^3.0.0"
+pandas = ">=2.2.3,<3.0.0"
+pydantic = ">=2.9.2,<3.0.0"
+python-ulid = ">=3.0.0,<4.0.0"
 
 [package.extras]
-all = []
 multimodal = ["moviepy (>=2.1.2,<3.0.0)", "pillow (>=11.2.1,<12.0.0)", "soundfile (>=0.13.1,<0.14.0)"]
 training = ["transformers (>=4.41.0,<5.0.0)"]
-
-[package.source]
-type = "directory"
-url = "../sdk"
 
 [[package]]
 name = "elastic-transport"
@@ -7335,4 +7332,4 @@ tracing = []
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-content-hash = "0da63cd9fb016d924f139ec229b02f3949e434fe00863bc363f97239d5077e21"
+content-hash = "a2e2d3b9959462dcbc97a8f5fca93cfc8c05334866d1c3a7cbefa9b9bad5ded5"
