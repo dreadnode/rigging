@@ -1982,6 +1982,7 @@ class ChatPipeline:
         Execute the generation process for a single message.
 
         Args:
+            name: The name of the task for logging purposes.
             on_failed: The behavior when a message fails to generate.
             allow_failed: Deprecated, use `on_failed="include"`.
 
@@ -2086,6 +2087,7 @@ class ChatPipeline:
         Args:
             count: The number of times to execute the generation process.
             params: A sequence of parameters to be used for each execution.
+            name: The name of the task for logging purposes.
             on_failed: The behavior when a message fails to generate.
 
         Returns:
@@ -2221,6 +2223,7 @@ class ChatPipeline:
         Args:
             many: A sequence of sequences of messages to be generated.
             params: A sequence of parameters to be used for each set of messages.
+            name: The name of the task for logging purposes.
             on_failed: The behavior when a message fails to generate.
 
         Returns:

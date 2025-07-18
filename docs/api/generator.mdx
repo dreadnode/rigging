@@ -1206,7 +1206,7 @@ def from_obj(
     Returns:
         The TransformersGenerator instance.
     """
-    instance = cls(model=model, params=params or GenerateParams())
+    instance = cls(model=model, params=params or GenerateParams(), api_key=None)
     instance._llm = model
     instance._tokenizer = tokenizer
     instance._pipeline = pipeline
@@ -1359,7 +1359,7 @@ def from_obj(
     Returns:
         The VLLMGenerator instance.
     """
-    generator = cls(model=model, params=params or GenerateParams())
+    generator = cls(model=model, params=params or GenerateParams(), api_key=None)
     generator._llm = llm
     return generator
 ```
@@ -1883,7 +1883,7 @@ def from_obj(
     Returns:
         The VLLMGenerator instance.
     """
-    generator = cls(model=model, params=params or GenerateParams())
+    generator = cls(model=model, params=params or GenerateParams(), api_key=None)
     generator._llm = llm
     return generator
 ```
@@ -2046,7 +2046,7 @@ def from_obj(
     Returns:
         The TransformersGenerator instance.
     """
-    instance = cls(model=model, params=params or GenerateParams())
+    instance = cls(model=model, params=params or GenerateParams(), api_key=None)
     instance._llm = model
     instance._tokenizer = tokenizer
     instance._pipeline = pipeline

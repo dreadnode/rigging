@@ -2082,6 +2082,11 @@ Execute the generation process for a single message.
 
 **Parameters:**
 
+* **`name`**
+  (`str | None`, default:
+  `None`
+  )
+  –The name of the task for logging purposes.
 * **`on_failed`**
   (`FailMode | None`, default:
   `None`
@@ -2111,6 +2116,7 @@ async def run(
     Execute the generation process for a single message.
 
     Args:
+        name: The name of the task for logging purposes.
         on_failed: The behavior when a message fails to generate.
         allow_failed: Deprecated, use `on_failed="include"`.
 
@@ -2205,6 +2211,11 @@ Anything already in this chat pipeline will be prepended to the input messages.
   `None`
   )
   –A sequence of parameters to be used for each set of messages.
+* **`name`**
+  (`str | None`, default:
+  `None`
+  )
+  –The name of the task for logging purposes.
 * **`on_failed`**
   (`FailMode | None`, default:
   `None`
@@ -2240,6 +2251,7 @@ async def run_batch(
     Args:
         many: A sequence of sequences of messages to be generated.
         params: A sequence of parameters to be used for each set of messages.
+        name: The name of the task for logging purposes.
         on_failed: The behavior when a message fails to generate.
 
     Returns:
@@ -2307,6 +2319,11 @@ Executes the generation process in parallel over the same input.
   `None`
   )
   –A sequence of parameters to be used for each execution.
+* **`name`**
+  (`str | None`, default:
+  `None`
+  )
+  –The name of the task for logging purposes.
 * **`on_failed`**
   (`FailMode | None`, default:
   `None`
@@ -2334,6 +2351,7 @@ async def run_many(
     Args:
         count: The number of times to execute the generation process.
         params: A sequence of parameters to be used for each execution.
+        name: The name of the task for logging purposes.
         on_failed: The behavior when a message fails to generate.
 
     Returns:

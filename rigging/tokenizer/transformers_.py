@@ -34,7 +34,7 @@ class TransformersTokenizer(Tokenizer):
     def tokenizer(self) -> "PreTrainedTokenizer":
         """The underlying `PreTrainedTokenizer` instance."""
         if self._tokenizer is None:
-            self._tokenizer = AutoTokenizer.from_pretrained(self.model)
+            self._tokenizer = AutoTokenizer.from_pretrained(self.model)  # nosec
         return self._tokenizer
 
     @classmethod
