@@ -2589,14 +2589,14 @@ pyyaml = "*"
 
 [[package]]
 name = "logfire-api"
-version = "3.24.2"
+version = "3.25.0"
 description = "Shim for the Logfire SDK which does nothing unless Logfire is installed"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
 files = [
-    {file = "logfire_api-3.24.2-py3-none-any.whl", hash = "sha256:855fdffd9f1f20d054ac12064a773e0fd80f706dfcced8775a429c05dfade89a"},
-    {file = "logfire_api-3.24.2.tar.gz", hash = "sha256:13c913916d1f627b7155c898eac232bf60d9b927706b8fae05cbaf803ec1e9e5"},
+    {file = "logfire_api-3.25.0-py3-none-any.whl", hash = "sha256:cc1c2482d6a738e15cd165c483577f8ef7a8a4c462eafa0f6129aa9077676a8d"},
+    {file = "logfire_api-3.25.0.tar.gz", hash = "sha256:d6aeeeb246cc8d7aeb14a503523422292047db5e7be35d47c8979f70b0962bb0"},
 ]
 
 [[package]]
