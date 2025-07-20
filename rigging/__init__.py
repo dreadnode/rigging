@@ -1,4 +1,5 @@
 from rigging import (
+    caching,
     data,
     error,
     generator,
@@ -94,6 +95,7 @@ __all__ = [
     "Transform",
     "attr",
     "await_",
+    "caching",
     "chat",
     "complete",
     "data",

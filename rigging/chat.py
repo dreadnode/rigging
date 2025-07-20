@@ -19,7 +19,6 @@ from typing import runtime_checkable
 from uuid import UUID, uuid4
 
 import dreadnode as dn
-from loguru import logger
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -30,6 +29,7 @@ from pydantic import (
     computed_field,
 )
 
+from rigging.caching import CacheMode, apply_cache_mode_to_messages
 from rigging.error import MaxDepthError, PipelineWarning
 from rigging.generator import GenerateParams, Generator, get_generator
 from rigging.generator.base import StopReason, Usage
@@ -82,13 +82,6 @@ How to handle failures in pipelines.
 - raise: Raise an exception when a failure is encountered.
 - skip: Ignore the error and do not include the failed chat in the final output.
 - include: Mark the message as failed and include it in the final output.
-"""
-
-CacheMode = t.Literal["latest"]
-"""
-How to handle cache_control entries on messages.
-
-- latest: Assign cache_control to the latest 2 non-assistant messages in the pipeline before inference.
 """
 
 
@@ -1523,33 +1516,6 @@ class ChatPipeline:
             params = [self.params.merge_with(p) for p in params]
         return [(p or GenerateParams()) for p in params]
 
-    def _apply_cache_mode_to_messages(
-        self,
-        messages: list[list[Message]],
-    ) -> list[list[Message]]:
-        if self.caching is None:
-            return messages
-
-        if self.caching != "latest":
-            logger.warning(
-                f"Unknown caching mode '{self.caching}', defaulting to 'latest'",
-            )
-
-        # first remove existing cache settings
-        updated: list[list[Message]] = []
-        for _messages in messages:
-            updated = [
-                *updated,
-                [m.clone().cache(cache_control=False) for m in _messages],
-            ]
-
-        # then apply the latest cache settings
-        for _messages in updated:
-            for message in [m for m in _messages if m.role != "assistant"][-2:]:
-                message.cache(cache_control=True)
-
-        return updated
-
     @dataclass
     class CallbackState:
         chat: Chat
@@ -1659,7 +1625,7 @@ class ChatPipeline:
         # Pass the messages to the generator
 
         try:
-            messages = self._apply_cache_mode_to_messages(messages)
+            messages = apply_cache_mode_to_messages(self.caching, messages)
 
             with dn.task_span(
                 f"generate - {self.generator.to_identifier(short=True)}",
