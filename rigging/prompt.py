@@ -9,7 +9,6 @@ import re
 import typing as t
 from collections import OrderedDict
 
-import dreadnode as dn
 from jinja2 import Environment, StrictUndefined, meta
 from pydantic import ValidationError
 from typing_extensions import Concatenate, ParamSpec  # noqa: UP035
@@ -553,6 +552,8 @@ class Prompt(t.Generic[P, R]):
         raise ValueError(f"Invalid type for binding: {type(other)}")
 
     async def _then_parse(self, chat: Chat) -> PipelineStepContextManager | None:
+        import dreadnode as dn
+
         if self.output is None or isinstance(self.output, ChatOutput):
             return None
 
@@ -836,6 +837,8 @@ class Prompt(t.Generic[P, R]):
             await say_hello.bind("gpt-3.5-turbo")("the world")
             ```
         """
+        import dreadnode as dn
+
         pipeline = self._resolve_to_pipeline(other)
         if pipeline.on_failed == "skip":
             raise NotImplementedError(
@@ -901,6 +904,8 @@ class Prompt(t.Generic[P, R]):
             await say_hello.bind_many("gpt-4.1")(5, "the world")
             ```
         """
+        import dreadnode as dn
+
         pipeline = self._resolve_to_pipeline(other)
         if pipeline.on_failed == "include" and not isinstance(self.output, ChatOutput):
             raise NotImplementedError(

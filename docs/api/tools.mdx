@@ -142,6 +142,7 @@ async def handle_tool_call(  # noqa: PLR0912
         A tuple containing the message to send back to the generator and a
         boolean indicating whether tool calling should stop.
     """
+    import dreadnode as dn
 
     from rigging.message import ContentText, ContentTypes, Message
 

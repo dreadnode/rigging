@@ -886,6 +886,8 @@ async def run(
     Returns:
         The generated Completion.
     """
+    import dreadnode as dn
+
     if on_failed is None:
         on_failed = "include" if allow_failed else self.on_failed
 
@@ -978,6 +980,8 @@ async def run_batch(
     Returns:
         A list of generatated Completions.
     """
+    import dreadnode as dn
+
     on_failed = on_failed or self.on_failed
     params = self._fit_params(len(many), params)
 
@@ -1061,6 +1065,8 @@ async def run_many(
     Returns:
         A list of generatated Completions.
     """
+    import dreadnode as dn
+
     on_failed = on_failed or self.on_failed
     states = self._initialize_states(count, params)
 
@@ -1144,6 +1150,8 @@ async def run_over(
     Returns:
         A list of generatated Completions.
     """
+    import dreadnode as dn
+
     on_failed = on_failed or self.on_failed
 
     _generators: list[Generator] = [

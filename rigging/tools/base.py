@@ -10,7 +10,6 @@ import typing as t
 import warnings
 from functools import cached_property
 
-import dreadnode as dn
 import typing_extensions as te
 from pydantic import (
     BaseModel,
@@ -355,6 +354,7 @@ class Tool(BaseModel, t.Generic[P, R]):
             A tuple containing the message to send back to the generator and a
             boolean indicating whether tool calling should stop.
         """
+        import dreadnode as dn
 
         from rigging.message import ContentText, ContentTypes, Message
 

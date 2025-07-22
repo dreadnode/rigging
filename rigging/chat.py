@@ -18,8 +18,6 @@ from datetime import datetime
 from typing import runtime_checkable
 from uuid import UUID, uuid4
 
-import dreadnode as dn
-from dreadnode.metric import ScorerCallable
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -60,6 +58,7 @@ from rigging.transform import (
 from rigging.util import flatten_list, get_qualified_name
 
 if t.TYPE_CHECKING:
+    from dreadnode.metric import Scorer, ScorerCallable
     from dreadnode.scorers.rigging import ChatFilterFunction, ChatFilterMode
     from elasticsearch import AsyncElasticsearch
 
@@ -761,6 +760,8 @@ PipelineStepContextManager = t.AsyncContextManager[PipelineStepGenerator]
 
 
 def _wrap_watch_callback(callback: WatchChatCallback) -> WatchChatCallback:
+    import dreadnode as dn
+
     callback_name = get_qualified_name(callback)
     return dn.task(
         name=f"watch - {callback_name}",
@@ -804,7 +805,7 @@ class ChatPipeline:
         """How to handle cache_control entries on messages."""
         self.task_name: str = generator.to_identifier(short=True)
         """The name of the pipeline task, used for logging and debugging."""
-        self.scorers: list[dn.Scorer[Chat]] = []
+        self.scorers: list[Scorer[Chat]] = []
         """List of dreadnode scorers to evaluate the generated chat upon completion."""
 
         self.until_types: list[type[Model]] = []
@@ -1380,7 +1381,7 @@ class ChatPipeline:
 
     def score(
         self,
-        *scorers: dn.Scorer[Chat] | ScorerCallable[Chat],
+        *scorers: "Scorer[Chat] | ScorerCallable[Chat]",
         filter: "ChatFilterMode | ChatFilterFunction" = "last",
     ) -> "ChatPipeline":
         """
@@ -1403,6 +1404,8 @@ class ChatPipeline:
         Returns:
             The updated pipeline.
         """
+        import dreadnode as dn
+
         self.scorers.extend(
             [
                 dn.scorers.wrap_chat(
@@ -1512,6 +1515,8 @@ class ChatPipeline:
         return next_pipeline.step()
 
     async def _then_parse(self, chat: Chat) -> PipelineStepContextManager | None:
+        import dreadnode as dn
+
         if chat.error:  # If we have an error, we should not attempt to parse.
             return None
 
@@ -1613,6 +1618,8 @@ class ChatPipeline:
                 state.chat = step.chats[-1] if step.chats else state.chat
 
     async def _score_chats(self, chats: list[Chat]) -> None:
+        import dreadnode as dn
+
         if not self.scorers:
             return
 
@@ -1644,6 +1651,8 @@ class ChatPipeline:
         params: list[GenerateParams],
         on_failed: FailMode,
     ) -> PipelineStepGenerator:
+        import dreadnode as dn
+
         chats: ChatList = ChatList([])
 
         # Some pre-run work
@@ -2015,6 +2024,8 @@ class ChatPipeline:
         Returns:
             The generated Chat.
         """
+        import dreadnode as dn
+
         if allow_failed:
             warnings.warn(
                 "The 'allow_failed' argument is deprecated, use 'on_failed=\"include\"'.",
@@ -2123,6 +2134,8 @@ class ChatPipeline:
         Returns:
             A list of generated Chats.
         """
+        import dreadnode as dn
+
         if count < 1:
             raise ValueError("Count must be greater than 0")
 
@@ -2286,6 +2299,8 @@ class ChatPipeline:
         Returns:
             A list of generatated Chats.
         """
+        import dreadnode as dn
+
         on_failed = on_failed or self.on_failed
         count, messages, params = self._fit_batch_args(many, params)
 
@@ -2370,6 +2385,8 @@ class ChatPipeline:
         Returns:
             A list of generatated Chats.
         """
+        import dreadnode as dn
+
         on_failed = on_failed or self.on_failed
 
         _generators: list[Generator] = [

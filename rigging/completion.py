@@ -11,7 +11,6 @@ from datetime import datetime
 from typing import runtime_checkable
 from uuid import UUID, uuid4
 
-import dreadnode as dn
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
@@ -22,6 +21,8 @@ from rigging.parsing import parse_many
 from rigging.util import get_qualified_name
 
 if t.TYPE_CHECKING:
+    from dreadnode import Span
+
     from rigging.chat import FailMode
     from rigging.model import Model, ModelT
 
@@ -571,6 +572,8 @@ class CompletionPipeline:
         return False
 
     async def _watch_callback(self, completions: list[Completion]) -> None:
+        import dreadnode as dn
+
         def wrap_watch_callback(
             callback: WatchCompletionCallback,
         ) -> t.Callable[[list[Completion]], t.Awaitable[None]]:
@@ -623,6 +626,8 @@ class CompletionPipeline:
         completions: list[Completion],
         on_failed: "FailMode",
     ) -> list[Completion]:
+        import dreadnode as dn
+
         if on_failed == "skip":
             completions = [c for c in completions if not c.failed]
 
@@ -723,7 +728,7 @@ class CompletionPipeline:
 
     async def _run(  # noqa: PLR0912
         self,
-        span: dn.Span,
+        span: "Span",
         states: list[RunState],
         on_failed: "FailMode",
         batch_mode: bool = False,  # noqa: FBT001, FBT002
@@ -822,6 +827,8 @@ class CompletionPipeline:
         Returns:
             The generated Completion.
         """
+        import dreadnode as dn
+
         if on_failed is None:
             on_failed = "include" if allow_failed else self.on_failed
 
@@ -871,6 +878,8 @@ class CompletionPipeline:
         Returns:
             A list of generatated Completions.
         """
+        import dreadnode as dn
+
         on_failed = on_failed or self.on_failed
         states = self._initialize_states(count, params)
 
@@ -913,6 +922,8 @@ class CompletionPipeline:
         Returns:
             A list of generatated Completions.
         """
+        import dreadnode as dn
+
         on_failed = on_failed or self.on_failed
         params = self._fit_params(len(many), params)
 
@@ -960,6 +971,8 @@ class CompletionPipeline:
         Returns:
             A list of generatated Completions.
         """
+        import dreadnode as dn
+
         on_failed = on_failed or self.on_failed
 
         _generators: list[Generator] = [

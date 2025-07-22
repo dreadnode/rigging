@@ -1265,7 +1265,7 @@ def __init__(
     """How to handle cache_control entries on messages."""
     self.task_name: str = generator.to_identifier(short=True)
     """The name of the pipeline task, used for logging and debugging."""
-    self.scorers: list[dn.Scorer[Chat]] = []
+    self.scorers: list[Scorer[Chat]] = []
     """List of dreadnode scorers to evaluate the generated chat upon completion."""
 
     self.until_types: list[type[Model]] = []
@@ -2124,6 +2124,8 @@ async def run(
     Returns:
         The generated Chat.
     """
+    import dreadnode as dn
+
     if allow_failed:
         warnings.warn(
             "The 'allow_failed' argument is deprecated, use 'on_failed=\"include\"'.",
@@ -2270,6 +2272,8 @@ async def run_batch(
     Returns:
         A list of generatated Chats.
     """
+    import dreadnode as dn
+
     on_failed = on_failed or self.on_failed
     count, messages, params = self._fit_batch_args(many, params)
 
@@ -2410,6 +2414,8 @@ async def run_many(
     Returns:
         A list of generated Chats.
     """
+    import dreadnode as dn
+
     if count < 1:
         raise ValueError("Count must be greater than 0")
 
@@ -2536,6 +2542,8 @@ async def run_over(
     Returns:
         A list of generatated Chats.
     """
+    import dreadnode as dn
+
     on_failed = on_failed or self.on_failed
 
     _generators: list[Generator] = [
@@ -2608,7 +2616,7 @@ Adds one or more scorers to the pipeline to evaluate the generated chat upon com
 ```python
 def score(
     self,
-    *scorers: dn.Scorer[Chat] | ScorerCallable[Chat],
+    *scorers: "Scorer[Chat] | ScorerCallable[Chat]",
     filter: "ChatFilterMode | ChatFilterFunction" = "last",
 ) -> "ChatPipeline":
     """
@@ -2631,6 +2639,8 @@ def score(
     Returns:
         The updated pipeline.
     """
+    import dreadnode as dn
+
     self.scorers.extend(
         [
             dn.scorers.wrap_chat(

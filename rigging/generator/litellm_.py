@@ -4,7 +4,6 @@ import datetime
 import re
 import typing as t
 
-import dreadnode as dn
 import litellm
 import litellm.types.utils
 from loguru import logger
@@ -161,6 +160,8 @@ class LiteLLMGenerator(Generator):
         return self._semaphore
 
     async def supports_function_calling(self) -> bool | None:
+        import dreadnode as dn
+
         if self._supports_function_calling is not None:
             return self._supports_function_calling
 
