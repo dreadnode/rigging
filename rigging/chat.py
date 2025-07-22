@@ -60,6 +60,7 @@ from rigging.transform import (
 from rigging.util import flatten_list, get_qualified_name
 
 if t.TYPE_CHECKING:
+    from dreadnode.scorers.rigging import ChatFilterFunction, ChatFilterMode
     from elasticsearch import AsyncElasticsearch
 
     from rigging.data import ElasticOpType
@@ -1377,7 +1378,11 @@ class ChatPipeline:
 
         return self
 
-    def score(self, *scorers: dn.Scorer[Chat] | ScorerCallable[Chat]) -> "ChatPipeline":
+    def score(
+        self,
+        *scorers: dn.Scorer[Chat] | ScorerCallable[Chat],
+        filter: "ChatFilterMode | ChatFilterFunction" = "last",
+    ) -> "ChatPipeline":
         """
         Adds one or more scorers to the pipeline to evaluate the generated chat upon completion.
 
@@ -1385,6 +1390,15 @@ class ChatPipeline:
             *scorers: The scorer or scorers to be added. These can be either:
                 - A dreadnode.Scorer instance.
                 - A callable function that can be converted to a dreadnode.Scorer.
+            filter: The strategy for filtering which messages to include:
+                - "all": Use all messages in the chat.
+                - "last": Use only the last message.
+                - "first": Use only the first message.
+                - "user": Use only user messages.
+                - "assistant": Use only assistant messages.
+                - "last_user": Use only the last user message.
+                - "last_assistant": Use only the last assistant message.
+                - A callable that takes a list of `Message` objects and returns a filtered list.
 
         Returns:
             The updated pipeline.
@@ -1392,7 +1406,8 @@ class ChatPipeline:
         self.scorers.extend(
             [
                 dn.scorers.wrap_chat(
-                    scorer if isinstance(scorer, dn.Scorer) else dn.Scorer.from_callable(scorer)
+                    scorer if isinstance(scorer, dn.Scorer) else dn.Scorer.from_callable(scorer),
+                    filter=filter,
                 )
                 for scorer in scorers
             ]

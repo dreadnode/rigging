@@ -2570,6 +2570,7 @@ async def run_over(
 ```python
 score(
     *scorers: Scorer[Chat] | ScorerCallable[Chat],
+    filter: ChatFilterMode | ChatFilterFunction = "last",
 ) -> ChatPipeline
 ```
 
@@ -2584,6 +2585,19 @@ Adds one or more scorers to the pipeline to evaluate the generated chat upon com
   –The scorer or scorers to be added. These can be either:
   - A dreadnode.Scorer instance.
   - A callable function that can be converted to a dreadnode.Scorer.
+* **`filter`**
+  (`ChatFilterMode | ChatFilterFunction`, default:
+  `'last'`
+  )
+  –The strategy for filtering which messages to include:
+  - "all": Use all messages in the chat.
+  - "last": Use only the last message.
+  - "first": Use only the first message.
+  - "user": Use only user messages.
+  - "assistant": Use only assistant messages.
+  - "last\_user": Use only the last user message.
+  - "last\_assistant": Use only the last assistant message.
+  - A callable that takes a list of `Message` objects and returns a filtered list.
 
 **Returns:**
 
@@ -2592,7 +2606,11 @@ Adds one or more scorers to the pipeline to evaluate the generated chat upon com
 
 <Accordion title="Source code in rigging/chat.py" icon="code">
 ```python
-def score(self, *scorers: dn.Scorer[Chat] | ScorerCallable[Chat]) -> "ChatPipeline":
+def score(
+    self,
+    *scorers: dn.Scorer[Chat] | ScorerCallable[Chat],
+    filter: "ChatFilterMode | ChatFilterFunction" = "last",
+) -> "ChatPipeline":
     """
     Adds one or more scorers to the pipeline to evaluate the generated chat upon completion.
 
@@ -2600,6 +2618,15 @@ def score(self, *scorers: dn.Scorer[Chat] | ScorerCallable[Chat]) -> "ChatPipeli
         *scorers: The scorer or scorers to be added. These can be either:
             - A dreadnode.Scorer instance.
             - A callable function that can be converted to a dreadnode.Scorer.
+        filter: The strategy for filtering which messages to include:
+            - "all": Use all messages in the chat.
+            - "last": Use only the last message.
+            - "first": Use only the first message.
+            - "user": Use only user messages.
+            - "assistant": Use only assistant messages.
+            - "last_user": Use only the last user message.
+            - "last_assistant": Use only the last assistant message.
+            - A callable that takes a list of `Message` objects and returns a filtered list.
 
     Returns:
         The updated pipeline.
@@ -2607,7 +2634,8 @@ def score(self, *scorers: dn.Scorer[Chat] | ScorerCallable[Chat]) -> "ChatPipeli
     self.scorers.extend(
         [
             dn.scorers.wrap_chat(
-                scorer if isinstance(scorer, dn.Scorer) else dn.Scorer.from_callable(scorer)
+                scorer if isinstance(scorer, dn.Scorer) else dn.Scorer.from_callable(scorer),
+                filter=filter,
             )
             for scorer in scorers
         ]
