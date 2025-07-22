@@ -36,17 +36,6 @@ How tool calls are handled.
 Tool
 ----
 
-```python
-Tool(
-    name: str,
-    description: str,
-    parameters_schema: dict[str, Any],
-    fn: Callable[P, R],
-    catch: bool | set[type[Exception]] = False,
-    truncate: int | None = None,
-)
-```
-
 Base class for representing a tool to a generator.
 
 ### catch
@@ -82,7 +71,10 @@ A description of the tool.
 ### fn
 
 ```python
-fn: Callable[P, R]
+fn: Callable[P, R] = Field(
+    default_factory=lambda: lambda *args, **kwargs: None,
+    exclude=True,
+)
 ```
 
 The function to call.
@@ -235,17 +227,6 @@ async def handle_tool_call(  # noqa: PLR0912
 
 ToolMethod
 ----------
-
-```python
-ToolMethod(
-    name: str,
-    description: str,
-    parameters_schema: dict[str, Any],
-    fn: Callable[P, R],
-    catch: bool | set[type[Exception]] = False,
-    truncate: int | None = None,
-)
-```
 
 A Tool wrapping a class method.
 

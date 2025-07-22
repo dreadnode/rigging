@@ -4,7 +4,7 @@ import typing as t
 import uuid
 import warnings
 
-import xmltodict  # type: ignore[import-untyped]
+import xmltodict  # type: ignore [import-untyped]
 from pydantic.fields import FieldInfo
 from pydantic_xml import attr
 

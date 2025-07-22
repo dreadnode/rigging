@@ -7,7 +7,14 @@ import typing as t
 from functools import lru_cache
 
 from loguru import logger
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, field_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    field_validator,
+)
 from typing_extensions import Self
 
 from rigging.error import InvalidGeneratorError
@@ -123,7 +130,7 @@ def with_fixups(
 
             return result
 
-        return wrapper  # type: ignore[return-value]
+        return wrapper  # type: ignore [return-value]
 
     return decorator
 
@@ -287,6 +294,15 @@ class Usage(BaseModel):
     """The number of output tokens."""
     total_tokens: int
     """The total number of tokens processed."""
+
+    def __add__(self, other: "Usage") -> "Usage":
+        if not isinstance(other, Usage):
+            raise TypeError(f"Cannot add {type(other)} to Usage")
+        return Usage(
+            input_tokens=self.input_tokens + other.input_tokens,
+            output_tokens=self.output_tokens + other.output_tokens,
+            total_tokens=self.total_tokens + other.total_tokens,
+        )
 
 
 GeneratedT = t.TypeVar("GeneratedT", Message, str)

@@ -8,12 +8,19 @@ import json
 import re
 import typing as t
 import warnings
-from dataclasses import dataclass, field
 from functools import cached_property
 
 import dreadnode as dn
 import typing_extensions as te
-from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+)
 from pydantic_xml import attr
 
 from rigging.error import Stop, ToolDefinitionError, ToolWarning
@@ -135,8 +142,7 @@ def _is_unbound_method(func: t.Any) -> bool:
     return is_method is not hasattr(func, "__self__")
 
 
-@dataclass
-class Tool(t.Generic[P, R]):
+class Tool(BaseModel, t.Generic[P, R]):
     """Base class for representing a tool to a generator."""
 
     name: str
@@ -145,7 +151,10 @@ class Tool(t.Generic[P, R]):
     """A description of the tool."""
     parameters_schema: dict[str, t.Any]
     """The JSON schema for the tool's parameters."""
-    fn: t.Callable[P, R]
+    fn: t.Callable[P, R] = Field(  # type: ignore [assignment]
+        default_factory=lambda: lambda *args, **kwargs: None,  # noqa: ARG005
+        exclude=True,
+    )
     """The function to call."""
     catch: bool | set[type[Exception]] = False
     """
@@ -158,13 +167,9 @@ class Tool(t.Generic[P, R]):
     truncate: int | None = None
     """If set, the maximum number of characters to truncate any tool output to."""
 
-    _signature: inspect.Signature | None = field(default=None, init=False, repr=False)
-    _type_adapter: TypeAdapter[t.Any] | None = field(
-        default=None,
-        init=False,
-        repr=False,
-    )
-    _model: type[Model] | None = field(default=None, init=False, repr=False)
+    _signature: inspect.Signature | None = PrivateAttr(default=None, init=False)
+    _type_adapter: TypeAdapter[t.Any] | None = PrivateAttr(default=None, init=False)
+    _model: type[Model] | None = PrivateAttr(default=None, init=False)
 
     # In general we are split between 2 strategies for handling the data translations:
     #
@@ -283,7 +288,7 @@ class Tool(t.Generic[P, R]):
         )
 
         self._signature = signature
-        self.__signature__ = signature  # type: ignore [attr-defined]
+        self.__signature__ = signature  # type: ignore [misc]
         self.__name__ = self.name  # type: ignore [attr-defined]
         self.__doc__ = self.description
 
@@ -527,7 +532,7 @@ class ToolMethod(Tool[P, R]):
             catch=self.catch,
         )
 
-        bound_tool.__signature__ = self.__signature__  # type: ignore [attr-defined]
+        bound_tool.__signature__ = self.__signature__  # type: ignore [misc]
         bound_tool._signature = self._signature  # noqa: SLF001
         bound_tool._type_adapter = self._type_adapter  # noqa: SLF001
         bound_tool._model = self._model  # noqa: SLF001
