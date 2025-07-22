@@ -264,6 +264,12 @@ class GenerateParams(BaseModel):
         """
         return self.model_copy(deep=True)
 
+    def __hash__(self) -> int:
+        """
+        Create a hash based on the json representation of this object.
+        """
+        return hash(self.model_dump_json())
+
 
 StopReason = t.Literal["stop", "length", "content_filter", "tool_calls", "unknown"]
 """Reporting reason for generation completing."""

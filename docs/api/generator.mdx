@@ -165,6 +165,26 @@ top_p: float | None = None
 
 The nucleus sampling probability.
 
+### \_\_hash\_\_
+
+```python
+__hash__() -> int
+```
+
+Create a hash based on the json representation of this object.
+
+<Accordion title="Source code in rigging/generator/base.py" icon="code">
+```python
+def __hash__(self) -> int:
+    """
+    Create a hash based on the json representation of this object.
+    """
+    return hash(self.model_dump_json())
+```
+
+
+</Accordion>
+
 ### clone
 
 ```python
