@@ -188,11 +188,34 @@ async def test_map_callback() -> None:
         return chats + new_chats
 
     chats = (
-        await generator.chat([{"role": "user", "content": "Hello"}]).map(double_chats).run_many(1)
+        await generator.chat([{"role": "user", "content": "Hello"}])
+        .map(double_chats)
+        .run_many(1, mode="merged")
     )
 
     assert len(chats) == 2
     assert chats[0].last.content == "Response 1"
+    assert chats[1].last.content == "Modified: Response 1"
+
+    # in parallel mode, we expect only one chat per internal pipeline
+
+    chats = (
+        await generator.chat([{"role": "user", "content": "Hello"}])
+        .map(double_chats)
+        .run_many(1, mode="parallel")
+    )
+
+    assert len(chats) == 1
+    assert chats[0].last.content == "Modified: Response 1"
+
+    chats = (
+        await generator.chat([{"role": "user", "content": "Hello"}])
+        .map(double_chats)
+        .run_many(2, mode="parallel")
+    )
+
+    assert len(chats) == 2
+    assert chats[0].last.content == "Modified: Response 1"
     assert chats[1].last.content == "Modified: Response 1"
 
 

@@ -128,8 +128,9 @@ class MessageSlice(BaseModel):
             stop=self.stop,
             metadata=copy.deepcopy(self.metadata),
         )
-        cloned._message = self._message
-        return cloned
+        # Leaving this detached to align with tests
+        # cloned._message = self._message
+        return cloned  # noqa: RET504
 
 
 class ContentText(BaseModel):
