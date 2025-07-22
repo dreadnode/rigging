@@ -21,7 +21,7 @@ xmltodict = "^0.13.0"
 colorama = "^0.4.6"
 boto3 = "^1.35.0"
 boto3-stubs = { extras = ["s3"], version = "^1.35.0" }
-logfire-api = "^3.1.1"
+logfire-api = "^4.0.0"
 jsonpath-ng = "^1.7.0"
 ruamel-yaml = "^0.18.10"
 jsonref = "^1.1.0"
