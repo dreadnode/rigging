@@ -7,7 +7,14 @@ import typing as t
 from functools import lru_cache
 
 from loguru import logger
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, field_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    field_validator,
+)
 from typing_extensions import Self
 
 from rigging.error import InvalidGeneratorError
@@ -123,7 +130,7 @@ def with_fixups(
 
             return result
 
-        return wrapper  # type: ignore[return-value]
+        return wrapper  # type: ignore [return-value]
 
     return decorator
 
@@ -144,7 +151,7 @@ class GenerateParams(BaseModel):
         Use the `extra` field to pass additional parameters to the API.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"rigging.type": "generate_params"})
 
     temperature: float | None = None
     """The sampling temperature."""
@@ -294,12 +301,23 @@ class Usage(BaseModel):
     total_tokens: int
     """The total number of tokens processed."""
 
+    def __add__(self, other: "Usage") -> "Usage":
+        if not isinstance(other, Usage):
+            raise TypeError(f"Cannot add {type(other)} to Usage")
+        return Usage(
+            input_tokens=self.input_tokens + other.input_tokens,
+            output_tokens=self.output_tokens + other.output_tokens,
+            total_tokens=self.total_tokens + other.total_tokens,
+        )
+
 
 GeneratedT = t.TypeVar("GeneratedT", Message, str)
 
 
 class GeneratedMessage(BaseModel):
     """A generated message with additional generation information."""
+
+    model_config = ConfigDict(json_schema_extra={"rigging.type": "generated_message"})
 
     message: Message
     """The generated message."""
@@ -364,6 +382,8 @@ class Generator(BaseModel):
     - `generate_texts`: Process a batch of texts.
     """
 
+    model_config = ConfigDict(json_schema_extra={"rigging.type": "generator"})
+
     model: str
     """The model name to be used by the generator."""
     api_key: str | None = Field(None, exclude=True)
@@ -374,7 +394,7 @@ class Generator(BaseModel):
     _watch_callbacks: list["WatchChatCallback | WatchCompletionCallback"] = []
     _wrap: t.Callable[[CallableT], CallableT] | None = None
 
-    def to_identifier(self, params: GenerateParams | None = None) -> str:
+    def to_identifier(self, params: GenerateParams | None = None, *, short: bool = False) -> str:
         """
         Converts the generator instance back into a rigging identifier string.
 
@@ -386,7 +406,7 @@ class Generator(BaseModel):
         Returns:
             The identifier string.
         """
-        return get_identifier(self, params)
+        return get_identifier(self, params, short=short)
 
     def watch(
         self,
@@ -651,7 +671,9 @@ def complete(
     return generator.complete(text, params)
 
 
-def get_identifier(generator: Generator, params: GenerateParams | None = None) -> str:
+def get_identifier(
+    generator: Generator, params: GenerateParams | None = None, *, short: bool = False
+) -> str:
     """
     Converts the generator instance back into a rigging identifier string.
 
@@ -671,7 +693,10 @@ def get_identifier(generator: Generator, params: GenerateParams | None = None) -
         for name, klass in g_generators.items()
         if isinstance(klass, type) and isinstance(generator, klass)
     )
-    identifier = f"{provider}!{generator.model}"
+    identifier = f"{provider}!{generator.model}" if provider != "litellm" else generator.model
+
+    if short:
+        return identifier
 
     identifier_extra = generator.model_dump(
         exclude_unset=True,

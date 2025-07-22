@@ -92,10 +92,10 @@ def robopages(url: str, *, name_filter: str | None = None) -> list[Tool[..., t.A
 
         tools.append(
             Tool(
-                function.name,
-                function.description or "",
-                function.parameters or {},
-                make_execute_on_server(url, function.name),
+                name=function.name,
+                description=function.description or "",
+                parameters_schema=function.parameters or {},
+                fn=make_execute_on_server(url, function.name),
             ),
         )
 

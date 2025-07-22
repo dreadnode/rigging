@@ -121,14 +121,16 @@ class MessageSlice(BaseModel):
         Returns:
             A new MessageSlice instance with the same properties.
         """
-        return MessageSlice(
+        cloned = MessageSlice(
             type=self.type,
             obj=self.obj,
             start=self.start,
             stop=self.stop,
             metadata=copy.deepcopy(self.metadata),
-            _message=self._message,  # Keep the reference to the original message
         )
+        # Leaving this detached to align with tests
+        # cloned._message = self._message
+        return cloned  # noqa: RET504
 
 
 class ContentText(BaseModel):
@@ -405,7 +407,9 @@ class Message(BaseModel):
         `content_parts` to `content` for compatibility.
     """
 
-    model_config = ConfigDict(serialize_by_alias=True)
+    model_config = ConfigDict(
+        serialize_by_alias=True, json_schema_extra={"rigging.type": "message"}
+    )
 
     uuid: UUID = Field(default_factory=uuid4, repr=False)
     """The unique identifier for the message."""

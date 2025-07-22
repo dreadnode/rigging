@@ -8,11 +8,19 @@ import json
 import re
 import typing as t
 import warnings
-from dataclasses import dataclass, field
 from functools import cached_property
 
+import dreadnode as dn
 import typing_extensions as te
-from pydantic import BaseModel, TypeAdapter, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+)
 from pydantic_xml import attr
 
 from rigging.error import Stop, ToolDefinitionError, ToolWarning
@@ -23,7 +31,6 @@ from rigging.model import (
     make_from_schema,
     make_from_signature,
 )
-from rigging.tracing import tracer
 from rigging.util import deref_json
 
 if t.TYPE_CHECKING:
@@ -103,6 +110,8 @@ class FunctionCall(BaseModel):
 
 
 class ToolCall(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"rigging.type": "tool_call"})
+
     id: str
     type: t.Literal["function"] = "function"
     function: FunctionCall
@@ -133,8 +142,7 @@ def _is_unbound_method(func: t.Any) -> bool:
     return is_method is not hasattr(func, "__self__")
 
 
-@dataclass
-class Tool(t.Generic[P, R]):
+class Tool(BaseModel, t.Generic[P, R]):
     """Base class for representing a tool to a generator."""
 
     name: str
@@ -143,7 +151,10 @@ class Tool(t.Generic[P, R]):
     """A description of the tool."""
     parameters_schema: dict[str, t.Any]
     """The JSON schema for the tool's parameters."""
-    fn: t.Callable[P, R]
+    fn: t.Callable[P, R] = Field(  # type: ignore [assignment]
+        default_factory=lambda: lambda *args, **kwargs: None,  # noqa: ARG005
+        exclude=True,
+    )
     """The function to call."""
     catch: bool | set[type[Exception]] = False
     """
@@ -156,13 +167,9 @@ class Tool(t.Generic[P, R]):
     truncate: int | None = None
     """If set, the maximum number of characters to truncate any tool output to."""
 
-    _signature: inspect.Signature | None = field(default=None, init=False, repr=False)
-    _type_adapter: TypeAdapter[t.Any] | None = field(
-        default=None,
-        init=False,
-        repr=False,
-    )
-    _model: type[Model] | None = field(default=None, init=False, repr=False)
+    _signature: inspect.Signature | None = PrivateAttr(default=None, init=False)
+    _type_adapter: TypeAdapter[t.Any] | None = PrivateAttr(default=None, init=False)
+    _model: type[Model] | None = PrivateAttr(default=None, init=False)
 
     # In general we are split between 2 strategies for handling the data translations:
     #
@@ -281,7 +288,7 @@ class Tool(t.Generic[P, R]):
         )
 
         self._signature = signature
-        self.__signature__ = signature  # type: ignore [attr-defined]
+        self.__signature__ = signature  # type: ignore [misc]
         self.__name__ = self.name  # type: ignore [attr-defined]
         self.__doc__ = self.description
 
@@ -351,7 +358,12 @@ class Tool(t.Generic[P, R]):
 
         from rigging.message import ContentText, ContentTypes, Message
 
-        with tracer.span(f"Tool {self.name}()", name=self.name) as span:
+        with dn.task_span(
+            f"tool - {self.name}",
+            attributes={"tool_name": self.name, "rigging.type": "tool"},
+        ) as task:
+            dn.log_input("tool_call", tool_call)
+
             if tool_call.name != self.name:
                 warnings.warn(
                     f"Tool call name mismatch: {tool_call.name} != {self.name}",
@@ -361,7 +373,7 @@ class Tool(t.Generic[P, R]):
                 return Message.from_model(SystemErrorModel(content="Invalid tool call.")), True
 
             if hasattr(tool_call, "id") and isinstance(tool_call.id, str):
-                span.set_attribute("tool_call_id", tool_call.id)
+                task.set_attribute("tool_call_id", tool_call.id)
 
             result: t.Any
             stop = False
@@ -372,8 +384,9 @@ class Tool(t.Generic[P, R]):
                 kwargs = json.loads(tool_call.function.arguments)
                 if self._type_adapter is not None:
                     kwargs = self._type_adapter.validate_python(kwargs)
-                span.set_attribute("arguments", kwargs)
+                dn.log_inputs(**kwargs)
             except (json.JSONDecodeError, ValidationError) as e:
+                task.set_exception(e)
                 result = ErrorModel.from_exception(e)
 
             # Call the function
@@ -388,17 +401,18 @@ class Tool(t.Generic[P, R]):
                         raise result  # noqa: TRY301
                 except Stop as e:
                     result = f"<{TOOL_STOP_TAG}>{e.message}</{TOOL_STOP_TAG}>"
-                    span.set_attribute("stop", True)
+                    task.set_attribute("stop", True)
                     stop = True
                 except Exception as e:
                     if self.catch is True or (
                         not isinstance(self.catch, bool) and isinstance(e, tuple(self.catch))
                     ):
+                        task.set_exception(e)
                         result = ErrorModel.from_exception(e)
                     else:
                         raise
 
-            span.set_attribute("result", result)
+            dn.log_output("output", result)
 
         message = Message(role="tool", tool_call_id=tool_call.id)
 
@@ -521,7 +535,7 @@ class ToolMethod(Tool[P, R]):
             catch=self.catch,
         )
 
-        bound_tool.__signature__ = self.__signature__  # type: ignore [attr-defined]
+        bound_tool.__signature__ = self.__signature__  # type: ignore [misc]
         bound_tool._signature = self._signature  # noqa: SLF001
         bound_tool._type_adapter = self._type_adapter  # noqa: SLF001
         bound_tool._model = self._model  # noqa: SLF001

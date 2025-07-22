@@ -9,6 +9,7 @@ import re
 import typing as t
 from collections import OrderedDict
 
+import dreadnode as dn
 from jinja2 import Environment, StrictUndefined, meta
 from pydantic import ValidationError
 from typing_extensions import Concatenate, ParamSpec  # noqa: UP035
@@ -25,7 +26,6 @@ from rigging.generator.base import GenerateParams, Generator, get_generator
 from rigging.message import Message
 from rigging.model import Model, SystemErrorModel, ValidationErrorModel, make_primitive
 from rigging.tools import Tool
-from rigging.tracing import tracer
 from rigging.util import escape_xml, get_qualified_name, to_snake, to_xml_tag
 
 DEFAULT_DOC = "Convert the following inputs to outputs ({func_name})."
@@ -561,7 +561,12 @@ class Prompt(t.Generic[P, R]):
         try:
             # A bit weird, but we need from_chat to properly handle
             # wrapping Chat output types inside lists/dataclasses
-            self.output.from_chat(chat)
+            with dn.task_span(
+                f"prompt parse - {self.output.tag}",
+                attributes={"rigging.type": "prompt.parse"},
+            ):
+                dn.log_input("message", chat.last)
+                self.output.from_chat(chat)
         except ValidationError as e:
             next_pipeline.add(
                 Message.from_model(
@@ -836,10 +841,36 @@ class Prompt(t.Generic[P, R]):
             raise NotImplementedError(
                 "pipeline.on_failed='skip' cannot be used for prompt methods that return one object",
             )
+        if pipeline.on_failed == "include" and not isinstance(self.output, ChatOutput):
+            raise NotImplementedError(
+                "pipeline.on_failed='include' cannot be used with prompts that process outputs",
+            )
 
         async def run(*args: P.args, **kwargs: P.kwargs) -> R:
-            results = await self.bind_many(pipeline)(1, *args, **kwargs)
-            return results[0]
+            name = get_qualified_name(self.func) if self.func else "<generated>"
+            with dn.task_span(
+                f"prompt - {name}",
+                attributes={"prompt_name": name, "rigging.type": "prompt.run"},
+            ):
+                dn.log_inputs(**self._bind_args(*args, **kwargs))
+                content = self.render(*args, **kwargs)
+                _pipeline = (
+                    pipeline.fork(content)
+                    .using(*self.tools, max_depth=self.max_tool_rounds)
+                    .then(self._then_parse, max_depth=self.max_parsing_rounds, as_task=False)
+                    .then(*self.then_callbacks)
+                    .map(*self.map_callbacks)
+                    .watch(*self.watch_callbacks)
+                    .with_(self.params)
+                )
+
+                if self.system_prompt:
+                    _pipeline.chat.inject_system_content(self.system_prompt)
+
+                chat = await _pipeline.run()
+                output = self.process(chat)
+                dn.log_output("output", output)
+                return output
 
         run.__signature__ = self.__signature__  # type: ignore [attr-defined]
         run.__name__ = self.__name__
@@ -867,7 +898,7 @@ class Prompt(t.Generic[P, R]):
             def say_hello(name: str) -> str:
                 \"""Say hello to {{ name }}\"""
 
-            await say_hello.bind("gpt-3.5-turbo")(5, "the world")
+            await say_hello.bind_many("gpt-4.1")(5, "the world")
             ```
         """
         pipeline = self._resolve_to_pipeline(other)
@@ -878,17 +909,17 @@ class Prompt(t.Generic[P, R]):
 
         async def run_many(count: int, /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
             name = get_qualified_name(self.func) if self.func else "<generated>"
-            with tracer.span(
-                f"Prompt {name}()" if count == 1 else f"Prompt {name}() (x{count})",
-                count=count,
-                name=name,
-                arguments=self._bind_args(*args, **kwargs),
+            with dn.task_span(
+                f"prompt - {name} (x{count})",
+                label=f"prompt_{name}",
+                attributes={"prompt_name": name, "rigging.type": "prompt.run_many"},
             ) as span:
+                dn.log_inputs(**self._bind_args(*args, **kwargs))
                 content = self.render(*args, **kwargs)
                 _pipeline = (
                     pipeline.fork(content)
                     .using(*self.tools, max_depth=self.max_tool_rounds)
-                    .then(self._then_parse, max_depth=self.max_parsing_rounds)
+                    .then(self._then_parse, max_depth=self.max_parsing_rounds, as_task=False)
                     .then(*self.then_callbacks)
                     .map(*self.map_callbacks)
                     .watch(*self.watch_callbacks)
@@ -899,35 +930,13 @@ class Prompt(t.Generic[P, R]):
                     _pipeline.chat.inject_system_content(self.system_prompt)
 
                 chats = await _pipeline.run_many(count)
-
-                # TODO: I can't remember why we don't just pass the watch_callbacks to the pipeline
-                # Maybe it has something to do with uniqueness and merging?
-
-                def wrap_watch_callback(callback: "WatchChatCallback") -> "WatchChatCallback":
-                    async def traced_watch_callback(chats: list[Chat]) -> None:
-                        callback_name = get_qualified_name(callback)
-                        with tracer.span(
-                            f"Watch with {callback_name}()",
-                            callback=callback_name,
-                            chat_count=len(chats),
-                            chat_ids=[str(c.uuid) for c in chats],
-                        ):
-                            await callback(chats)
-
-                    return traced_watch_callback
-
-                coros = [
-                    wrap_watch_callback(watch)(chats)
-                    for watch in self.watch_callbacks
-                    if watch not in pipeline.watch_callbacks
-                ]
-                await asyncio.gather(*coros)
-
-                results = [self.process(chat) for chat in chats]
-                span.set_attribute("results", results)
-                return results
+                outputs = [self.process(chat) for chat in chats]
+                span.log_output("outputs", outputs)
+                return outputs
 
         run_many.__rg_prompt__ = self  # type: ignore [attr-defined]
+        run_many.__name__ = self.__name__
+        run_many.__doc__ = self.__doc__
 
         return run_many
 
@@ -953,7 +962,7 @@ class Prompt(t.Generic[P, R]):
             def say_hello(name: str) -> str:
                 \"""Say hello to {{ name }}\"""
 
-            await say_hello.bind("gpt-3.5-turbo")(["gpt-4o", "gpt-4"], "the world")
+            await say_hello.bind_over()(["gpt-4o", "gpt-4.1", "o4-mini"], "the world")
             ```
         """
         include_original = other is not None
@@ -980,7 +989,7 @@ class Prompt(t.Generic[P, R]):
             _pipeline = (
                 pipeline.fork(content)
                 .using(*self.tools, max_depth=self.max_tool_rounds)
-                .then(self._then_parse, max_depth=self.max_parsing_rounds)
+                .then(self._then_parse, max_depth=self.max_parsing_rounds, as_task=False)
                 .then(*self.then_callbacks)
                 .map(*self.map_callbacks)
                 .watch(*self.watch_callbacks)
@@ -991,13 +1000,6 @@ class Prompt(t.Generic[P, R]):
                 _pipeline.chat.inject_system_content(self.system_prompt)
 
             chats = await _pipeline.run_over(*generators, include_original=include_original)
-
-            coros = [
-                watch(chats)
-                for watch in self.watch_callbacks
-                if watch not in pipeline.watch_callbacks
-            ]
-            await asyncio.gather(*coros)
 
             return [self.process(chat) for chat in chats]
 

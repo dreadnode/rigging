@@ -80,14 +80,14 @@ class TransformersGenerator(Generator):
                     "load_in_4bit",
                 },
             )
-            self._llm = AutoModelForCausalLM.from_pretrained(self.model, **llm_kwargs)  # type: ignore [no-untyped-call]
+            self._llm = AutoModelForCausalLM.from_pretrained(self.model, **llm_kwargs)  # type: ignore [no-untyped-call] # nosec
         return self._llm
 
     @property
     def tokenizer(self) -> AutoTokenizer:
         """The underlying `AutoTokenizer` instance."""
         if self._tokenizer is None:
-            self._tokenizer = AutoTokenizer.from_pretrained(self.model)
+            self._tokenizer = AutoTokenizer.from_pretrained(self.model)  # nosec
         return self._tokenizer
 
     @property
@@ -122,7 +122,7 @@ class TransformersGenerator(Generator):
         Returns:
             The TransformersGenerator instance.
         """
-        instance = cls(model=model, params=params or GenerateParams())
+        instance = cls(model=model, params=params or GenerateParams(), api_key=None)
         instance._llm = model
         instance._tokenizer = tokenizer
         instance._pipeline = pipeline

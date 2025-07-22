@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import runtime_checkable
 from uuid import UUID, uuid4
 
+import dreadnode as dn
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
@@ -18,7 +19,6 @@ from rigging.error import CompletionExhaustedMaxRoundsError
 from rigging.generator import GenerateParams, Generator, get_generator
 from rigging.generator.base import GeneratedText, StopReason, Usage
 from rigging.parsing import parse_many
-from rigging.tracing import Span, tracer
 from rigging.util import get_qualified_name
 
 if t.TYPE_CHECKING:
@@ -571,20 +571,19 @@ class CompletionPipeline:
         return False
 
     async def _watch_callback(self, completions: list[Completion]) -> None:
-        def wrap_watch_callback(callback: WatchCompletionCallback) -> WatchCompletionCallback:
-            async def traced_watch_callback(completions: list[Completion]) -> None:
-                callback_name = get_qualified_name(callback)
-                with tracer.span(
-                    f"Watch with {callback_name}()",
-                    callback=callback_name,
-                    competion_count=len(completions),
-                    completion_ids=[str(c.uuid) for c in completions],
-                ):
-                    await callback(completions)
+        def wrap_watch_callback(
+            callback: WatchCompletionCallback,
+        ) -> t.Callable[[list[Completion]], t.Awaitable[None]]:
+            callback_name = get_qualified_name(callback)
+            return dn.task(
+                name=f"watch - {callback_name}",
+                attributes={"rigging.type": "completion_pipeline.watch_callback"},
+                log_inputs=True,
+                log_output=False,
+            )(callback)
 
-            return traced_watch_callback
-
-        coros = [wrap_watch_callback(callback)(completions) for callback in self.watch_callbacks]
+        traced_callbacks = [wrap_watch_callback(callback) for callback in self.watch_callbacks]
+        coros = [callback(completions) for callback in traced_callbacks]
         await asyncio.gather(*coros)
 
     # TODO: It's opaque exactly how we should blend multiple
@@ -633,37 +632,32 @@ class CompletionPipeline:
 
         for map_callback in self.map_callbacks:
             callback_name = get_qualified_name(map_callback)
-            with tracer.span(
-                f"Map with {callback_name}()",
-                callback=callback_name,
-                completion_count=len(completions),
-                completion_ids=[str(c.uuid) for c in completions],
-            ):
-                completions = await map_callback(completions)
-                if not all(isinstance(c, Completion) for c in completions):
-                    raise ValueError(
-                        f".map() callback must return a Completion object or None ({callback_name})",
-                    )
-
-        def wrap_then_callback(callback: ThenCompletionCallback) -> ThenCompletionCallback:
-            callback_name = get_qualified_name(callback)
-
-            async def traced_then_callback(completion: Completion) -> Completion | None:
-                with tracer.span(
-                    f"Then with {callback_name}()",
-                    callback=callback_name,
-                    completion_id=str(completion.uuid),
-                ):
-                    return await callback(completion)
-
-            return traced_then_callback
+            traced_map_callback = dn.task(
+                name=f"map - {callback_name}",
+                attributes={"rigging.type": "completion_pipeline.map_callback"},
+                log_inputs=True,
+                log_output=True,
+            )(map_callback)
+            completions = await traced_map_callback(completions)
+            if not all(isinstance(c, Completion) for c in completions):
+                raise ValueError(
+                    f".map() callback must return a Completion object or None ({callback_name})",
+                )
 
         for then_callback in self.then_callbacks:
-            coros = [wrap_then_callback(then_callback)(completion) for completion in completions]
+            callback_name = get_qualified_name(then_callback)
+            traced_then_callback = dn.task(
+                name=f"then - {callback_name}",
+                attributes={"rigging.type": "completion_pipeline.then_callback"},
+                log_inputs=True,
+                log_output=True,
+            )(then_callback)
+
+            coros = [traced_then_callback(completion) for completion in completions]
             new_completions = await asyncio.gather(*coros)
             if not all(isinstance(c, Completion) or c is None for c in new_completions):
                 raise ValueError(
-                    f".then() callback must return a Completion object or None ({get_qualified_name(then_callback)})",
+                    f".then() callback must return a Completion object or None ({callback_name})",
                 )
 
             completions = [
@@ -729,7 +723,7 @@ class CompletionPipeline:
 
     async def _run(  # noqa: PLR0912
         self,
-        span: Span,
+        span: dn.Span,
         states: list[RunState],
         on_failed: "FailMode",
         batch_mode: bool = False,  # noqa: FBT001, FBT002
@@ -805,12 +799,10 @@ class CompletionPipeline:
             for state in to_watch_states:
                 state.watched = True
 
-        completions = await self._post_run(
+        return await self._post_run(
             [s.completion for s in states if s.completion is not None],
             on_failed,
         )
-        span.set_attribute("completions", completions)
-        return completions
 
     async def run(
         self,
@@ -841,12 +833,21 @@ class CompletionPipeline:
         on_failed = on_failed or self.on_failed
         states = self._initialize_states(1)
 
-        with tracer.span(
-            f"Completion with {self.generator.to_identifier()}",
-            generator_id=self.generator.to_identifier(),
-            params=self.params.to_dict() if self.params is not None else {},
-        ) as span:
-            return (await self._run(span, states, on_failed))[0]
+        with dn.task_span(
+            f"pipeline - {self.generator.to_identifier(short=True)}",
+            label=f"pipeline_{self.generator.to_identifier(short=True)}",
+            attributes={"rigging.type": "completion_pipeline.run"},
+        ) as task:
+            dn.log_inputs(
+                text=self.text,
+                params=self.params.to_dict() if self.params is not None else {},
+                generator_id=self.generator.to_identifier(),
+            )
+            completions = await self._run(task, states, on_failed)
+            completion = completions[0]
+            dn.log_output("completion", completion)
+            task.set_attribute("completions", completions)
+            return completion
 
     __call__ = run
 
@@ -873,13 +874,21 @@ class CompletionPipeline:
         on_failed = on_failed or self.on_failed
         states = self._initialize_states(count, params)
 
-        with tracer.span(
-            f"Completion with {self.generator.to_identifier()} (x{count})",
-            count=count,
-            generator_id=self.generator.to_identifier(),
-            params=self.params.to_dict() if self.params is not None else {},
-        ) as span:
-            return await self._run(span, states, on_failed)
+        with dn.task_span(
+            f"pipeline - {self.generator.to_identifier(short=True)} (x{count})",
+            label=f"pipeline_many_{self.generator.to_identifier(short=True)}",
+            attributes={"rigging.type": "completion_pipeline.run_many"},
+        ) as task:
+            dn.log_inputs(
+                count=count,
+                text=self.text,
+                params=self.params.to_dict() if self.params is not None else {},
+                generator_id=self.generator.to_identifier(),
+            )
+            completions = await self._run(task, states, on_failed)
+            dn.log_output("completions", completions)
+            task.set_attribute("completions", completions)
+            return completions
 
     # Batch completions
 
@@ -913,13 +922,21 @@ class CompletionPipeline:
         for state in states:
             next(state.processor)
 
-        with tracer.span(
-            f"Completion batch with {self.generator.to_identifier()} ({len(states)})",
-            count=len(states),
-            generator_id=self.generator.to_identifier(),
-            params=self.params.to_dict() if self.params is not None else {},
-        ) as span:
-            return await self._run(span, states, on_failed, batch_mode=True)
+        with dn.task_span(
+            f"pipeline - {self.generator.to_identifier(short=True)} (batch x{len(states)})",
+            label=f"pipeline_batch_{self.generator.to_identifier(short=True)}",
+            attributes={"rigging.type": "completion_pipeline.run_batch"},
+        ) as task:
+            dn.log_inputs(
+                count=len(states),
+                many=many,
+                params=params,
+                generator_id=self.generator.to_identifier(),
+            )
+            completions = await self._run(task, states, on_failed, batch_mode=True)
+            dn.log_output("completions", completions)
+            task.set_attribute("completions", completions)
+            return completions
 
     # Generator iteration
 
@@ -957,6 +974,17 @@ class CompletionPipeline:
             sub.generator = generator
             coros.append(sub.run(allow_failed=(on_failed != "raise")))
 
-        with tracer.span(f"Completion over {len(coros)} generators", count=len(coros)):
+        short_generators = [g.to_identifier(short=True) for g in _generators]
+        task_name = "iterate - " + ", ".join(short_generators)
+
+        with dn.task_span(
+            task_name,
+            label="iterate_over",
+            attributes={"rigging.type": "completion_pipeline.run_over"},
+        ) as task:
+            dn.log_input("generators", [g.to_identifier() for g in _generators])
             completions = await asyncio.gather(*coros)
-            return await self._post_run(completions, on_failed)
+            final_completions = await self._post_run(completions, on_failed)
+            dn.log_output("completions", final_completions)
+            task.set_attribute("completions", final_completions)
+            return final_completions

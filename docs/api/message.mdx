@@ -2471,14 +2471,16 @@ def clone(self) -> "MessageSlice":
     Returns:
         A new MessageSlice instance with the same properties.
     """
-    return MessageSlice(
+    cloned = MessageSlice(
         type=self.type,
         obj=self.obj,
         start=self.start,
         stop=self.stop,
         metadata=copy.deepcopy(self.metadata),
-        _message=self._message,  # Keep the reference to the original message
     )
+    # Leaving this detached to align with tests
+    # cloned._message = self._message
+    return cloned  # noqa: RET504
 ```
 
 

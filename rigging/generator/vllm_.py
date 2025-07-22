@@ -90,7 +90,7 @@ class VLLMGenerator(Generator):
         Returns:
             The VLLMGenerator instance.
         """
-        generator = cls(model=model, params=params or GenerateParams())
+        generator = cls(model=model, params=params or GenerateParams(), api_key=None)
         generator._llm = llm
         return generator
 
@@ -142,7 +142,7 @@ class VLLMGenerator(Generator):
         return [
             GeneratedText(
                 text=o.outputs[-1].text,
-                stop_reason=o.outputs[-1].finish_reason,
+                stop_reason=o.outputs[-1].finish_reason or "unknown",
                 extra={
                     "request_id": o.request_id,
                     "metrics": o.metrics,

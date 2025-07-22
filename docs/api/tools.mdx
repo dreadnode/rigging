@@ -36,17 +36,6 @@ How tool calls are handled.
 Tool
 ----
 
-```python
-Tool(
-    name: str,
-    description: str,
-    parameters_schema: dict[str, Any],
-    fn: Callable[P, R],
-    catch: bool | set[type[Exception]] = False,
-    truncate: int | None = None,
-)
-```
-
 Base class for representing a tool to a generator.
 
 ### catch
@@ -82,7 +71,10 @@ A description of the tool.
 ### fn
 
 ```python
-fn: Callable[P, R]
+fn: Callable[P, R] = Field(
+    default_factory=lambda: lambda *args, **kwargs: None,
+    exclude=True,
+)
 ```
 
 The function to call.
@@ -153,7 +145,12 @@ async def handle_tool_call(  # noqa: PLR0912
 
     from rigging.message import ContentText, ContentTypes, Message
 
-    with tracer.span(f"Tool {self.name}()", name=self.name) as span:
+    with dn.task_span(
+        f"tool - {self.name}",
+        attributes={"tool_name": self.name, "rigging.type": "tool"},
+    ) as task:
+        dn.log_input("tool_call", tool_call)
+
         if tool_call.name != self.name:
             warnings.warn(
                 f"Tool call name mismatch: {tool_call.name} != {self.name}",
@@ -163,7 +160,7 @@ async def handle_tool_call(  # noqa: PLR0912
             return Message.from_model(SystemErrorModel(content="Invalid tool call.")), True
 
         if hasattr(tool_call, "id") and isinstance(tool_call.id, str):
-            span.set_attribute("tool_call_id", tool_call.id)
+            task.set_attribute("tool_call_id", tool_call.id)
 
         result: t.Any
         stop = False
@@ -174,8 +171,9 @@ async def handle_tool_call(  # noqa: PLR0912
             kwargs = json.loads(tool_call.function.arguments)
             if self._type_adapter is not None:
                 kwargs = self._type_adapter.validate_python(kwargs)
-            span.set_attribute("arguments", kwargs)
+            dn.log_inputs(**kwargs)
         except (json.JSONDecodeError, ValidationError) as e:
+            task.set_exception(e)
             result = ErrorModel.from_exception(e)
 
         # Call the function
@@ -190,17 +188,18 @@ async def handle_tool_call(  # noqa: PLR0912
                     raise result  # noqa: TRY301
             except Stop as e:
                 result = f"<{TOOL_STOP_TAG}>{e.message}</{TOOL_STOP_TAG}>"
-                span.set_attribute("stop", True)
+                task.set_attribute("stop", True)
                 stop = True
             except Exception as e:
                 if self.catch is True or (
                     not isinstance(self.catch, bool) and isinstance(e, tuple(self.catch))
                 ):
+                    task.set_exception(e)
                     result = ErrorModel.from_exception(e)
                 else:
                     raise
 
-        span.set_attribute("result", result)
+        dn.log_output("output", result)
 
     message = Message(role="tool", tool_call_id=tool_call.id)
 
@@ -231,17 +230,6 @@ async def handle_tool_call(  # noqa: PLR0912
 
 ToolMethod
 ----------
-
-```python
-ToolMethod(
-    name: str,
-    description: str,
-    parameters_schema: dict[str, Any],
-    fn: Callable[P, R],
-    catch: bool | set[type[Exception]] = False,
-    truncate: int | None = None,
-)
-```
 
 A Tool wrapping a class method.
 
@@ -683,10 +671,10 @@ def robopages(url: str, *, name_filter: str | None = None) -> list[Tool[..., t.A
 
         tools.append(
             Tool(
-                function.name,
-                function.description or "",
-                function.parameters or {},
-                make_execute_on_server(url, function.name),
+                name=function.name,
+                description=function.description or "",
+                parameters_schema=function.parameters or {},
+                fn=make_execute_on_server(url, function.name),
             ),
         )
 

@@ -171,7 +171,7 @@ def test_message_double_content_part_separation() -> None:
 def test_chat_generator_id() -> None:
     generator = get_generator("gpt-3.5")
     chat = Chat([], generator=generator)
-    assert chat.generator_id == "litellm!gpt-3.5"
+    assert chat.generator_id == "gpt-3.5"
 
     other = Chat([])
     assert other.generator_id is None

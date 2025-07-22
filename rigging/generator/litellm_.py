@@ -4,6 +4,7 @@ import datetime
 import re
 import typing as t
 
+import dreadnode as dn
 import litellm
 import litellm.types.utils
 from loguru import logger
@@ -20,7 +21,6 @@ from rigging.generator.base import (
 )
 from rigging.message import ContentAudioInput, ContentImageUrl, ContentText, Message
 from rigging.tools.base import FunctionDefinition, ToolDefinition
-from rigging.tracing import tracer
 
 # We should probably let people configure
 # this independently, but for now we'll
@@ -172,7 +172,7 @@ class LiteLLMGenerator(Generator):
 
         # Otherwise we'll run a small check to see if we can
 
-        with tracer.span(f"Checking '{self.model}' for function calling support") as span:
+        with dn.span(f"Checking '{self.model}' for function calling support") as span:
             try:
                 generated = await self.generate_messages(
                     [[Message(role="user", content="Call the test function")]],

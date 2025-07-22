@@ -24,8 +24,8 @@ def test_tool_from_simple_callable() -> None:
 
     assert tool.name == "simple_function"
     assert tool.description == "A simple function that returns a greeting."
-    assert "_signature" in tool.__dict__
-    assert "_type_adapter" in tool.__dict__
+    assert getattr(tool, "_signature", None) is not None
+    assert getattr(tool, "_type_adapter", None) is not None
 
     # Check schema
     assert "name" in tool.parameters_schema["properties"]

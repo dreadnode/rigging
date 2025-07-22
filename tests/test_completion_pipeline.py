@@ -9,7 +9,7 @@ from rigging.generator import GenerateParams, get_generator
 def test_completion_generator_id() -> None:
     generator = get_generator("gpt-3.5")
     completion = Completion("foo", "bar", generator)
-    assert completion.generator_id == "litellm!gpt-3.5"
+    assert completion.generator_id == "gpt-3.5"
 
     completion.generator = None
     assert completion.generator_id is None

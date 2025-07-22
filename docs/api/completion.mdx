@@ -897,12 +897,21 @@ async def run(
     on_failed = on_failed or self.on_failed
     states = self._initialize_states(1)
 
-    with tracer.span(
-        f"Completion with {self.generator.to_identifier()}",
-        generator_id=self.generator.to_identifier(),
-        params=self.params.to_dict() if self.params is not None else {},
-    ) as span:
-        return (await self._run(span, states, on_failed))[0]
+    with dn.task_span(
+        f"pipeline - {self.generator.to_identifier(short=True)}",
+        label=f"pipeline_{self.generator.to_identifier(short=True)}",
+        attributes={"rigging.type": "completion_pipeline.run"},
+    ) as task:
+        dn.log_inputs(
+            text=self.text,
+            params=self.params.to_dict() if self.params is not None else {},
+            generator_id=self.generator.to_identifier(),
+        )
+        completions = await self._run(task, states, on_failed)
+        completion = completions[0]
+        dn.log_output("completion", completion)
+        task.set_attribute("completions", completions)
+        return completion
 ```
 
 
@@ -978,13 +987,21 @@ async def run_batch(
     for state in states:
         next(state.processor)
 
-    with tracer.span(
-        f"Completion batch with {self.generator.to_identifier()} ({len(states)})",
-        count=len(states),
-        generator_id=self.generator.to_identifier(),
-        params=self.params.to_dict() if self.params is not None else {},
-    ) as span:
-        return await self._run(span, states, on_failed, batch_mode=True)
+    with dn.task_span(
+        f"pipeline - {self.generator.to_identifier(short=True)} (batch x{len(states)})",
+        label=f"pipeline_batch_{self.generator.to_identifier(short=True)}",
+        attributes={"rigging.type": "completion_pipeline.run_batch"},
+    ) as task:
+        dn.log_inputs(
+            count=len(states),
+            many=many,
+            params=params,
+            generator_id=self.generator.to_identifier(),
+        )
+        completions = await self._run(task, states, on_failed, batch_mode=True)
+        dn.log_output("completions", completions)
+        task.set_attribute("completions", completions)
+        return completions
 ```
 
 
@@ -1047,13 +1064,21 @@ async def run_many(
     on_failed = on_failed or self.on_failed
     states = self._initialize_states(count, params)
 
-    with tracer.span(
-        f"Completion with {self.generator.to_identifier()} (x{count})",
-        count=count,
-        generator_id=self.generator.to_identifier(),
-        params=self.params.to_dict() if self.params is not None else {},
-    ) as span:
-        return await self._run(span, states, on_failed)
+    with dn.task_span(
+        f"pipeline - {self.generator.to_identifier(short=True)} (x{count})",
+        label=f"pipeline_many_{self.generator.to_identifier(short=True)}",
+        attributes={"rigging.type": "completion_pipeline.run_many"},
+    ) as task:
+        dn.log_inputs(
+            count=count,
+            text=self.text,
+            params=self.params.to_dict() if self.params is not None else {},
+            generator_id=self.generator.to_identifier(),
+        )
+        completions = await self._run(task, states, on_failed)
+        dn.log_output("completions", completions)
+        task.set_attribute("completions", completions)
+        return completions
 ```
 
 
@@ -1133,9 +1158,20 @@ async def run_over(
         sub.generator = generator
         coros.append(sub.run(allow_failed=(on_failed != "raise")))
 
-    with tracer.span(f"Completion over {len(coros)} generators", count=len(coros)):
+    short_generators = [g.to_identifier(short=True) for g in _generators]
+    task_name = "iterate - " + ", ".join(short_generators)
+
+    with dn.task_span(
+        task_name,
+        label="iterate_over",
+        attributes={"rigging.type": "completion_pipeline.run_over"},
+    ) as task:
+        dn.log_input("generators", [g.to_identifier() for g in _generators])
         completions = await asyncio.gather(*coros)
-        return await self._post_run(completions, on_failed)
+        final_completions = await self._post_run(completions, on_failed)
+        dn.log_output("completions", final_completions)
+        task.set_attribute("completions", final_completions)
+        return final_completions
 ```
 
 

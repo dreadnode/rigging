@@ -48,10 +48,10 @@ def test_get_generator_with_params(identifier: str, valid_params: GenerateParams
 @pytest.mark.parametrize(
     "identifier",
     [
-        ("litellm!test_model,max_tokens=1024,top_p=0.1"),
-        ("litellm!custom,temperature=1.0,max_tokens=100,api_base=https://localhost:8000"),
-        ("litellm!many/model/slashes,stop=a;b;c;"),
-        ("litellm!with_cls_args,max_connections=10"),
+        ("test_model,max_tokens=1024,top_p=0.1"),
+        ("custom,temperature=1.0,max_tokens=100,api_base=https://localhost:8000"),
+        ("many/model/slashes,stop=a;b;c;"),
+        ("http!with_cls_args"),
     ],
 )
 def test_identifier_roundtrip(identifier: str) -> None:
