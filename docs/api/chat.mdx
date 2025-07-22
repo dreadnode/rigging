@@ -1265,6 +1265,8 @@ def __init__(
     """How to handle cache_control entries on messages."""
     self.task_name: str = generator.to_identifier(short=True)
     """The name of the pipeline task, used for logging and debugging."""
+    self.scorers: list[dn.Scorer[Chat]] = []
+    """List of dreadnode scorers to evaluate the generated chat upon completion."""
 
     self.until_types: list[type[Model]] = []
     self.tools: list[Tool[..., t.Any]] = []
@@ -1346,6 +1348,14 @@ params = params
 ```
 
 The parameters for generating messages.
+
+### scorers
+
+```python
+scorers: list[Scorer[Chat]] = []
+```
+
+List of dreadnode scorers to evaluate the generated chat upon completion.
 
 ### task\_name
 
@@ -1725,6 +1735,8 @@ def clone(
         new.errors_to_exclude = self.errors_to_exclude.copy()
         new.caching = self.caching
         new.task_name = self.task_name
+        new.scorers = self.scorers.copy()
+        new.transforms = self.transforms.copy()
 
         new.watch_callbacks = self.watch_callbacks.copy()
 
@@ -2151,7 +2163,7 @@ async def run(
         finally:
             if last is not None and last.chats:
                 dn.log_output("chat", last.chats[-1])
-
+                await self._score_chats(last.chats)
                 # TODO: Remove once Strikes UI is ported
                 task.set_attribute("chats", last.chats)
 
@@ -2180,6 +2192,7 @@ run_batch(
     params: Sequence[GenerateParams | None] | None = None,
     *,
     name: str | None = None,
+    mode: Literal["merged", "parallel"] = "parallel",
     on_failed: FailMode | None = None,
 ) -> ChatList
 ```
@@ -2205,6 +2218,13 @@ Anything already in this chat pipeline will be prepended to the input messages.
   `None`
   )
   –The name of the task for logging purposes.
+* **`mode`**
+  (`Literal['merged', 'parallel']`, default:
+  `'parallel'`
+  )
+  –The mode of execution, either "merged" or "parallel".
+  - In "merged" mode, a single pipeline manages all generation simultaneously
+  - In "parallel" mode, independent pipelines are created for each generation
 * **`on_failed`**
   (`FailMode | None`, default:
   `None`
@@ -2229,6 +2249,7 @@ async def run_batch(
     params: t.Sequence[GenerateParams | None] | None = None,
     *,
     name: str | None = None,
+    mode: t.Literal["merged", "parallel"] = "parallel",
     on_failed: FailMode | None = None,
 ) -> ChatList:
     """
@@ -2241,6 +2262,9 @@ async def run_batch(
         many: A sequence of sequences of messages to be generated.
         params: A sequence of parameters to be used for each set of messages.
         name: The name of the task for logging purposes.
+        mode: The mode of execution, either "merged" or "parallel".
+            - In "merged" mode, a single pipeline manages all generation simultaneously
+            - In "parallel" mode, independent pipelines are created for each generation
         on_failed: The behavior when a message fails to generate.
 
     Returns:
@@ -2262,23 +2286,51 @@ async def run_batch(
             generator_id=self.generator.to_identifier(),
         )
 
-        try:
-            async with aclosing(
-                self._step(messages, params, on_failed),
-            ) as steps:
-                async for step in steps:
-                    last = step
-        finally:
-            if last is not None:
-                dn.log_output("chats", last.chats)
+        if mode == "merged":
+            try:
+                async with aclosing(
+                    self._step(messages, params, on_failed),
+                ) as steps:
+                    async for step in steps:
+                        last = step
+            finally:
+                if last is not None:
+                    dn.log_output("chats", last.chats)
+                    await self._score_chats(last.chats)
+                    # TODO: Remove once Strikes UI is ported
+                    task.set_attribute("chats", last.chats)
 
-                # TODO: Remove once Strikes UI is ported
-                task.set_attribute("chats", last.chats)
+            if last is None or last.state != "final":
+                raise RuntimeError("The pipeline did not complete successfully")
 
-        if last is None or last.state != "final":
-            raise RuntimeError("The pipeline did not complete successfully")
+            return last.chats
 
-    return last.chats
+        if mode == "parallel":
+            tasks = [
+                asyncio.create_task(
+                    self.clone().add(_messages).with_(_params).run(on_failed="include")
+                )
+                for _messages, _params in zip(messages, params, strict=True)
+            ]
+            chats_or_errors = await asyncio.gather(*tasks, return_exceptions=True)
+
+            self._raise_if_failed(chats_or_errors, on_failed)
+
+            chats = [
+                chat
+                for chat in chats_or_errors
+                if isinstance(chat, Chat) and (on_failed != "skip" or not chat.failed)
+            ]
+
+            dn.log_output("chats", chats)
+            # TODO: Remove once Strikes UI is ported
+            task.set_attribute("chats", chats)
+
+            return ChatList(chats)
+
+    raise ValueError(
+        f"Invalid mode '{mode}', expected 'merged' or 'separate'",
+    )
 ```
 
 
@@ -2292,6 +2344,7 @@ run_many(
     *,
     params: Sequence[GenerateParams | None] | None = None,
     name: str | None = None,
+    mode: Literal["merged", "parallel"] = "parallel",
     on_failed: FailMode | None = None,
 ) -> ChatList
 ```
@@ -2313,6 +2366,13 @@ Executes the generation process in parallel over the same input.
   `None`
   )
   –The name of the task for logging purposes.
+* **`mode`**
+  (`Literal['merged', 'parallel']`, default:
+  `'parallel'`
+  )
+  –The mode of execution, either "merged" or "parallel".
+  - In "merged" mode, a single pipeline manages all generation simultaneously
+  - In "parallel" mode, independent pipelines are created for each generation
 * **`on_failed`**
   (`FailMode | None`, default:
   `None`
@@ -2332,6 +2392,7 @@ async def run_many(
     *,
     params: t.Sequence[GenerateParams | None] | None = None,
     name: str | None = None,
+    mode: t.Literal["merged", "parallel"] = "parallel",
     on_failed: FailMode | None = None,
 ) -> ChatList:
     """
@@ -2341,6 +2402,9 @@ async def run_many(
         count: The number of times to execute the generation process.
         params: A sequence of parameters to be used for each execution.
         name: The name of the task for logging purposes.
+        mode: The mode of execution, either "merged" or "parallel".
+            - In "merged" mode, a single pipeline manages all generation simultaneously
+            - In "parallel" mode, independent pipelines are created for each generation
         on_failed: The behavior when a message fails to generate.
 
     Returns:
@@ -2367,23 +2431,46 @@ async def run_many(
             generator_id=self.generator.to_identifier(),
         )
 
-        try:
-            async with aclosing(
-                self._step(messages, params, on_failed),
-            ) as steps:
-                async for step in steps:
-                    last = step
-        finally:
-            if last is not None:
-                dn.log_output("chats", last.chats)
+        if mode == "merged":
+            try:
+                async with aclosing(
+                    self._step(messages, params, on_failed),
+                ) as steps:
+                    async for step in steps:
+                        last = step
+            finally:
+                if last is not None:
+                    dn.log_output("chats", last.chats)
+                    await self._score_chats(last.chats)
+                    # TODO: Remove once Strikes UI is ported
+                    task.set_attribute("chats", last.chats)
 
-                # TODO: Remove once Strikes UI is ported
-                task.set_attribute("chats", last.chats)
+            if last is None or last.state != "final":
+                raise RuntimeError("The pipeline did not complete successfully")
 
-        if last is None or last.state != "final":
-            raise RuntimeError("The pipeline did not complete successfully")
+            return last.chats
 
-    return last.chats
+        if mode == "parallel":
+            tasks = [asyncio.create_task(self.run(on_failed="include")) for _ in range(count)]
+            chats_or_errors = await asyncio.gather(*tasks, return_exceptions=True)
+
+            self._raise_if_failed(chats_or_errors, on_failed)
+
+            chats = [
+                chat
+                for chat in chats_or_errors
+                if isinstance(chat, Chat) and (on_failed != "skip" or not chat.failed)
+            ]
+
+            dn.log_output("chats", chats)
+            # TODO: Remove once Strikes UI is ported
+            task.set_attribute("chats", chats)
+
+            return ChatList(chats)
+
+    raise ValueError(
+        f"Invalid mode '{mode}', expected 'merged' or 'parallel'",
+    )
 ```
 
 
@@ -2473,6 +2560,59 @@ async def run_over(
     ):
         dn.log_input("generators", [g.to_identifier() for g in _generators])
         return ChatList(await asyncio.gather(*coros))
+```
+
+
+</Accordion>
+
+### score
+
+```python
+score(
+    *scorers: Scorer[Chat] | ScorerCallable[Chat],
+) -> ChatPipeline
+```
+
+Adds one or more scorers to the pipeline to evaluate the generated chat upon completion.
+
+**Parameters:**
+
+* **`*scorers`**
+  (`Scorer[Chat] | ScorerCallable[Chat]`, default:
+  `()`
+  )
+  –The scorer or scorers to be added. These can be either:
+  - A dreadnode.Scorer instance.
+  - A callable function that can be converted to a dreadnode.Scorer.
+
+**Returns:**
+
+* `ChatPipeline`
+  –The updated pipeline.
+
+<Accordion title="Source code in rigging/chat.py" icon="code">
+```python
+def score(self, *scorers: dn.Scorer[Chat] | ScorerCallable[Chat]) -> "ChatPipeline":
+    """
+    Adds one or more scorers to the pipeline to evaluate the generated chat upon completion.
+
+    Args:
+        *scorers: The scorer or scorers to be added. These can be either:
+            - A dreadnode.Scorer instance.
+            - A callable function that can be converted to a dreadnode.Scorer.
+
+    Returns:
+        The updated pipeline.
+    """
+    self.scorers.extend(
+        [
+            dn.scorers.wrap_chat(
+                scorer if isinstance(scorer, dn.Scorer) else dn.Scorer.from_callable(scorer)
+            )
+            for scorer in scorers
+        ]
+    )
+    return self
 ```
 
 

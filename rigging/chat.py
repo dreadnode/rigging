@@ -19,6 +19,7 @@ from typing import runtime_checkable
 from uuid import UUID, uuid4
 
 import dreadnode as dn
+from dreadnode.metric import ScorerCallable
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -802,6 +803,8 @@ class ChatPipeline:
         """How to handle cache_control entries on messages."""
         self.task_name: str = generator.to_identifier(short=True)
         """The name of the pipeline task, used for logging and debugging."""
+        self.scorers: list[dn.Scorer[Chat]] = []
+        """List of dreadnode scorers to evaluate the generated chat upon completion."""
 
         self.until_types: list[type[Model]] = []
         self.tools: list[Tool[..., t.Any]] = []
@@ -1002,6 +1005,8 @@ class ChatPipeline:
             new.errors_to_exclude = self.errors_to_exclude.copy()
             new.caching = self.caching
             new.task_name = self.task_name
+            new.scorers = self.scorers.copy()
+            new.transforms = self.transforms.copy()
 
             new.watch_callbacks = self.watch_callbacks.copy()
 
@@ -1372,6 +1377,30 @@ class ChatPipeline:
 
         return self
 
+    def score(self, *scorers: dn.Scorer[Chat] | ScorerCallable[Chat]) -> "ChatPipeline":
+        """
+        Adds one or more scorers to the pipeline to evaluate the generated chat upon completion.
+
+        Args:
+            *scorers: The scorer or scorers to be added. These can be either:
+                - A dreadnode.Scorer instance.
+                - A callable function that can be converted to a dreadnode.Scorer.
+
+        Returns:
+            The updated pipeline.
+        """
+        self.scorers.extend(
+            [
+                dn.scorers.wrap_chat(
+                    scorer if isinstance(scorer, dn.Scorer) else dn.Scorer.from_callable(scorer)
+                )
+                for scorer in scorers
+            ]
+        )
+        return self
+
+    # Internal callbacks for handling tools and parsing
+
     def until_parsed_as(
         self,
         *types: type[ModelT],
@@ -1425,8 +1454,6 @@ class ChatPipeline:
         self.then_callbacks.append((self._then_parse, max_depth, False))
 
         return self
-
-    # Internal callbacks for handling tools and parsing
 
     async def _then_tools(self, chat: Chat) -> PipelineStepContextManager | None:
         if not chat.last.tool_calls:
@@ -1569,6 +1596,30 @@ class ChatPipeline:
                 state.step = None
 
                 state.chat = step.chats[-1] if step.chats else state.chat
+
+    async def _score_chats(self, chats: list[Chat]) -> None:
+        if not self.scorers:
+            return
+
+        for scorer in self.scorers:
+            for metric in await asyncio.gather(
+                *[scorer(chat) for chat in chats],
+            ):
+                dn.log_metric(scorer.name, metric)
+
+    def _raise_if_failed(
+        self,
+        chats: list[Chat | BaseException] | ChatList,
+        on_failed: FailMode | None = None,
+    ) -> None:
+        for chat in chats:
+            error = chat.error if isinstance(chat, Chat) else chat
+            if error is not None and (
+                on_failed == "raise"
+                or not any(isinstance(error, t) for t in self.errors_to_catch)
+                or any(isinstance(error, t) for t in self.errors_to_exclude)
+            ):
+                raise error
 
     # Run methods
 
@@ -1719,13 +1770,7 @@ class ChatPipeline:
 
         # Check if we should immediately raise
 
-        for chat in chats:
-            if chat.error is not None and (
-                on_failed == "raise"
-                or not any(isinstance(chat.error, t) for t in self.errors_to_catch)
-                or any(isinstance(chat.error, t) for t in self.errors_to_exclude)
-            ):
-                raise chat.error
+        self._raise_if_failed(chats, on_failed)
 
         # Chat cleanup
 
@@ -1994,7 +2039,7 @@ class ChatPipeline:
             finally:
                 if last is not None and last.chats:
                     dn.log_output("chat", last.chats[-1])
-
+                    await self._score_chats(last.chats)
                     # TODO: Remove once Strikes UI is ported
                     task.set_attribute("chats", last.chats)
 
@@ -2045,6 +2090,7 @@ class ChatPipeline:
         *,
         params: t.Sequence[GenerateParams | None] | None = None,
         name: str | None = None,
+        mode: t.Literal["merged", "parallel"] = "parallel",
         on_failed: FailMode | None = None,
     ) -> ChatList:
         """
@@ -2054,6 +2100,9 @@ class ChatPipeline:
             count: The number of times to execute the generation process.
             params: A sequence of parameters to be used for each execution.
             name: The name of the task for logging purposes.
+            mode: The mode of execution, either "merged" or "parallel".
+                - In "merged" mode, a single pipeline manages all generation simultaneously
+                - In "parallel" mode, independent pipelines are created for each generation
             on_failed: The behavior when a message fails to generate.
 
         Returns:
@@ -2080,23 +2129,46 @@ class ChatPipeline:
                 generator_id=self.generator.to_identifier(),
             )
 
-            try:
-                async with aclosing(
-                    self._step(messages, params, on_failed),
-                ) as steps:
-                    async for step in steps:
-                        last = step
-            finally:
-                if last is not None:
-                    dn.log_output("chats", last.chats)
+            if mode == "merged":
+                try:
+                    async with aclosing(
+                        self._step(messages, params, on_failed),
+                    ) as steps:
+                        async for step in steps:
+                            last = step
+                finally:
+                    if last is not None:
+                        dn.log_output("chats", last.chats)
+                        await self._score_chats(last.chats)
+                        # TODO: Remove once Strikes UI is ported
+                        task.set_attribute("chats", last.chats)
 
-                    # TODO: Remove once Strikes UI is ported
-                    task.set_attribute("chats", last.chats)
+                if last is None or last.state != "final":
+                    raise RuntimeError("The pipeline did not complete successfully")
 
-            if last is None or last.state != "final":
-                raise RuntimeError("The pipeline did not complete successfully")
+                return last.chats
 
-        return last.chats
+            if mode == "parallel":
+                tasks = [asyncio.create_task(self.run(on_failed="include")) for _ in range(count)]
+                chats_or_errors = await asyncio.gather(*tasks, return_exceptions=True)
+
+                self._raise_if_failed(chats_or_errors, on_failed)
+
+                chats = [
+                    chat
+                    for chat in chats_or_errors
+                    if isinstance(chat, Chat) and (on_failed != "skip" or not chat.failed)
+                ]
+
+                dn.log_output("chats", chats)
+                # TODO: Remove once Strikes UI is ported
+                task.set_attribute("chats", chats)
+
+                return ChatList(chats)
+
+        raise ValueError(
+            f"Invalid mode '{mode}', expected 'merged' or 'parallel'",
+        )
 
     # Batch messages
 
@@ -2178,6 +2250,7 @@ class ChatPipeline:
         params: t.Sequence[GenerateParams | None] | None = None,
         *,
         name: str | None = None,
+        mode: t.Literal["merged", "parallel"] = "parallel",
         on_failed: FailMode | None = None,
     ) -> ChatList:
         """
@@ -2190,6 +2263,9 @@ class ChatPipeline:
             many: A sequence of sequences of messages to be generated.
             params: A sequence of parameters to be used for each set of messages.
             name: The name of the task for logging purposes.
+            mode: The mode of execution, either "merged" or "parallel".
+                - In "merged" mode, a single pipeline manages all generation simultaneously
+                - In "parallel" mode, independent pipelines are created for each generation
             on_failed: The behavior when a message fails to generate.
 
         Returns:
@@ -2211,23 +2287,51 @@ class ChatPipeline:
                 generator_id=self.generator.to_identifier(),
             )
 
-            try:
-                async with aclosing(
-                    self._step(messages, params, on_failed),
-                ) as steps:
-                    async for step in steps:
-                        last = step
-            finally:
-                if last is not None:
-                    dn.log_output("chats", last.chats)
+            if mode == "merged":
+                try:
+                    async with aclosing(
+                        self._step(messages, params, on_failed),
+                    ) as steps:
+                        async for step in steps:
+                            last = step
+                finally:
+                    if last is not None:
+                        dn.log_output("chats", last.chats)
+                        await self._score_chats(last.chats)
+                        # TODO: Remove once Strikes UI is ported
+                        task.set_attribute("chats", last.chats)
 
-                    # TODO: Remove once Strikes UI is ported
-                    task.set_attribute("chats", last.chats)
+                if last is None or last.state != "final":
+                    raise RuntimeError("The pipeline did not complete successfully")
 
-            if last is None or last.state != "final":
-                raise RuntimeError("The pipeline did not complete successfully")
+                return last.chats
 
-        return last.chats
+            if mode == "parallel":
+                tasks = [
+                    asyncio.create_task(
+                        self.clone().add(_messages).with_(_params).run(on_failed="include")
+                    )
+                    for _messages, _params in zip(messages, params, strict=True)
+                ]
+                chats_or_errors = await asyncio.gather(*tasks, return_exceptions=True)
+
+                self._raise_if_failed(chats_or_errors, on_failed)
+
+                chats = [
+                    chat
+                    for chat in chats_or_errors
+                    if isinstance(chat, Chat) and (on_failed != "skip" or not chat.failed)
+                ]
+
+                dn.log_output("chats", chats)
+                # TODO: Remove once Strikes UI is ported
+                task.set_attribute("chats", chats)
+
+                return ChatList(chats)
+
+        raise ValueError(
+            f"Invalid mode '{mode}', expected 'merged' or 'separate'",
+        )
 
     # Generator iteration
 
