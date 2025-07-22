@@ -799,11 +799,10 @@ class CompletionPipeline:
             for state in to_watch_states:
                 state.watched = True
 
-        completions = await self._post_run(
+        return await self._post_run(
             [s.completion for s in states if s.completion is not None],
             on_failed,
         )
-        return completions
 
     async def run(
         self,
