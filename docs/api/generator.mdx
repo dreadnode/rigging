@@ -1024,6 +1024,22 @@ chat = await crucible.chat("How about a flag?").run()
 print(chat.conversation)
 ```
 
+### hook
+
+```python
+hook: HttpHook | None = Field(default=None, exclude=True)
+```
+
+Optional hook to run after each HTTP request with the option to retry or raise an error.
+
+### max\_retries
+
+```python
+max_retries: int = DEFAULT_MAX_RETRIES
+```
+
+"Maximum number of retries the hook can trigger. Defaults to 5.
+
 ### spec
 
 ```python
@@ -1031,6 +1047,444 @@ spec: HTTPSpec | None = None
 ```
 
 Specification for building/parsing HTTP interactions.
+
+### state
+
+```python
+state: dict[str, Any] = Field(default_factory=dict)
+```
+
+Mutable dictionary for dynamic state like access tokens to use in your spec.
+
+### for\_json\_endpoint
+
+```python
+for_json_endpoint(
+    url: str,
+    request: dict[str, Any],
+    model: str | None = None,
+    api_key: str | None = None,
+    method: str = "POST",
+    headers: dict[str, str] | None = None,
+    auth: HttpAuthConfigDict | HttpAuthConfig | None = None,
+    response: ApiResponseConfigDict
+    | ApiResponseConfig
+    | None = None,
+    valid_status_codes: list[int] | None = None,
+    timeout: int | None = None,
+    hook: HttpHook | None = None,
+    state: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> HTTPGenerator
+```
+
+Creates an HTTPGenerator from a simplified, high-level API definition for JSON endpoints.
+
+This is the recommended entry point for most use cases. It provides full
+autocompletion when creating configuration dictionaries in your IDE.
+
+Example
+
+```python
+import rigging as rg
+
+openai_api = rg.HTTPGenerator.for_json_endpoint(
+    "https://api.openai.com/v1/chat/completions",
+    auth={
+        "header": "Authorization",
+        "format": "Bearer {api_key}"
+    },
+    request={
+        "model": "{{ model }}",
+        "messages": "$messages",
+    },
+    response={
+        "content_path": "$.choices[0].message.content",
+        "error_path": "$.error.message"
+    }
+)
+```
+
+**Parameters:**
+
+* **`url`**
+  (`str`)
+  –The URL of the API endpoint (supports Jinja templates).
+* **`request`**
+  (`dict[str, Any]`)
+  –A dictionary defining the request body structure.
+  Use `$<variable>` to reference context variables.
+* **`model`**
+  (`str | None`, default:
+  `None`
+  )
+  –Optional model name for the generator.
+* **`api_key`**
+  (`str | None`, default:
+  `None`
+  )
+  –Optional API key to use for authentication.
+* **`method`**
+  (`str`, default:
+  `'POST'`
+  )
+  –HTTP method to use (default is "POST").
+* **`headers`**
+  (`dict[str, str] | None`, default:
+  `None`
+  )
+  –Optional headers to include in the request.
+  Defaults to {"Content-Type": "application/json"}.
+* **`auth`**
+  (`HttpAuthConfigDict | HttpAuthConfig | None`, default:
+  `None`
+  )
+  –Optional authentication configuration for API key headers.
+* **`response`**
+  (`ApiResponseConfigDict | ApiResponseConfig | None`, default:
+  `None`
+  )
+  –Optional configuration for parsing the response body.
+* **`valid_status_codes`**
+  (`list[int] | None`, default:
+  `None`
+  )
+  –List of valid HTTP status codes (default is [200]).
+* **`timeout`**
+  (`int | None`, default:
+  `None`
+  )
+  –Optional timeout in seconds for the request.
+* **`hook`**
+  (`HttpHook | None`, default:
+  `None`
+  )
+  –Optional hook to run after each HTTP request.
+* **`state`**
+  (`dict[str, Any] | None`, default:
+  `None`
+  )
+  –Optional mutable dictionary for dynamic state like access tokens.
+* **`**kwargs`**
+  (`Any`, default:
+  `{}`
+  )
+  –Additional keyword arguments passed to the generator.
+
+**Returns:**
+
+* `HTTPGenerator`
+  –An instance of HTTPGenerator configured for the specified endpoint.
+
+<Accordion title="Source code in rigging/generator/http.py" icon="code">
+```python
+@classmethod
+def for_json_endpoint(
+    cls,
+    url: str,
+    request: dict[str, t.Any],  # Renamed for clarity
+    model: str | None = None,
+    api_key: str | None = None,
+    method: str = "POST",
+    headers: dict[str, str] | None = None,
+    auth: HttpAuthConfigDict | HttpAuthConfig | None = None,
+    response: ApiResponseConfigDict | ApiResponseConfig | None = None,
+    valid_status_codes: list[int] | None = None,
+    timeout: int | None = None,
+    hook: HttpHook | None = None,
+    state: dict[str, t.Any] | None = None,
+    **kwargs: t.Any,
+) -> "HTTPGenerator":
+    """
+    Creates an HTTPGenerator from a simplified, high-level API definition for JSON endpoints.
+
+    This is the recommended entry point for most use cases. It provides full
+    autocompletion when creating configuration dictionaries in your IDE.
+
+    Example:
+        ~~~
+        import rigging as rg
+
+        openai_api = rg.HTTPGenerator.for_json_endpoint(
+            "https://api.openai.com/v1/chat/completions",
+            auth={
+                "header": "Authorization",
+                "format": "Bearer {api_key}"
+            },
+            request={
+                "model": "{{ model }}",
+                "messages": "$messages",
+            },
+            response={
+                "content_path": "$.choices[0].message.content",
+                "error_path": "$.error.message"
+            }
+        )
+        ~~~
+
+    Args:
+        url: The URL of the API endpoint (supports Jinja templates).
+        request: A dictionary defining the request body structure.
+            Use `$<variable>` to reference context variables.
+        model: Optional model name for the generator.
+        api_key: Optional API key to use for authentication.
+        method: HTTP method to use (default is "POST").
+        headers: Optional headers to include in the request.
+            Defaults to {"Content-Type": "application/json"}.
+        auth: Optional authentication configuration for API key headers.
+        response: Optional configuration for parsing the response body.
+        valid_status_codes: List of valid HTTP status codes (default is [200]).
+        timeout: Optional timeout in seconds for the request.
+        hook: Optional hook to run after each HTTP request.
+        state: Optional mutable dictionary for dynamic state like access tokens.
+        **kwargs: Additional keyword arguments passed to the generator.
+
+    Returns:
+        An instance of HTTPGenerator configured for the specified endpoint.
+    """
+    auth_model = HttpAuthConfig.model_validate(auth) if auth else None
+    response_model = ApiResponseConfig.model_validate(response or {})
+
+    final_headers = (headers or {"Content-Type": "application/json"}).copy()
+    if auth_model:
+        jinja_auth_format = auth_model.format.replace("{api_key}", "{{ api_key }}")
+        final_headers[auth_model.header] = jinja_auth_format
+
+    request_spec = RequestSpec(
+        url=url,
+        method=method,
+        headers=final_headers,
+        timeout=timeout,
+        transforms=[TransformStep[InputTransform](type="json", pattern=request)],
+    )
+
+    response_transforms = []
+    if response_model.content_path != "$":
+        response_transforms.append(
+            TransformStep[OutputTransform](type="jsonpath", pattern=response_model.content_path)
+        )
+
+    response_spec = ResponseSpec(
+        valid_status_codes=valid_status_codes or [200],
+        transforms=response_transforms,
+    )
+
+    spec = HTTPSpec(request=request_spec, response=response_spec)
+    return cls(model=model, api_key=api_key, spec=spec, hook=hook, state=state, **kwargs)
+```
+
+
+</Accordion>
+
+### for\_text\_endpoint
+
+```python
+for_text_endpoint(
+    url: str,
+    request: str,
+    response_pattern: str | None = None,
+    response_pattern_type: Literal[
+        "regex", "jinja"
+    ] = "regex",
+    model: str | None = None,
+    api_key: str | None = None,
+    method: str = "POST",
+    headers: dict[str, str] | None = None,
+    auth: HttpAuthConfigDict | HttpAuthConfig | None = None,
+    valid_status_codes: list[int] | None = None,
+    timeout: int | None = None,
+    hook: HttpHook | None = None,
+    state: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> HTTPGenerator
+```
+
+Creates an HTTPGenerator from a template-based definition.
+
+Ideal for simpler text-based APIs where the request body is generated
+from a Jinja2 template and the response is parsed with a Regex or another template.
+
+Example
+
+```python
+import rigging as rg
+
+text_api = rg.HTTPGenerator.for_text_endpoint(
+    "http://api.example.com/prompt",
+    "User prompt: {{ content }}", # Jinja template
+    response_pattern="Response: (.*)", # Regex to extract content
+    auth={
+        "header": "Authorization",
+        "format": "Bearer {api_key}"
+    }
+)
+```
+
+**Parameters:**
+
+* **`url`**
+  (`str`)
+  –The URL of the API endpoint (supports Jinja templates).
+* **`request`**
+  (`str`)
+  –A Jinja template string for the request body.
+* **`response_pattern`**
+  (`str | None`, default:
+  `None`
+  )
+  –Optional pattern to extract content from the response.
+  If not provided, the entire response body will be used.
+* **`response_pattern_type`**
+  (`Literal['regex', 'jinja']`, default:
+  `'regex'`
+  )
+  –Type of the response pattern, either "regex" or "jinja
+* **`model`**
+  (`str | None`, default:
+  `None`
+  )
+  –Optional model name for the generator.
+* **`api_key`**
+  (`str | None`, default:
+  `None`
+  )
+  –Optional API key to use for authentication.
+* **`method`**
+  (`str`, default:
+  `'POST'`
+  )
+  –HTTP method to use (default is "POST").
+* **`headers`**
+  (`dict[str, str] | None`, default:
+  `None`
+  )
+  –Optional headers to include in the request.
+  Defaults to {"Content-Type": "text/plain"}.
+* **`auth`**
+  (`HttpAuthConfigDict | HttpAuthConfig | None`, default:
+  `None`
+  )
+  –Optional authentication configuration for API key headers.
+* **`valid_status_codes`**
+  (`list[int] | None`, default:
+  `None`
+  )
+  –List of valid HTTP status codes (default is [200]).
+* **`timeout`**
+  (`int | None`, default:
+  `None`
+  )
+  –Optional timeout in seconds for the request.
+* **`hook`**
+  (`HttpHook | None`, default:
+  `None`
+  )
+  –Optional hook to run after each HTTP request.
+* **`state`**
+  (`dict[str, Any] | None`, default:
+  `None`
+  )
+  –Optional mutable dictionary for dynamic state like access tokens.
+* **`**kwargs`**
+  (`Any`, default:
+  `{}`
+  )
+  –Additional keyword arguments passed to the generator.
+
+<Accordion title="Source code in rigging/generator/http.py" icon="code">
+```python
+@classmethod
+def for_text_endpoint(
+    cls,
+    url: str,
+    request: str,
+    response_pattern: str | None = None,
+    response_pattern_type: t.Literal["regex", "jinja"] = "regex",
+    model: str | None = None,
+    api_key: str | None = None,
+    method: str = "POST",
+    headers: dict[str, str] | None = None,
+    auth: HttpAuthConfigDict | HttpAuthConfig | None = None,
+    valid_status_codes: list[int] | None = None,
+    timeout: int | None = None,
+    hook: HttpHook | None = None,
+    state: dict[str, t.Any] | None = None,
+    **kwargs: t.Any,
+) -> "HTTPGenerator":
+    """
+    Creates an HTTPGenerator from a template-based definition.
+
+    Ideal for simpler text-based APIs where the request body is generated
+    from a Jinja2 template and the response is parsed with a Regex or another template.
+
+    Example:
+        ~~~
+        import rigging as rg
+
+        text_api = rg.HTTPGenerator.for_text_endpoint(
+            "http://api.example.com/prompt",
+            "User prompt: {{ content }}", # Jinja template
+            response_pattern="Response: (.*)", # Regex to extract content
+            auth={
+                "header": "Authorization",
+                "format": "Bearer {api_key}"
+            }
+        )
+        ~~~
+
+    Args:
+        url: The URL of the API endpoint (supports Jinja templates).
+        request: A Jinja template string for the request body.
+        response_pattern: Optional pattern to extract content from the response.
+            If not provided, the entire response body will be used.
+        response_pattern_type: Type of the response pattern, either "regex" or "jinja
+        model: Optional model name for the generator.
+        api_key: Optional API key to use for authentication.
+        method: HTTP method to use (default is "POST").
+        headers: Optional headers to include in the request.
+            Defaults to {"Content-Type": "text/plain"}.
+        auth: Optional authentication configuration for API key headers.
+        valid_status_codes: List of valid HTTP status codes (default is [200]).
+        timeout: Optional timeout in seconds for the request.
+        hook: Optional hook to run after each HTTP request.
+        state: Optional mutable dictionary for dynamic state like access tokens.
+        **kwargs: Additional keyword arguments passed to the generator.
+    """
+    auth_model = HttpAuthConfig.model_validate(auth) if auth else None
+
+    final_headers = (headers or {"Content-Type": "text/plain"}).copy()
+    if auth_model:
+        jinja_auth_format = auth_model.format.replace("{api_key}", "{{ api_key }}")
+        final_headers[auth_model.header] = jinja_auth_format
+
+    request_spec = RequestSpec(
+        url=url,
+        method=method,
+        headers=final_headers,
+        timeout=timeout,
+        transforms=[TransformStep[InputTransform](type="jinja", pattern=request)],
+    )
+
+    response_transforms = []
+    if response_pattern:
+        response_transforms.append(
+            TransformStep[OutputTransform](
+                type=response_pattern_type,
+                pattern=response_pattern,
+            )
+        )
+
+    response_spec = ResponseSpec(
+        valid_status_codes=valid_status_codes or [200],
+        transforms=response_transforms,
+    )
+
+    spec = HTTPSpec(request=request_spec, response=response_spec)
+    return cls(model=model, api_key=api_key, spec=spec, hook=hook, state=state, **kwargs)
+```
+
+
+</Accordion>
 
 LiteLLMGenerator
 ----------------

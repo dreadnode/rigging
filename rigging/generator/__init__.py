@@ -17,7 +17,7 @@ from rigging.generator.base import (
     get_identifier,
     register_generator,
 )
-from rigging.generator.http import HTTPGenerator
+from rigging.generator.http import HTTPGenerator, HttpHook, HttpHookAction, HTTPSpec
 from rigging.generator.litellm_ import LiteLLMGenerator
 
 register_generator("litellm", LiteLLMGenerator)
@@ -61,6 +61,10 @@ __all__ = [
     "GeneratedText",
     "Generator",
     "HTTPGenerator",
+    "HTTPGenerator",
+    "HTTPSpec",
+    "HttpHook",
+    "HttpHookAction",
     "LiteLLMGenerator",
     "StopReason",
     "Usage",

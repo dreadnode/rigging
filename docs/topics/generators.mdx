@@ -325,6 +325,57 @@ The specification is assigned to the `.spec` field on the generator, and can be 
 
 This flexibility allows you to easily share and reuse specifications across different parts of your application.
 
+### Simple Factories (Recommended)
+
+For most common use cases, you can use one of the built-in factory methods. These provide a simple, high-level interface and give you full autocompletion for configuration in your IDE.
+
+#### For JSON APIs: `HTTPGenerator.for_json_endpoint()`
+
+This is the perfect choice for APIs that accept a JSON request body and return a JSON response.
+
+```python
+import rigging as rg
+
+# Define a generator for a fictional API
+openai_clone = rg.HTTPGenerator.for_json_endpoint(
+    model="some-model-v1",
+    api_key="MY_SECRET_KEY",
+    url="https://api.example.com/v1/generate",
+    auth={"header": "Authorization", "format": "Bearer {api_key}"},
+    request_body={
+        "model_name": "$model",
+        "prompt": "$content",
+        "history": "$messages",
+    },
+    response={"content_path": "$.choices[0].text"}
+)
+
+response = await openai_clone.chat("Tell me a story about a brave robot.")
+print(response.content)
+```
+
+#### For Text & Template-based APIs: `HTTPGenerator.for_text_endpoint()`
+
+If you're interacting with a simpler API that takes plain text, this factory is ideal. The entire request body is a single Jinja2 template string.
+
+```python
+import rigging as rg
+
+text_api = rg.HTTPGenerator.for_text_endpoint(
+    url="http://api.example.com/prompt",
+    api_key="MY_OTHER_KEY",
+    auth={"header": "X-Api-Key"},
+    # The entire request body is a Jinja2 template
+    request_template="User prompt for model {{ model }}: {{ content }}",
+    # The response is parsed with a regex to find the content
+    response_pattern="API Response: (.*)"
+)
+```
+
+### Advanced Usage with `HTTPSpec`
+
+For maximum control, you can bypass the factories and define a full `HTTPSpec` object yourself. This is useful for complex scenarios involving multi-step transformations or other non-standard requirements.
+
 ```python
 import rigging as rg
 
@@ -361,9 +412,7 @@ print(chat.conversation)
 <Tip>
 **Saving schemas**
 
-Encoded YAML is the default storage when an HTTP generator is serialized to an identifier using
-`to_identifier`. This also means that when we save
-our chats to storage, they maintain their http specification.
+Encoded YAML is the default storage when an HTTP generator is serialized to an identifier using `to_identifier`. This also means that when we save our chats to storage, they maintain their http specification.
 
 ```py
 print(crucible.to_identifier())
@@ -371,29 +420,73 @@ print(crucible.to_identifier())
 ```
 </Tip>
 
-### Specification
+### State Management
 
-The specification (`HTTPSpec`) controls how messages are transformed around HTTP interactions. It supports:
+You can make any `HTTPGenerator` stateful by using the `.state` dictionary. This is a mutable dictionary that you can use to store any dynamic information—like session IDs or temporary credentials—that needs to be accessed by your templates.
 
-- Template-based URLs
-- Template-based header generation
-- Configurable timeouts and HTTP methods
-- Status code validation
-- Flexible body transformations for both the request and response
+```python
+import uuid
 
-When building requests, the following context variables (`RequestTransformContext`)
-are available in your transform patterns:
+# Create a generator and set an initial state
+my_api = rg.HTTPGenerator.for_json_endpoint(...)
+my_api.state["session_id"] = str(uuid.uuid4())
 
-- `role` - Role of the last message (user/assistant/system)
-- `content` - Content of the last message
-- `all_content` - Concatenated content of all messages
-- `messages` - List of all message objects
-- `params` - Generation parameters (temperature, max_tokens, etc.)
-- `api_key` - API key from the generator
-- `model` - Model identifier from the generator
+# The request_body can now reference this state
+# request_body={"prompt": "$content", "session": "{{ state.session_id }}"}
+```
 
-For both request and response transform chains, the previous result of each transform is
-provided to the next transform via any of `data`, `output`, `result`, or `body`.
+### Hooks
+
+For advanced scenarios like handling expiring credentials, you can combine the `state` dictionary with an async `hook` function. The hook is called after every HTTP request, allowing it to inspect the response and dynamically update the state before automatically retrying.
+
+```python
+import rigging as rg
+import httpx
+
+# 1. Define a hook to refresh a token on a 401 Unauthorized error
+async def refresh_token_hook(generator: rg.generator.HTTPGenerator, response: httpx.Response) -> rg.generator.HookAction:
+    if response.status_code == 401:
+        print("Token expired, refreshing...")
+        # (Your logic to get a new token would go here)
+        new_token = "new-super-secret-token"
+
+        # Update the generator's state in-place
+        generator.state["access_token"] = new_token
+
+        # Tell the generator to retry the request
+        return "retry"
+
+    # For all other responses, continue as normal
+    return "continue"
+
+# 2. Configure the generator with the hook and initial state
+stateful_api = rg.HTTPGenerator.for_json_endpoint(
+    url="https://api.secure.com/v1/live/chat",
+    hook=refresh_token_hook,
+    state={"access_token": "initial-token"},
+    auth={"header": "Authorization", "format": "Bearer {{ state.access_token }}"},
+    request_body={"query": "$content"},
+    response={"content_path": "$.data.result"}
+)`
+
+# This call will be transparently retried if the token has expired
+chat = await stateful_api.chat("What are my account details?").run()
+```
+
+### Template Context Variables
+
+When building requests with either the factories or a full `spec`, the following `RequestTransformContext` variables are available in your Jinja templates (e.g., `{{ variable }}`) and JSON value substitutions (e.g., `"$variable"`):
+
+-   `content`: Content of the last message.
+-   `messages`: List of all message objects in the history.
+-   `api_key`: The API key from the generator's configuration.
+-   `model`: The model identifier from the generator's configuration.
+-   `state`: The generator's mutable `state` dictionary (see Stateful Generators).
+-   `params`: Generation parameters from the current call (e.g., `temperature`).
+-   `all_content`: Concatenated content of all messages.
+-   `role`: Role of the last message (user/assistant/system).
+
+For advanced `spec` files with multiple transformation steps, the output of the previous step is also available to the next as `result`, `data`, or `output`.
 
 ### Transforms
 
@@ -447,6 +540,7 @@ transforms:
       "messages": "$messages",
       "temperature": "$params.temperature",
       "content": "$content",
+      "data": "$state.data",
       "static_field": "hello"
     }
 ```

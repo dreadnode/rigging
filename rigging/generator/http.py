@@ -8,6 +8,7 @@ import typing as t
 import httpx
 import jinja2
 import jsonpath_ng  # type: ignore [import-untyped]
+import typing_extensions as te
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 from ruamel.yaml import YAML
 
@@ -24,6 +25,8 @@ from rigging.message import Message, Role
 # - Add request retry mechanics
 # - Add request timeout mechanics
 # - Add maximum concurrent requests
+
+DEFAULT_MAX_RETRIES = 5
 
 # Helpers
 
@@ -75,6 +78,9 @@ class RequestTransformContext(BaseModel):
 
     model: str
     """Model set on the generator."""
+
+    state: dict[str, t.Any] = Field(default_factory=dict)
+    """Mutable dictionary for dynamic state like access tokens to use in your spec."""
 
 
 # Spec types
@@ -241,6 +247,76 @@ class HTTPSpec(BaseModel):
         return template.render(**context.model_dump(mode="json"))
 
 
+class HttpAuthConfigDict(te.TypedDict):
+    """Configuration for API key authentication."""
+
+    header: str
+    """The name of the header, e.g., 'Authorization' or 'X-Api-Key'."""
+    format: te.NotRequired[str]
+    """
+    The format string for the header's value. Defaults to '{api_key}'.
+    Example: 'Bearer {api_key}'
+    """
+
+
+class ApiResponseConfigDict(te.TypedDict):
+    """Defines how to parse content from an API response."""
+
+    content_path: te.NotRequired[str]
+    """
+    JSONPath to extract the primary message content from a successful response.
+    Defaults to '$' to return the entire response body.
+    Example: '$.choices[0].message.content'
+    """
+    error_path: te.NotRequired[str]
+    """
+    JSONPath to extract a detailed error message if the response is unsuccessful.
+    If not found, the full response body will be used.
+    Example: '$.error.message'
+    """
+
+
+class HttpAuthConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    header: str
+    """The name of the header, e.g., 'Authorization' or 'X-Api-Key'."""
+    format: str = "{api_key}"
+    """
+    The format string for the header's value. Defaults to '{api_key}'.
+    Example: 'Bearer {api_key}'
+    """
+
+
+class ApiResponseConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    content_path: str = "$"
+    """
+    JSONPath to extract the primary message content from a successful response.
+    Defaults to '$' to return the entire response body.
+    Example: '$.choices[0].message.content'
+    """
+    error_path: str | None = None
+    """
+    JSONPath to extract a detailed error message if the response is unsuccessful.
+    If not found, the full response body will be used.
+    Example: '$.error.message'
+    """
+
+
+HttpHookAction = t.Literal["retry", "raise", "continue"]
+HttpHook = t.Callable[["HTTPGenerator", httpx.Response], t.Awaitable[HttpHookAction | None]]
+"""
+Hook to run after each HTTP request of the HTTPGenerator.
+
+The hook receives the generator instance and the HTTP response.
+
+It can return:
+- "retry": to retry the request.
+- "raise": to raise an error.
+- "continue"/None: to continue processing without retrying.
+"""
+
+
 class HTTPGenerator(Generator):
     """
     Generator to map messages to HTTP requests and back.
@@ -285,6 +361,12 @@ class HTTPGenerator(Generator):
 
     spec: HTTPSpec | None = None
     """Specification for building/parsing HTTP interactions."""
+    state: dict[str, t.Any] = Field(default_factory=dict)
+    """Mutable dictionary for dynamic state like access tokens to use in your spec."""
+    hook: HttpHook | None = Field(default=None, exclude=True)
+    """Optional hook to run after each HTTP request with the option to retry or raise an error."""
+    max_retries: int = DEFAULT_MAX_RETRIES
+    """"Maximum number of retries the hook can trigger. Defaults to 5."""
 
     @field_validator("spec", mode="before")
     @classmethod
@@ -313,6 +395,189 @@ class HTTPGenerator(Generator):
 
         return base64.b64encode(v.model_dump_json().encode()).decode()
 
+    @classmethod
+    def for_json_endpoint(
+        cls,
+        url: str,
+        request: dict[str, t.Any],  # Renamed for clarity
+        model: str | None = None,
+        api_key: str | None = None,
+        method: str = "POST",
+        headers: dict[str, str] | None = None,
+        auth: HttpAuthConfigDict | HttpAuthConfig | None = None,
+        response: ApiResponseConfigDict | ApiResponseConfig | None = None,
+        valid_status_codes: list[int] | None = None,
+        timeout: int | None = None,
+        hook: HttpHook | None = None,
+        state: dict[str, t.Any] | None = None,
+        **kwargs: t.Any,
+    ) -> "HTTPGenerator":
+        """
+        Creates an HTTPGenerator from a simplified, high-level API definition for JSON endpoints.
+
+        This is the recommended entry point for most use cases. It provides full
+        autocompletion when creating configuration dictionaries in your IDE.
+
+        Example:
+            ```
+            import rigging as rg
+
+            openai_api = rg.HTTPGenerator.for_json_endpoint(
+                "https://api.openai.com/v1/chat/completions",
+                auth={
+                    "header": "Authorization",
+                    "format": "Bearer {api_key}"
+                },
+                request={
+                    "model": "{{ model }}",
+                    "messages": "$messages",
+                },
+                response={
+                    "content_path": "$.choices[0].message.content",
+                    "error_path": "$.error.message"
+                }
+            )
+            ```
+
+        Args:
+            url: The URL of the API endpoint (supports Jinja templates).
+            request: A dictionary defining the request body structure.
+                Use `$<variable>` to reference context variables.
+            model: Optional model name for the generator.
+            api_key: Optional API key to use for authentication.
+            method: HTTP method to use (default is "POST").
+            headers: Optional headers to include in the request.
+                Defaults to {"Content-Type": "application/json"}.
+            auth: Optional authentication configuration for API key headers.
+            response: Optional configuration for parsing the response body.
+            valid_status_codes: List of valid HTTP status codes (default is [200]).
+            timeout: Optional timeout in seconds for the request.
+            hook: Optional hook to run after each HTTP request.
+            state: Optional mutable dictionary for dynamic state like access tokens.
+            **kwargs: Additional keyword arguments passed to the generator.
+
+        Returns:
+            An instance of HTTPGenerator configured for the specified endpoint.
+        """
+        auth_model = HttpAuthConfig.model_validate(auth) if auth else None
+        response_model = ApiResponseConfig.model_validate(response or {})
+
+        final_headers = (headers or {"Content-Type": "application/json"}).copy()
+        if auth_model:
+            jinja_auth_format = auth_model.format.replace("{api_key}", "{{ api_key }}")
+            final_headers[auth_model.header] = jinja_auth_format
+
+        request_spec = RequestSpec(
+            url=url,
+            method=method,
+            headers=final_headers,
+            timeout=timeout,
+            transforms=[TransformStep[InputTransform](type="json", pattern=request)],
+        )
+
+        response_transforms = []
+        if response_model.content_path != "$":
+            response_transforms.append(
+                TransformStep[OutputTransform](type="jsonpath", pattern=response_model.content_path)
+            )
+
+        response_spec = ResponseSpec(
+            valid_status_codes=valid_status_codes or [200],
+            transforms=response_transforms,
+        )
+
+        spec = HTTPSpec(request=request_spec, response=response_spec)
+        return cls(model=model, api_key=api_key, spec=spec, hook=hook, state=state, **kwargs)
+
+    @classmethod
+    def for_text_endpoint(
+        cls,
+        url: str,
+        request: str,
+        response_pattern: str | None = None,
+        response_pattern_type: t.Literal["regex", "jinja"] = "regex",
+        model: str | None = None,
+        api_key: str | None = None,
+        method: str = "POST",
+        headers: dict[str, str] | None = None,
+        auth: HttpAuthConfigDict | HttpAuthConfig | None = None,
+        valid_status_codes: list[int] | None = None,
+        timeout: int | None = None,
+        hook: HttpHook | None = None,
+        state: dict[str, t.Any] | None = None,
+        **kwargs: t.Any,
+    ) -> "HTTPGenerator":
+        """
+        Creates an HTTPGenerator from a template-based definition.
+
+        Ideal for simpler text-based APIs where the request body is generated
+        from a Jinja2 template and the response is parsed with a Regex or another template.
+
+        Example:
+            ```
+            import rigging as rg
+
+            text_api = rg.HTTPGenerator.for_text_endpoint(
+                "http://api.example.com/prompt",
+                "User prompt: {{ content }}", # Jinja template
+                response_pattern="Response: (.*)", # Regex to extract content
+                auth={
+                    "header": "Authorization",
+                    "format": "Bearer {api_key}"
+                }
+            )
+            ```
+
+        Args:
+            url: The URL of the API endpoint (supports Jinja templates).
+            request: A Jinja template string for the request body.
+            response_pattern: Optional pattern to extract content from the response.
+                If not provided, the entire response body will be used.
+            response_pattern_type: Type of the response pattern, either "regex" or "jinja
+            model: Optional model name for the generator.
+            api_key: Optional API key to use for authentication.
+            method: HTTP method to use (default is "POST").
+            headers: Optional headers to include in the request.
+                Defaults to {"Content-Type": "text/plain"}.
+            auth: Optional authentication configuration for API key headers.
+            valid_status_codes: List of valid HTTP status codes (default is [200]).
+            timeout: Optional timeout in seconds for the request.
+            hook: Optional hook to run after each HTTP request.
+            state: Optional mutable dictionary for dynamic state like access tokens.
+            **kwargs: Additional keyword arguments passed to the generator.
+        """
+        auth_model = HttpAuthConfig.model_validate(auth) if auth else None
+
+        final_headers = (headers or {"Content-Type": "text/plain"}).copy()
+        if auth_model:
+            jinja_auth_format = auth_model.format.replace("{api_key}", "{{ api_key }}")
+            final_headers[auth_model.header] = jinja_auth_format
+
+        request_spec = RequestSpec(
+            url=url,
+            method=method,
+            headers=final_headers,
+            timeout=timeout,
+            transforms=[TransformStep[InputTransform](type="jinja", pattern=request)],
+        )
+
+        response_transforms = []
+        if response_pattern:
+            response_transforms.append(
+                TransformStep[OutputTransform](
+                    type=response_pattern_type,
+                    pattern=response_pattern,
+                )
+            )
+
+        response_spec = ResponseSpec(
+            valid_status_codes=valid_status_codes or [200],
+            transforms=response_transforms,
+        )
+
+        spec = HTTPSpec(request=request_spec, response=response_spec)
+        return cls(model=model, api_key=api_key, spec=spec, hook=hook, state=state, **kwargs)
+
     async def _generate_message(
         self,
         messages: t.Sequence[Message],
@@ -321,54 +586,72 @@ class HTTPGenerator(Generator):
         if self.spec is None:
             raise ProcessingError("No spec was provided to the HTTPGenerator")
 
-        # Context for our input transforms
-        context = RequestTransformContext(
-            role=messages[-1].role,
-            content=messages[-1].content,
-            all_content="\n".join(m.content for m in messages),
-            messages=[m.to_openai() for m in messages],
-            params=params.to_dict(),
-            api_key=self.api_key or "",
-            model=self.model,
-        )
-
-        # Conditionally set the timeout to avoid overriding the default "unset" value
-        kwargs: dict[str, t.Any] = {}
-        if self.spec.request.timeout is not None:
-            kwargs["timeout"] = self.spec.request.timeout
-        elif params.timeout is not None:
-            kwargs["timeout"] = params.timeout
-        elif self.params.timeout is not None:
-            kwargs["timeout"] = self.params.timeout
-
-        async with httpx.AsyncClient() as client:
-            response = await client.request(
-                self.spec.request.method,
-                self.spec.make_url(context),
-                content=self.spec.make_request_body(context),
-                headers=self.spec.make_headers(context),
-                **kwargs,
+        response: httpx.Response | None = None
+        for _ in range(self.max_retries):
+            # Context for our input transforms
+            context = RequestTransformContext(
+                role=messages[-1].role,
+                content=messages[-1].content,
+                all_content="\n".join(m.content for m in messages),
+                messages=[m.to_openai() for m in messages],
+                params=params.to_dict(),
+                api_key=self.api_key or "",
+                model=self.model,
+                state=self.state,
             )
 
-        content = response.text
+            # Conditionally set the timeout to avoid overriding the default "unset" value
+            kwargs: dict[str, t.Any] = {}
+            if self.spec.request.timeout is not None:
+                kwargs["timeout"] = self.spec.request.timeout
+            elif params.timeout is not None:
+                kwargs["timeout"] = params.timeout
+            elif self.params.timeout is not None:
+                kwargs["timeout"] = self.params.timeout
 
-        if (
-            self.spec.response is not None
-            and response.status_code not in self.spec.response.valid_status_codes
-        ):
-            raise ProcessingError(
-                f"Received invalid status code: {response.status_code} for {response.url}",
+            async with httpx.AsyncClient() as client:
+                response = await client.request(
+                    self.spec.request.method,
+                    self.spec.make_url(context),
+                    content=self.spec.make_request_body(context),
+                    headers=self.spec.make_headers(context),
+                    **kwargs,
+                )
+
+            if self.hook:
+                action = await self.hook(self, response)
+                if action == "retry":
+                    continue
+                if action == "raise":
+                    raise ProcessingError(
+                        f"Hook instructed to raise an error for status {response.status_code}. Response: {response.text}"
+                    )
+
+            content = response.text
+
+            if (
+                self.spec.response is not None
+                and response.status_code not in self.spec.response.valid_status_codes
+            ):
+                raise ProcessingError(
+                    f"Received invalid status code: {response.status_code} for {response.url}",
+                )
+
+            return GeneratedMessage(
+                message=Message(role="assistant", content=self.spec.parse_response_body(content)),
+                stop_reason="stop",
+                usage=None,
+                extra={
+                    "status_code": response.status_code,
+                    "url": response.url,
+                    "headers": response.headers,
+                },
             )
 
-        return GeneratedMessage(
-            message=Message(role="assistant", content=self.spec.parse_response_body(content)),
-            stop_reason="stop",
-            usage=None,
-            extra={
-                "status_code": response.status_code,
-                "url": response.url,
-                "headers": response.headers,
-            },
+        raise ProcessingError(
+            f"Request failed after {self.max_retries} retry attempts. "
+            f"Final status: {response.status_code if response else 'unk'}. "
+            f"Response: {response.text if response else 'unk'}"
         )
 
     async def generate_messages(
