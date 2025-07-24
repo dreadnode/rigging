@@ -233,3 +233,59 @@ async def test_watch_callback() -> None:
     # Watch should be called at least once
     assert len(watch_calls) >= 1
     assert all(calls >= 1 for calls in watch_calls)
+
+
+@pytest.mark.asyncio
+async def test_map_callback_exception_handling() -> None:
+    """Test that exceptions in map callback functions are properly caught and assigned to chat.error and chat.failed."""
+
+    generator = FixedGenerator(model="fixed", text="Response", params=GenerateParams())
+
+    async def failing_map_callback(chats: list[Chat]) -> list[Chat]:
+        # Simulate an exception in the map callback
+        raise RuntimeError("Map callback failure")
+
+    pipeline = generator.chat("test").map(failing_map_callback)
+
+    # Test with default on_failed behavior (should raise)
+    with pytest.raises(RuntimeError):
+        await pipeline.run()
+
+    # Should still raise as RuntimeError is not in the default catch list
+    with pytest.raises(RuntimeError):
+        await pipeline.run(on_failed="include")
+
+    # Should capture now
+    chat = await pipeline.catch(RuntimeError, on_failed="include").run()
+
+    assert chat.failed is True
+    assert isinstance(chat.error, RuntimeError)
+    assert str(chat.error) == "Map callback failure"
+
+
+@pytest.mark.asyncio
+async def test_then_callback_exception_handling() -> None:
+    """Test that exceptions in then callback functions are properly caught and assigned to chat.error and chat.failed."""
+
+    generator = FixedGenerator(model="fixed", text="Response", params=GenerateParams())
+
+    async def failing_then_callback(chat: Chat) -> PipelineStepContextManager:
+        # Simulate an exception in the then callback
+        raise RuntimeError("Then callback failure")
+
+    pipeline = generator.chat("test").then(failing_then_callback)
+
+    # Test with default on_failed behavior (should raise)
+    with pytest.raises(RuntimeError):
+        await pipeline.run()
+
+    # Should still raise as RuntimeError is not in the default catch list
+    with pytest.raises(RuntimeError):
+        await pipeline.run(on_failed="include")
+
+    # Should capture now
+    chat = await pipeline.catch(RuntimeError, on_failed="include").run()
+
+    assert chat.failed is True
+    assert isinstance(chat.error, RuntimeError)
+    assert str(chat.error) == "Then callback failure"

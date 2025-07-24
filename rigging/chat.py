@@ -1845,13 +1845,12 @@ class ChatPipeline:
                         *[state.ready_event.wait() for state in states if not state.completed],
                     )
 
-                    # TODO(nick): Are we good to throw exceptions here?
-                    for task in tasks:
+                    for state, task in zip(states, tasks, strict=True):
                         if task.done() and (exception := task.exception()):
-                            raise exception
+                            state.chat.error = exception
+                            state.chat.failed = True
 
-                    for state in states:
-                        if state.ready_event.is_set() and state.step:
+                        elif state.ready_event.is_set() and state.step:
                             step = state.step.with_parent(current_step)
 
                             if step.depth > max_depth:
@@ -1875,9 +1874,11 @@ class ChatPipeline:
                     for task in tasks:
                         if not task.done():
                             task.cancel()
-                    await asyncio.gather(*tasks)  # TODO(nick): return_exceptions=True ?
+                    await asyncio.gather(*tasks, return_exceptions=True)
 
             chats = ChatList([state.chat for state in states if state.chat])
+
+            self._raise_if_failed(chats, on_failed)
 
             current_step = PipelineStep(
                 state="callback",
@@ -1917,9 +1918,18 @@ class ChatPipeline:
             )
 
             async with contextlib.AsyncExitStack() as exit_stack:
-                result = map_task(chats)
-                if inspect.isawaitable(result):
-                    result = await result
+                try:
+                    result = map_task(chats)
+                    if inspect.isawaitable(result):
+                        result = await result
+                except Exception as e:  # noqa: BLE001
+                    # If the map raised an exception, assign it to all the chats
+                    for chat in chats:
+                        chat.error = e
+                        chat.failed = True
+
+                    self._raise_if_failed(chats, on_failed)
+                    continue
 
                 if isinstance(result, contextlib.AbstractAsyncContextManager):
                     result = await exit_stack.enter_async_context(result)
