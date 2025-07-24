@@ -388,9 +388,17 @@ class Model(BaseXmlModel):
             return f"<{field_name}{tag_attrs}>{content}</{field_name}>"
 
         fields_pattern = "|".join(re.escape(field_name) for field_name in field_map)
-        pattern = f"<({fields_pattern})((?:[^>]*?)?)>(.*?)</\\1>"
+        pattern = f"<({fields_pattern})((?:\\s[^>]*?)?)>(.*?)</\\1>"
 
-        return re.sub(pattern, wrap_with_cdata, content, flags=re.DOTALL)
+        updated = re.sub(pattern, wrap_with_cdata, content, flags=re.DOTALL)
+
+        # If our updates created invalid XML, discard them
+        try:
+            ET.fromstring(updated)  # noqa: S314 # nosec
+        except ET.ParseError:
+            return content
+
+        return updated
 
     # Attempt to extract this object from an arbitrary string
     # which may contain other XML elements or text, returns
