@@ -50,7 +50,7 @@ from rigging.message import (
 from rigging.model import Model, attr, element, wrapped
 from rigging.prompt import Ctx, Prompt, prompt
 from rigging.tokenizer import TokenizedChat, Tokenizer, get_tokenizer, register_tokenizer
-from rigging.tools import Tool, mcp, robopages, tool, tool_method
+from rigging.tools import Tool, as_mcp, mcp, robopages, tool, tool_method
 from rigging.transform import PostTransform, Transform
 from rigging.util import await_
 from rigging.version import VERSION
@@ -93,6 +93,7 @@ __all__ = [
     "Tokenizer",
     "Tool",
     "Transform",
+    "as_mcp",
     "attr",
     "await_",
     "caching",

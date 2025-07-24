@@ -3,6 +3,9 @@ Utilities for communicating with MCP servers.
 """
 
 import asyncio
+import functools
+import inspect
+import json
 import typing as t
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
@@ -13,8 +16,11 @@ import typing_extensions as te
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
+from mcp.server.fastmcp import FastMCP, Image
+from mcp.server.fastmcp.tools import Tool as FastMCPTool
 from mcp.types import CallToolResult, TextResourceContents
 
+from rigging.error import Stop
 from rigging.tools.base import Tool
 
 if t.TYPE_CHECKING:
@@ -25,6 +31,9 @@ DEFAULT_HTTP_TIMEOUT = 5
 DEFAULT_SSE_READ_TIMEOUT = 60 * 5
 
 Transport = t.Literal["stdio", "sse"]
+
+P = t.ParamSpec("P")
+R = t.TypeVar("R")
 
 
 class StdioConnection(te.TypedDict):
@@ -59,6 +68,56 @@ def _convert_mcp_result_to_message_parts(result: CallToolResult) -> list[t.Any]:
         else:
             raise ValueError(f"Unknown content type: {content.type}")
     return parts
+
+
+def _convert_rigging_return_to_mcp(result: t.Any) -> t.Any:
+    """
+    Converts a return value from a rigging.Tool into a type that
+    FastMCP can serialize and send to a client.
+
+    Args:
+        result: The return value from a rigging.Tool's execution.
+
+    Returns:
+        A value compatible with MCP serialization (JSON types, mcp.Image, etc.).
+    """
+    from rigging.message import ContentImageUrl, ContentText, Message
+
+    if isinstance(result, Stop):
+        return f"Tool requested stop: {result.message}"
+
+    if isinstance(result, Message):
+        # If the message contains a single content part, we can unwrap it for a
+        # cleaner return type. Otherwise, we must serialize the parts together.
+        if len(result.content_parts) == 1:
+            return _convert_rigging_return_to_mcp(result.content_parts[0])
+
+        return json.dumps([part.model_dump(mode="json") for part in result.content_parts], indent=2)
+
+    if isinstance(result, ContentText):
+        return result.text
+
+    if isinstance(result, ContentImageUrl):
+        try:
+            return Image(data=result.to_bytes())
+        except ValueError:
+            return result.image_url.url
+
+    return result
+
+
+def _create_mcp_handler(tool: t.Callable[P, t.Any]) -> t.Callable[P, t.Awaitable[t.Any]]:
+    @functools.wraps(tool)
+    async def handler(*args: P.args, **kwargs: P.kwargs) -> t.Any:
+        try:
+            result = tool(*args, **kwargs)
+            if inspect.isawaitable(result):
+                result = await result
+        except Stop as stop:
+            result = stop
+        return _convert_rigging_return_to_mcp(result)
+
+    return handler
 
 
 @dataclass
@@ -223,3 +282,48 @@ def mcp(
 
 def mcp(transport: Transport, **connection: t.Any) -> MCPClient:
     return MCPClient(transport, t.cast("StdioConnection | SSEConnection", connection))
+
+
+def as_mcp(
+    tools: t.Iterable[Tool[..., t.Any] | t.Callable[..., t.Any]],
+    *,
+    name: str = "Rigging Tools",
+) -> "FastMCP":
+    """
+    Serves a collection of Rigging tools over the Model Context Protocol (MCP).
+
+    This function creates a FastMCP server instance that exposes your
+    Rigging tools to any compliant MCP client. It acts as a bridge, handling
+    the conversion between Rigging's `Tool` objects and the MCP specification.
+
+    Args:
+        tools: An iterable of `rigging.Tool` objects or raw Python functions
+               to be exposed. If raw functions are passed, they will be
+               converted to `Tool` objects automatically.
+        name: The name of the MCP server. This is used for identification
+
+    Example:
+        ```python
+        # in my_tool_server.py
+        import asyncio
+        import rigging as rg
+
+        @rg.tool
+        def add_numbers(a: int, b: int) -> int:
+            \"\"\"Adds two numbers together.\"\"\"
+            return a + b
+
+        if __name__ == "__main__":
+            rg.as_mcp([add_numbers]).run(
+                transport="stdio"
+            )
+        ```
+    """
+    rigging_tools = [t if isinstance(t, Tool) else Tool.from_callable(t) for t in tools]
+    fastmcp_tools = [
+        FastMCPTool.from_function(
+            fn=_create_mcp_handler(tool.fn), name=tool.name, description=tool.description
+        )
+        for tool in rigging_tools
+    ]
+    return FastMCP(name, tools=fastmcp_tools)
