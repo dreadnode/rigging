@@ -369,20 +369,77 @@ When you call `.using()`:
 7.  The return value is formatted into a message (`Message` with `role="tool` for API calls, or a user message containing `NativeToolResult` for native calls) and sent back to the model.
 8.  The generation process continues until the model produces a final response without tool calls or the `max_depth` is reached.
 
-### Error Handling
+## Error Handling
 
-You can control how errors raised within your tool function are handled using the `catch` parameter in `@tool` / `@tool_method`:
+Tools have built-in error handling that primarily focuses on **argument validation** and **JSON parsing errors** that occur during tool execution. Understanding how this works is crucial for building robust tool-enabled pipelines.
 
-- `catch=False` (Default): Errors propagate, potentially failing the pipeline run (unless caught by `pipeline.catch()`).
-- `catch=True`: Catches *any* exception, converts it to an error message, and sends that back to the model as the tool result.
-- `catch={ValueError, TypeError}`: Catches only specified exception types.
+### Default Error Handling
+
+By default, tools catch common errors that occur during the tool call process:
+
+- **`json.JSONDecodeError`**: When the model provides malformed JSON arguments
+- **`ValidationError`**: When the model's arguments don't match the tool's type signature
 
 ```python
-@rg.tool(catch=True) # Catch any exception
-def potentially_failing_tool(input: str) -> str:
+import rigging as rg
+
+@rg.tool()  # Default: catch={json.JSONDecodeError, ValidationError}
+async def add(a: int, b: int) -> int:
+    """Adds two numbers together."""
+    return a + b
+
+# If the model calls add({"a": 1}) without 'b', a ValidationError occurs
+# The tool catches it and returns an error message to the model
+pipeline = (
+    rg.get_generator("openai/gpt-4o-mini")
+    .chat("Use the add tool with only argument 'a' set to 1, no 'b'")
+    .using(add)
+)
+
+chat = await pipeline.run()
+# The model receives: "<error>1 validation error for call[add]..."
+# And can respond acknowledging the error or retry with correct arguments
+```
+
+**Key Point**: These validation errors are handled **at the tool level** and become part of the conversation flow. The model receives error feedback and can learn from it, but the pipeline continues running.
+
+### Customizing Error Handling
+
+You can override the default error handling behavior:
+
+```python
+# Catch all exceptions (including your own function errors)
+@rg.tool(catch=True)
+def risky_tool(input: str) -> str:
     if input == "fail":
-        raise ValueError("Intentional failure")
+        raise ValueError("Something went wrong!")
     return "Success"
+
+# Catch only specific exceptions
+@rg.tool(catch={ValueError, TypeError})
+def selective_tool(input: str) -> str:
+    # Only ValueError and TypeError will be caught and returned as error messages
+    return process_input(input)
+
+# Catch no exceptions (let them propagate to pipeline level)
+@rg.tool(catch=False)
+def strict_tool(input: str) -> str:
+    # Any errors will stop the pipeline unless caught by pipeline.catch()
+    return process_input(input)
+```
+
+### Error Information and Debugging
+
+When tools handle errors gracefully, error information is preserved in message metadata:
+
+```python
+chat = await pipeline.run()
+
+# Check for tool errors in the conversation
+for message in chat.all:
+    if message.role == 'tool' and 'error' in message.metadata:
+        print(f"Tool call failed: {message.metadata['error']}")
+        print(f"Tool response: {message.content}")
 ```
 
 ## Tool State

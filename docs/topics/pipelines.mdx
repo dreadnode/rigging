@@ -256,11 +256,23 @@ Anywhere you see `max_depth` as a parameter, we are using this context manager u
 
 ## Handling Failures
 
-Pipelines provide robust ways to handle errors during generation or callback execution. You might want to avoid certain errors from halting the entire pipeline, especially in batch processing scenarios.
+Pipelines provide robust ways to handle errors during generation, tool execution, parsing, and callback execution. Understanding the different levels of error handling helps you control when and how errors are surfaced versus handled gracefully.
 
-### Setting Error Behavior
+### Error Handling Hierarchy
 
-The `on_failed` parameter (set with `.catch()` or on `run_many`/`run_batch`/`run_over`) determines behavior when a catchable error occurs:
+Rigging has multiple layers of error handling, each with different scopes and behaviors:
+
+1. **Tool-level error handling** - Controls how individual tool call errors are handled
+2. **Pipeline-level error handling** - Controls how pipeline execution errors are handled
+3. **Parsing-level error handling** - Controls how model parsing errors are handled
+
+<Note>
+Any exceptions not handled inside `then` or `map` callbacks will propagate up to the pipeline level, where they can be caught by the pipeline's error handling.
+</Note>
+
+### Pipeline-Level Error Handling
+
+The `on_failed` parameter determines behavior when catchable errors occur during pipeline execution:
 
 - **`raise` (Default):** The exception is raised, halting execution.
 - **`skip`:** The chat where the error occurred is discarded. `run_many`/`run_batch`/`run_over` will return only the successful chats. (Not valid for single `.run()`).
@@ -270,8 +282,8 @@ The `on_failed` parameter (set with `.catch()` or on `run_many`/`run_batch`/`run
 import rigging as rg
 
 pipeline = (
-    rg.get_generator("openai/gpt-4o-mini")
-    .chat("Potentially problematic prompt")
+    rg.get_generator("model-that-fails-often")
+    .chat("Create an answer")
     .catch(on_failed="include")
 )
 
@@ -284,10 +296,9 @@ failed_chats = [c for c in chats if c.failed]
 print(f"Succeeded: {len(successful_chats)}, Failed: {len(failed_chats)}")
 for failed_chat in failed_chats:
     print(f"  Error in chat {failed_chat.uuid}: {failed_chat.error}")
-
 ```
 
-### Defining Catchable Errors
+#### Defining Catchable Errors
 
 By default, pipelines catch critical internal errors like `ValidationError` and `MaxDepthError` when `on_failed` is `skip` or `include`. You can specify additional exception types to be treated as non-fatal errors using `ChatPipeline.catch()`.
 
@@ -305,4 +316,91 @@ pipeline = (
 
 # Now, if SomeCustomAPIError occurs, the chat will be skipped instead of raising
 chats = await pipeline.run_many(10)
+```
+
+### Handling Tool Errors
+
+By default, tools catch common errors like `json.JSONDecodeError` and `ValidationError` and return them as error messages rather than raising exceptions. This allows the conversation to continue with error feedback to the model.
+
+```python
+import rigging as rg
+from pydantic import ValidationError
+
+@rg.tool()  # Default: catch={json.JSONDecodeError, ValidationError}
+async def add(a: int, b: int) -> int:
+    """Adds two numbers together."""
+    return a + b
+
+# The tool will gracefully handle validation errors
+pipeline = (
+    rg.get_generator("openai/gpt-4o-mini")
+    .chat("Use the add tool with only argument 'a' set to 1, no 'b'")
+    .using(add)
+)
+
+chat = await pipeline.run()
+# Model receives error feedback and can retry or acknowledge the error
+```
+
+**Important**: Tool argument validation errors are handled at the tool level and **cannot** be caught by pipeline-level error handling without configuration. The error becomes part of the conversation flow as a tool response message.
+
+You can override tool error handling when adding tools to a pipeline:
+
+```python
+# Let pipeline handle all tool errors
+pipeline = (
+    rg.get_generator("openai/gpt-4o-mini")
+    .chat("Use the add tool incorrectly")
+    .using(add, catch=False)  # Override: catch no errors
+    .catch(on_failed="include")  # Now pipeline can catch them
+)
+
+# Or configure at tool definition
+@rg.tool(catch=False)  # This tool won't catch any errors
+async def strict_add(a: int, b: int) -> int:
+    return a + b
+```
+
+When tools don't catch errors, they flow up to the pipeline level where you can handle them with `.catch()`, otherwise the pipeline will raise the exception.
+
+See more in the [tool documentation](/topics/tools#error-handling).
+
+### Handling Parsing Errors
+
+When using `until_parsed_as()`, you can control whether parsing errors trigger regeneration or flow up to the pipeline. By default, parsing errors are caught and trigger a regeneration attempt (up to `max_depth`).
+
+```python
+import rigging as rg
+from rigging.model import YesNoAnswer
+
+# Default: catch=True (parsing errors trigger regeneration)
+pipeline = (
+    rg.get_generator("openai/gpt-4o-mini")
+    .chat(f"Answer yes or no within {YesNoAnswer.xml_tags()} tags.")
+    .until_parsed_as(YesNoAnswer, max_depth=3)
+)
+
+# Alternative: let parsing errors flow to pipeline level
+pipeline = (
+    rg.get_generator("openai/gpt-4o-mini")
+    .chat(f"Answer yes or no within {YesNoAnswer.xml_tags()} tags.")
+    .until_parsed_as(YesNoAnswer, catch=False)  # Don't catch parsing errors
+    .catch(on_failed="include")  # Handle at pipeline level
+)
+```
+
+### Error Metadata and Debugging
+
+When errors are handled gracefully (rather than raised), Rigging attempts to preserve error information in message metadata for debugging:
+
+```python
+# Tool errors become part of conversation with metadata
+chat = await pipeline.run()
+for message in chat.all:
+    if message.metadata.get("failed"):
+        print(f"Message failed: {message.metadata['error']}")
+
+# Pipeline errors are stored on the chat object
+if chat.failed:
+    print(f"Chat failed: {chat.error}")
 ```

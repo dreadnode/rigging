@@ -214,12 +214,8 @@ def make_tools_to_json_transform(  # noqa: PLR0915
                     content: str | Model
                     match mode:
                         case "json":
-                            content = json.dumps(
-                                {
-                                    "name": tool_call.function.name,
-                                    "parameters": json.loads(tool_call.function.arguments),
-                                },
-                            )
+                            # Use raw string formatting here to avoid failing because of serialization issues
+                            content = f'{{"name": "{tool_call.function.name}", "arguments": "{tool_call.function.arguments}"}}'
                         case "json-in-xml":
                             content = json_in_xml_tool_call_cls(
                                 id=tool_call.id,
@@ -229,12 +225,7 @@ def make_tools_to_json_transform(  # noqa: PLR0915
                         case "json-with-tag":
                             content = json_tool_call_cls(
                                 id=tool_call.id,
-                                content=json.dumps(
-                                    {
-                                        "name": tool_call.function.name,
-                                        "arguments": json.loads(tool_call.function.arguments),
-                                    },
-                                ),
+                                content=f'{{"name": "{tool_call.function.name}", "arguments": "{tool_call.function.arguments}"}}',
                             )
 
                     message.append_slice(
@@ -344,8 +335,9 @@ def make_tools_to_json_transform(  # noqa: PLR0915
                                 ToolWarning,
                                 stacklevel=2,
                             )
+                            message.metadata["error"] = str(e)
 
-                    message.strip(json_tool_call_cls)
+                    message.remove_slices(json_tool_call_cls)
 
             # Convert our tool responses
 

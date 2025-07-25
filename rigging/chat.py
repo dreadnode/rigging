@@ -808,13 +808,20 @@ class ChatPipeline:
         self.scorers: list[Scorer[Chat]] = []
         """List of dreadnode scorers to evaluate the generated chat upon completion."""
 
-        self.until_types: list[type[Model]] = []
+        self.until_parsed_as_types: list[type[Model]] = []
+        self.until_parsed_as_catch: bool = True
         self.tools: list[Tool[..., t.Any]] = []
         self.tool_mode: ToolMode = "auto"
         self.inject_tool_prompt = True
         self.add_tool_stop_token = True
-        self.then_callbacks: list[tuple[ThenChatCallback, int, bool]] = []
-        self.map_callbacks: list[tuple[MapChatCallback, int, bool]] = []
+        self.then_callbacks: list[
+            # callback, max_depth, as_task
+            tuple[ThenChatCallback, int, bool]
+        ] = []
+        self.map_callbacks: list[
+            # callback, max_depth, as_task
+            tuple[MapChatCallback, int, bool]
+        ] = []
         self.watch_callbacks: list[WatchChatCallback] = watch_callbacks or []
         self.transforms: list[Transform] = []
 
@@ -998,7 +1005,7 @@ class ChatPipeline:
         )
         new.chat = (chat or self.chat).clone()
         if not only_messages:
-            new.until_types = self.until_types.copy()
+            new.until_parsed_as_types = self.until_parsed_as_types.copy()
             new.tools = self.tools.copy()
             new.tool_mode = self.tool_mode
             new.metadata = deepcopy(self.metadata)
@@ -1282,6 +1289,7 @@ class ChatPipeline:
         choice: ToolChoice | None = None,
         max_depth: int = DEFAULT_MAX_DEPTH,
         add_stop_token: bool | None = None,
+        catch: bool | t.Iterable[type[Exception]] | None = None,
     ) -> "ChatPipeline":
         """
         Adds a tool or a sequence of tools to participate in the generation process.
@@ -1302,6 +1310,9 @@ class ChatPipeline:
             max_depth: The maximum depth for recursive tool calls (this is shared between all tools).
             add_stop_token: When using "xml" tool transforms, use stop tokens to
                 immediately process a tool call when observed.
+            catch: Override the catch setting for all incoming tools, or leave `None` to use the tool's default.
+                By default, catches `json.JSONDecodeError` and `ValidationError`. Set to `{}` to let the pipeline
+                handle all tool exceptions.
 
         Returns:
             The updated pipeline.
@@ -1339,6 +1350,9 @@ class ChatPipeline:
                 _tools.append(Tool.from_callable(tool))
             else:
                 _tools.append(tool)
+
+        if catch is not None:
+            _tools = [tool.with_(catch=catch) for tool in _tools]
 
         existing_names = {tool.name for tool in self.tools}
         new_names = {tool.name for tool in _tools}
@@ -1423,6 +1437,7 @@ class ChatPipeline:
         self,
         *types: type[ModelT],
         max_depth: int = DEFAULT_MAX_DEPTH,
+        catch: bool | None = None,
         # deprecated
         attempt_recovery: bool | None = None,
         drop_dialog: bool | None = None,
@@ -1435,6 +1450,7 @@ class ChatPipeline:
         Args:
             *types: The type or types of models to wait for.
             max_depth: The maximum depth to re-attempt parsing using recursive pipelines (this is shared between all types).
+            catch: Whether to catch exceptions and return them as messages automatically, otherwise raise them to the pipeline.
             attempt_recovery: deprecated, recovery is always attempted.
             drop_dialog: deprecated, the full dialog is always returned.
             max_rounds: deprecated, use `max_depth` instead.
@@ -1461,7 +1477,8 @@ class ChatPipeline:
                 stacklevel=2,
             )
 
-        self.until_types = list(types)
+        self.until_parsed_as_types = list(types)
+        self.until_parsed_as_catch = catch or self.until_parsed_as_catch
 
         max_depth = max_rounds or max_depth
         self.then_callbacks = [
@@ -1522,25 +1539,26 @@ class ChatPipeline:
 
         next_pipeline = self.clone(chat=chat)
 
-        type_names = " | ".join(sorted(until_type.__name__ for until_type in self.until_types))
+        type_names = " | ".join(
+            sorted(until_type.__name__ for until_type in self.until_parsed_as_types)
+        )
         task_name = f"parse - {type_names}"
 
         try:
             with dn.task_span(task_name, attributes={"rigging.type": "chat_pipeline.parse"}):
                 dn.log_input("message", chat.last)
-                parsed = chat.last.parse_many(*self.until_types)
+                parsed = chat.last.parse_many(*self.until_parsed_as_types)
                 dn.log_output("parsed", parsed)
-        except ValidationError as e:
-            next_pipeline.add(
-                Message.from_model(
-                    ValidationErrorModel(content=str(e)),
-                    suffix="Rewrite your entire message with all of the required xml elements.",
-                ),
+        except Exception as e:
+            if not self.until_parsed_as_catch:
+                raise
+
+            error_model_cls = (
+                ValidationErrorModel if isinstance(e, ValidationError) else SystemErrorModel
             )
-        except Exception as e:  # noqa: BLE001
             next_pipeline.add(
                 Message.from_model(
-                    SystemErrorModel(content=str(e)),
+                    error_model_cls(content=str(e)),
                     suffix="Rewrite your entire message with all of the required xml elements.",
                 ),
             )

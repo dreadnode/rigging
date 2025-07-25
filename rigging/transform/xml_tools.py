@@ -338,6 +338,7 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
                                 ToolWarning,
                                 stacklevel=2,
                             )
+                            message.metadata["error"] = str(e)
 
                     # Fallback to xmltodict as a best-effort if that didn't work
 
@@ -352,6 +353,7 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
                                 ToolWarning,
                                 stacklevel=2,
                             )
+                            message.metadata["error"] = str(e)
 
                     if arguments_dict is not None:
                         arguments = json.dumps(arguments_dict)
