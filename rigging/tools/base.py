@@ -2,13 +2,12 @@
 Core types and functions for defining tools and handling tool calls.
 """
 
+import contextlib
 import functools
 import inspect
 import json
 import re
 import typing as t
-import warnings
-from functools import cached_property
 
 import typing_extensions as te
 from pydantic import (
@@ -22,11 +21,10 @@ from pydantic import (
 )
 from pydantic_xml import attr
 
-from rigging.error import Stop, ToolDefinitionError, ToolWarning
+from rigging.error import Stop, ToolDefinitionError
 from rigging.model import (
     ErrorModel,
     Model,
-    SystemErrorModel,
     make_from_schema,
     make_from_signature,
 )
@@ -155,13 +153,15 @@ class Tool(BaseModel, t.Generic[P, R]):
         exclude=True,
     )
     """The function to call."""
-    catch: bool | set[type[Exception]] = False
+    catch: bool | set[type[Exception]] = {json.JSONDecodeError, ValidationError}
     """
     Whether to catch exceptions and return them as messages.
 
     - `False`: Do not catch exceptions.
     - `True`: Catch all exceptions.
     - `set[type[Exception]]`: Catch only the specified exceptions.
+
+    By default, catches `json.JSONDecodeError` and `ValidationError`.
     """
     truncate: int | None = None
     """If set, the maximum number of characters to truncate any tool output to."""
@@ -187,7 +187,7 @@ class Tool(BaseModel, t.Generic[P, R]):
         *,
         name: str | None = None,
         description: str | None = None,
-        catch: bool | t.Iterable[type[Exception]] = False,
+        catch: bool | t.Iterable[type[Exception]] | None = None,
         truncate: int | None = None,
     ) -> te.Self:
         from rigging.prompt import Prompt
@@ -282,7 +282,7 @@ class Tool(BaseModel, t.Generic[P, R]):
             description=description,
             parameters_schema=schema,
             fn=fn,
-            catch=catch if isinstance(catch, bool) else set(catch),
+            catch=catch or {json.JSONDecodeError, ValidationError},
             truncate=truncate,
         )
 
@@ -298,7 +298,7 @@ class Tool(BaseModel, t.Generic[P, R]):
 
         return self
 
-    @cached_property
+    @property
     def definition(self) -> ToolDefinition:
         """
         Returns the tool definition for this tool.
@@ -313,7 +313,7 @@ class Tool(BaseModel, t.Generic[P, R]):
             ),
         )
 
-    @cached_property
+    @property
     def api_definition(self) -> ToolDefinition:
         return self.definition
 
@@ -364,57 +364,55 @@ class Tool(BaseModel, t.Generic[P, R]):
         ) as task:
             dn.log_input("tool_call", tool_call)
 
-            if tool_call.name != self.name:
-                warnings.warn(
-                    f"Tool call name mismatch: {tool_call.name} != {self.name}",
-                    ToolWarning,
-                    stacklevel=2,
-                )
-                return Message.from_model(SystemErrorModel(content="Invalid tool call.")), True
-
             if hasattr(tool_call, "id") and isinstance(tool_call.id, str):
                 task.set_attribute("tool_call_id", tool_call.id)
 
             result: t.Any
             stop = False
 
-            # Load + validate arguments
-
             try:
+                # Load + Validate args
+
                 kwargs = json.loads(tool_call.function.arguments)
                 if self._type_adapter is not None:
                     kwargs = self._type_adapter.validate_python(kwargs)
                 dn.log_inputs(**kwargs)
-            except (json.JSONDecodeError, ValidationError) as e:
-                task.set_exception(e)
-                result = ErrorModel.from_exception(e)
 
-            # Call the function
+                # Call the function
 
-            else:
-                try:
-                    result = self.fn(**kwargs)  # type: ignore [call-arg]
-                    if inspect.isawaitable(result):
-                        result = await result
+                result = self.fn(**kwargs)  # type: ignore [call-arg]
+                if inspect.isawaitable(result):
+                    result = await result
 
-                    if isinstance(result, Stop):
-                        raise result  # noqa: TRY301
-                except Stop as e:
-                    result = f"<{TOOL_STOP_TAG}>{e.message}</{TOOL_STOP_TAG}>"
-                    task.set_attribute("stop", True)
-                    stop = True
-                except Exception as e:
-                    if self.catch is True or (
-                        not isinstance(self.catch, bool) and isinstance(e, tuple(self.catch))
-                    ):
-                        task.set_exception(e)
-                        result = ErrorModel.from_exception(e)
-                    else:
-                        raise
+                if isinstance(result, Stop):
+                    raise result  # noqa: TRY301
+            except Stop as e:
+                result = f"<{TOOL_STOP_TAG}>{e.message}</{TOOL_STOP_TAG}>"
+                task.set_attribute("stop", True)
+                stop = True
+            except Exception as e:
+                if self.catch is True or (
+                    not isinstance(self.catch, bool) and isinstance(e, tuple(self.catch))
+                ):
+                    task.set_exception(e)
+                    result = ErrorModel.from_exception(e)
+                else:
+                    raise
 
             dn.log_output("output", result)
 
         message = Message(role="tool", tool_call_id=tool_call.id)
+
+        # If this is being gracefully handled as an ErrorModel,
+        # wwe will construct it explicitly so it can attach
+        # metadata about the failure.
+
+        if isinstance(result, ErrorModel):
+            message = Message.from_model(
+                result,
+                role="tool",
+                tool_call_id=tool_call.id,
+            )
 
         # If the tool gave us back anything that looks like a message, we'll
         # just pass it along. Otherwise we need to box up the result.
@@ -429,7 +427,12 @@ class Tool(BaseModel, t.Generic[P, R]):
             and all(isinstance(item, ContentTypes) for item in result)
         ):
             message.content_parts = result
+        elif isinstance(result, Model):
+            message.content_parts = [ContentText(text=result.to_pretty_xml())]
         else:
+            with contextlib.suppress(Exception):
+                if type(result) not in [str, int, float, bool]:
+                    result = TypeAdapter(t.Any).dump_json(result, indent=2)
             message.content_parts = [ContentText(text=str(result))]
 
         if self.truncate:
@@ -440,6 +443,62 @@ class Tool(BaseModel, t.Generic[P, R]):
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         return self.fn(*args, **kwargs)
 
+    def clone(self) -> "Tool[P, R]":
+        """
+        Create a clone of this tool with the same parameters.
+        Useful for creating tools with the same signature but different names.
+        """
+        new = Tool[P, R](
+            name=self.name,
+            description=self.description,
+            parameters_schema=self.parameters_schema,
+            fn=self.fn,
+            catch=self.catch,
+            truncate=self.truncate,
+        )
+
+        new._signature = self._signature
+        new.__signature__ = self.__signature__  # type: ignore [misc]
+        new._type_adapter = self._type_adapter
+        new.__name__ = self.name  # type: ignore [attr-defined]
+        new.__doc__ = self.description
+
+        return new
+
+    def with_(
+        self,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        catch: bool | t.Iterable[type[Exception]] | None = None,
+        truncate: int | None = None,
+    ) -> "Tool[P, R]":
+        """
+        Create a new tool with updated parameters.
+        Useful for creating tools with the same signature but different names or descriptions.
+
+        Args:
+            name: The name of the tool.
+            description: The description of the tool.
+            catch: Whether to catch exceptions and return them as messages.
+                - `False`: Do not catch exceptions.
+                - `True`: Catch all exceptions.
+                - `list[type[Exception]]`: Catch only the specified exceptions.
+                - `None`: By default, catches `json.JSONDecodeError` and `ValidationError
+            truncate: If set, the maximum number of characters to truncate any tool output to.
+
+        Returns:
+            A new tool with the updated parameters.
+        """
+        new = self.clone()
+        new.name = name or self.name
+        new.description = description or self.description
+        new.catch = (
+            catch if isinstance(catch, bool) else self.catch if catch is None else set(catch)
+        )
+        new.truncate = truncate if truncate is not None else self.truncate
+        return new
+
 
 @t.overload
 def tool(
@@ -448,7 +507,7 @@ def tool(
     *,
     name: str | None = None,
     description: str | None = None,
-    catch: bool | t.Iterable[type[Exception]] = False,
+    catch: bool | t.Iterable[type[Exception]] | None = None,
     truncate: int | None = None,
 ) -> t.Callable[[t.Callable[P, R]], Tool[P, R]]: ...
 
@@ -466,7 +525,7 @@ def tool(
     *,
     name: str | None = None,
     description: str | None = None,
-    catch: bool | t.Iterable[type[Exception]] = False,
+    catch: bool | t.Iterable[type[Exception]] | None = None,
     truncate: int | None = None,
 ) -> t.Callable[[t.Callable[P, R]], Tool[P, R]] | Tool[P, R]:
     """
@@ -480,6 +539,7 @@ def tool(
             - `False`: Do not catch exceptions.
             - `True`: Catch all exceptions.
             - `list[type[Exception]]`: Catch only the specified exceptions.
+            - `None`: By default, catches `json.JSONDecodeError` and `ValidationError`.
         truncate: If set, the maximum number of characters to truncate any tool output to.
 
     Returns:
