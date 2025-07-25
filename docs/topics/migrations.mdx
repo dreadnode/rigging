@@ -130,7 +130,7 @@ We worked hard in v3 to bring together some of the early tool systems and unify 
     - It uses a `mode: ToolMode` parameter (`auto`, `api`, `xml`, `json-in-xml`) to control calling convention.
     - It uses `max_depth: int` to limit recursive tool calls.
     - Parameters like `force`, `attempt_recovery`, `drop_dialog`, `max_rounds` are removed.
-- The `rigging.integrations` module is removed. Use `rigging.tool.robopages` and the new `rigging.tool.mcp` to use those integrations as tools.
+- The `rigging.integrations` module is removed. Use `rigging.tools.robopages` and the new `rigging.tools.mcp` to use those integrations as tools.
 
 <CodeGroup>
 ```python v2.x

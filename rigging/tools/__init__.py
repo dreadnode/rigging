@@ -13,7 +13,7 @@ from rigging.tools.base import (
     tool,
     tool_method,
 )
-from rigging.tools.mcp import mcp
+from rigging.tools.mcp import as_mcp, mcp
 from rigging.tools.robopages import robopages
 
 __all__ = [
@@ -24,6 +24,7 @@ __all__ = [
     "ToolChoice",
     "ToolDefinition",
     "ToolMode",
+    "as_mcp",
     "mcp",
     "robopages",
     "tool",

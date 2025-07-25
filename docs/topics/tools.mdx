@@ -264,16 +264,17 @@ This stop indication won't completely halt the pipeline, but it will let it cont
 
 The [Model Context Protocol (MCP)](https://github.com/model-context-protocol/specification) is an open standard for language models to interact with external tools and services. Rigging provides a client to connect to MCP-compliant servers.
 
-Use the `rigging.tool.mcp` function, specifying the transport method (`stdio` or `sse`) and the connection parameters. It returns an *async context manager*.
+### Using MCP Tools in Rigging
 
-### Using `stdio` (Standard Input/Output)
+Use the `rigging.mcp` function, specifying the transport method (`stdio` or `sse`) and the connection parameters. It returns an *async context manager*.
 
-Connect to an MCP server launched as a local process that communicates over standard input/output.
-
-```python
+<CodeGroup>
+```python Using "stdio" (Standard Input/Output)
 import rigging as rg
 
-# Example: Assuming 'my-mcp-server' is an executable that starts the MCP server
+# Connect to an MCP server launched as a local process that communicates over standard input/output.
+# (Assuming 'my-mcp-server' is an executable that starts the MCP server)
+
 command = "my-mcp-server"
 args = ["--port", "stdio"] # Example arguments
 
@@ -294,12 +295,10 @@ async with rg.mcp("stdio", command=command, args=args) as mcp_client:
 
 ```
 
-### Using `sse` (Server-Sent Events)
-
-Connect to an MCP server exposed via an HTTP endpoint using Server-Sent Events.
-
-```python
+```python Using "sse" (Server-Sent Events)
 import rigging as rg
+
+# Connect to an MCP server exposed via an HTTP endpoint using Server-Sent Events.
 
 # URL of the MCP SSE endpoint
 MCP_SSE_URL = "http://localhost:8001/mcp" # Example URL
@@ -322,11 +321,109 @@ async with rg.mcp("sse", url=MCP_SSE_URL) as mcp_client:
 
 The `mcp` context manager handles the connection, tool discovery, and communication with the MCP server. Inside the `async with` block, `mcp_client.tools` provides the list of discovered `Tool` objects ready to be used with `.using()`.
 
+#### Example: Using Claude Code as a Rigging Tool
+
+```python
+import rigging as rg
+
+async with rg.mcp("stdio", command="claude", args=["mcp", "serve"]) as mcp_client:
+    print(f"Discovered {len(mcp_client.tools)} tools:")
+    for tool in mcp_client.tools:
+        print(f" |- {tool.name}")
+
+    chat = (
+        await rg.get_generator("claude-3-7-sonnet-latest")
+        .chat("Using tools, create a file_writer.py rigging tool that writes to a file.")
+        .using(*mcp_client.tools)
+        .run()
+    )
+    print(chat.conversation)
+```
+
+### Serving Tools with MCP
+
+In addition to consuming tools from mcp servers, Rigging can **expose its own tools** as an MCP server. This allows you to write a singular tool implementation with the freedom to use it in other MCP-compliant clients, such as claude code.
+
+The `rigging.as_mcp` function is the primary way to create an MCP server from your tools. It takes a list of Rigging `Tool` objects (or raw Python functions) and returns a `mcp.server.fastmcp.FastMCP` server instance, which you can then configure and run.
+
+**How it works:**
+1.  You provide a list of tools to `as_mcp`.
+2.  It automatically converts raw functions into `rigging.Tool` objects.
+3.  For each tool, it creates a bridge that handles:
+    - Exposing the tool's name, description, and parameter schema.
+    - Calling your Python function when a request comes in.
+    - Converting your function's return value (including `rigging.Message` and `rigging.Stop`) into a format the MCP client can understand.
+4.  It returns a `FastMCP` server instance, ready to be run.
+
+Let's create a server that exposes a `file_writer` tool.
+
+**1. Define your tool(s) in a file (e.g., `file_writer.py`):**
+
+```python
+import rigging as rg
+from typing import Annotated
+
+@rg.tool()
+def write_file(
+    filename: Annotated[str, "The name of the file to write to."],
+    content: Annotated[str, "The content to write to the file."],
+) -> str:
+    """
+    Writes content to a local file.
+    Creates the file if it doesn't exist, and overwrites it if it does.
+    """
+    with open(filename, "w") as f:
+        f.write(content)
+    return f"Successfully wrote {len(content)} bytes to {filename}."
+
+if __name__ == "__main__":
+    # Create the MCP server instance from a list of tools
+    rg.as_mcp([write_file], name="File IO Tools").run()
+```
+
+Now, this server is ready to be used by any MCP client:
+
+- [claude-code](https://docs.anthropic.com/en/docs/claude-code/mcp)
+- [gemini-cli](https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md)
+- [codex](https://github.com/openai/codex/blob/main/codex-rs/config.md#mcp_servers)
+
+**Claude Code Example:**
+
+```bash
+$ claude mcp add file_writer -- uv run --with rigging --no-project file_writer.py
+Added stdio MCP server file_writer with command: uv run --with rigging --no-project file_writer.py to local config
+
+$ claude
+> /mcp
+
+╭────────────────────────────────────────────────────────────────────────────────╮
+| Manage MCP servers                                                             │
+│                                                                                │
+│ ❯ 1. file_writer  ✔ connected · Enter to view details                          │                                                             │
+|                                                                                │
+╰────────────────────────────────────────────────────────────────────────────────╯
+
+╭────────────────────────────────────────────────────────────────────────────────╮
+│ Rigging Tools                                                                  │
+│                                                                                │
+│ Status: ✔ connected                                                            │
+│ Command: uv                                                                    │
+│ Args: run --with rigging --no-project file_writer.py                           │
+│ Config location: /Users/user/.claude.json [project: /Users/user/code]          │
+│ Capabilities: tools                                                            │
+│ Tools: 1 tools                                                                 │
+│                                                                                │
+│ ❯ 1. View tools                                                                │
+╰────────────────────────────────────────────────────────────────────────────────╯
+
+> Summarize the README file using the file_writer tool.
+```
+
 ## Robopages
 
 [Robopages](https://github.com/context-labs/robopages) is a framework for building and hosting tool-enabled "pages" or APIs. Rigging can dynamically fetch the available tools from a running Robopages server and make them available to your language model.
 
-Use the `rigging.tool.robopages` function to connect to a Robopages endpoint and retrieve its tools.
+Use the `rigging.robopages` function to connect to a Robopages endpoint and retrieve its tools.
 
 ```python
 import rigging as rg
