@@ -67,7 +67,7 @@ pytest-asyncio = "^1.0.0"
 types-colorama = "^0.4.15.20240311"
 types-requests = "2.32.4.20250611"
 beautifulsoup4 = "^4.13.4"
-mkdocstrings = {extras = ["python"], version = "^0.30.0"}
+mkdocstrings = {extras = ["python"], version = "^0.29.1"}
 markdown = "^3.8"
 markdownify = "^1.1.0"
 
