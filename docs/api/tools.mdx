@@ -574,6 +574,105 @@ transport: Transport = transport
 ```
 
 The transport to use
+
+as\_mcp
+-------
+
+```python
+as_mcp(
+    tools: Iterable[Tool[..., Any] | Callable[..., Any]],
+    *,
+    name: str = "Rigging Tools",
+) -> FastMCP
+```
+
+Serves a collection of Rigging tools over the Model Context Protocol (MCP).
+
+This function creates a FastMCP server instance that exposes your
+Rigging tools to any compliant MCP client. It acts as a bridge, handling
+the conversion between Rigging's `Tool` objects and the MCP specification.
+
+**Parameters:**
+
+* **`tools`**
+  (`Iterable[Tool[..., Any] | Callable[..., Any]]`)
+  –An iterable of `rigging.Tool` objects or raw Python functions
+  to be exposed. If raw functions are passed, they will be
+  converted to `Tool` objects automatically.
+* **`name`**
+  (`str`, default:
+  `'Rigging Tools'`
+  )
+  –The name of the MCP server. This is used for identification
+
+Example
+
+```python
+# in my_tool_server.py
+import asyncio
+import rigging as rg
+
+@rg.tool
+def add_numbers(a: int, b: int) -> int:
+    """Adds two numbers together."""
+    return a + b
+
+if __name__ == "__main__":
+    rg.as_mcp([add_numbers]).run(
+        transport="stdio"
+    )
+```
+
+
+<Accordion title="Source code in rigging/tools/mcp.py" icon="code">
+```python
+def as_mcp(
+    tools: t.Iterable[Tool[..., t.Any] | t.Callable[..., t.Any]],
+    *,
+    name: str = "Rigging Tools",
+) -> "FastMCP":
+    """
+    Serves a collection of Rigging tools over the Model Context Protocol (MCP).
+
+    This function creates a FastMCP server instance that exposes your
+    Rigging tools to any compliant MCP client. It acts as a bridge, handling
+    the conversion between Rigging's `Tool` objects and the MCP specification.
+
+    Args:
+        tools: An iterable of `rigging.Tool` objects or raw Python functions
+               to be exposed. If raw functions are passed, they will be
+               converted to `Tool` objects automatically.
+        name: The name of the MCP server. This is used for identification
+
+    Example:
+        ~~~python
+        # in my_tool_server.py
+        import asyncio
+        import rigging as rg
+
+        @rg.tool
+        def add_numbers(a: int, b: int) -> int:
+            \"\"\"Adds two numbers together.\"\"\"
+            return a + b
+
+        if __name__ == "__main__":
+            rg.as_mcp([add_numbers]).run(
+                transport="stdio"
+            )
+        ~~~
+    """
+    rigging_tools = [t if isinstance(t, Tool) else Tool.from_callable(t) for t in tools]
+    fastmcp_tools = [
+        FastMCPTool.from_function(
+            fn=_create_mcp_handler(tool.fn), name=tool.name, description=tool.description
+        )
+        for tool in rigging_tools
+    ]
+    return FastMCP(name, tools=fastmcp_tools)
+```
+
+
+</Accordion>
 Utilities for integrating tools from a Robopages server.
 
 robopages
