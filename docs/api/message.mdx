@@ -733,6 +733,14 @@ content_parts: list[Content] = Field([], repr=False)
 
 Interior str content or structured content parts.
 
+### hash
+
+```python
+hash: int
+```
+
+Returns a weak hash of the functional message content, ignoring UUID, metadata, and supplementary fields.
+
 ### metadata
 
 ```python

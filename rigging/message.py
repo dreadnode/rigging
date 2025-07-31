@@ -503,6 +503,13 @@ class Message(BaseModel):
         return serialized
 
     @property
+    def hash(self) -> int:
+        """
+        Returns a weak hash of the functional message content, ignoring UUID, metadata, and supplementary fields.
+        """
+        return hash(str(self.to_openai(compatibility_flags=set())))
+
+    @property
     @te.deprecated(".all_content is deprecated, use .content_parts instead", category=None)
     def all_content(self) -> str | list[Content]:
         """
