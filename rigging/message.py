@@ -25,7 +25,7 @@ from pydantic import (
 )
 
 from rigging.error import MessageWarning, MissingModelError
-from rigging.model import Model, ModelT
+from rigging.model import ErrorModel, Model, ModelT
 from rigging.parsing import try_parse_many
 from rigging.tools.base import ToolCall
 from rigging.util import AudioFormat, identify_audio_format, shorten_string, truncate_string
@@ -1269,6 +1269,8 @@ class Message(BaseModel):
         models: Model | t.Sequence[Model],
         role: Role = "user",
         suffix: str | None = None,
+        tool_call_id: str | None = None,
+        metadata: dict[str, t.Any] | None = None,
     ) -> "Message":
         """
         Create a Message object from one or more Model objects.
@@ -1277,6 +1279,8 @@ class Message(BaseModel):
             models: The Model object(s) to convert to a Message.
             role: The role of the Message.
             suffix: A suffix to append to the content.
+            metadata: Additional metadata for the Message.
+            tool_call_id: The ID of the tool call associated with this message.
 
         Returns:
             The created Message object.
@@ -1300,7 +1304,18 @@ class Message(BaseModel):
         if suffix is not None:
             content += f"\n{suffix}"
 
-        return cls(role=role, content=content, slices=slices_)
+        # If we building this message from an error, add
+        # the error content to the metadata
+        if isinstance(models, ErrorModel):
+            metadata = {"error": models.content}
+
+        return cls(
+            role=role,
+            content=content,
+            slices=slices_,
+            tool_call_id=tool_call_id,
+            metadata=metadata or {},
+        )
 
     @classmethod
     def fit_as_list(
