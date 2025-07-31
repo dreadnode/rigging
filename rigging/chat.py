@@ -55,7 +55,7 @@ from rigging.transform import (
     tools_to_json_transform,
     tools_to_json_with_tag_transform,
 )
-from rigging.util import flatten_list, get_qualified_name
+from rigging.util import flatten_list, get_callable_name
 
 if t.TYPE_CHECKING:
     from dreadnode.metric import Scorer, ScorerCallable
@@ -216,6 +216,20 @@ class Chat(BaseModel):
         if self.error:
             conversation += f"\n\n[error]: {self.error}"
         return conversation
+
+    def __str__(self) -> str:
+        formatted = f"--- Chat {self.uuid}"
+        formatted += f"\n |- timestamp:   {self.timestamp.isoformat()}"
+        if self.usage:
+            formatted += f"\n |- usage:       {self.usage}"
+        if self.generator:
+            formatted += f"\n |- generator:   {self.generator.to_identifier(short=True)}"
+        if self.stop_reason:
+            formatted += f"\n |- stop_reason: {self.stop_reason}"
+        if self.metadata:
+            formatted += f"\n |- metadata:    {self.metadata}"
+        formatted += f"\n\n{self.conversation}\n"
+        return formatted
 
     @property
     def message_dicts(self) -> list[MessageDict]:
@@ -732,7 +746,7 @@ class PipelineStep:
         raise RuntimeError("Unable to set parent step")
 
     def __str__(self) -> str:
-        callback_name = get_qualified_name(self.callback) if self.callback else "None"
+        callback_name = get_callable_name(self.callback) if self.callback else "None"
         self_str = f"PipelineStep(pipeline={id(self.pipeline)}, state={self.state}, chats={len(self.chats)}, callback={callback_name})"
         if self.parent is not None:
             self_str += f" <- {self.parent!s}"
@@ -762,13 +776,16 @@ PipelineStepContextManager = t.AsyncContextManager[PipelineStepGenerator]
 def _wrap_watch_callback(callback: WatchChatCallback) -> WatchChatCallback:
     import dreadnode as dn
 
-    callback_name = get_qualified_name(callback)
-    return dn.task(
-        name=f"watch - {callback_name}",
-        attributes={"rigging.type": "chat_pipeline.watch_callback"},
-        log_inputs=True,
-        log_output=False,
-    )(callback)
+    callback_name = get_callable_name(callback)
+
+    async def wrapped_callback(chats: list[Chat]) -> None:
+        with dn.span(
+            name=callback_name,
+            attributes={"rigging.type": "chat_pipeline.watch_callback"},
+        ):
+            await callback(chats)
+
+    return wrapped_callback
 
 
 # Pipeline
@@ -803,7 +820,7 @@ class ChatPipeline:
         """How to handle failures in the pipeline unless overridden in calls."""
         self.caching: CacheMode | None = None
         """How to handle cache_control entries on messages."""
-        self.task_name: str = generator.to_identifier(short=True)
+        self.task_name: str = f"Chat with {generator.to_identifier(short=True)}"
         """The name of the pipeline task, used for logging and debugging."""
         self.scorers: list[Scorer[Chat]] = []
         """List of dreadnode scorers to evaluate the generated chat upon completion."""
@@ -904,7 +921,7 @@ class ChatPipeline:
         for callback in callbacks:
             if not allow_duplicates and callback in self.watch_callbacks:
                 raise ValueError(
-                    f"Callback '{get_qualified_name(callback)}' is already registered.",
+                    f"Callback '{get_callable_name(callback)}' is already registered.",
                 )
 
         self.watch_callbacks.extend(callbacks)
@@ -1127,7 +1144,7 @@ class ChatPipeline:
 
             if callback in [c[0] for c in self.then_callbacks]:
                 raise ValueError(
-                    f"Callback '{get_qualified_name(callback)}' is already registered.",
+                    f"Callback '{get_callable_name(callback)}' is already registered.",
                 )
 
         self.then_callbacks.extend([(callback, max_depth, as_task) for callback in callbacks])
@@ -1171,7 +1188,7 @@ class ChatPipeline:
 
             if callback in [c[0] for c in self.map_callbacks]:
                 raise ValueError(
-                    f"Callback '{get_qualified_name(callback)}' is already registered.",
+                    f"Callback '{get_callable_name(callback)}' is already registered.",
                 )
 
         self.map_callbacks.extend([(callback, max_depth, as_task) for callback in callbacks])
@@ -1215,7 +1232,7 @@ class ChatPipeline:
         for callback in callbacks:
             if not allow_duplicates and callback in self.transforms:
                 raise ValueError(
-                    f"Callback '{get_qualified_name(callback)}' is already registered.",
+                    f"Callback '{get_callable_name(callback)}' is already registered.",
                 )
 
         self.transforms.extend(callbacks)
@@ -1594,8 +1611,6 @@ class ChatPipeline:
         callback: ThenChatCallback,
         state: CallbackState,
     ) -> None:
-        callback_name = get_qualified_name(callback)
-
         async def complete() -> None:
             state.completed = True
             state.ready_event.set()
@@ -1616,7 +1631,7 @@ class ChatPipeline:
 
             if not inspect.isasyncgen(result):
                 raise TypeError(
-                    f"Callback '{callback_name}' must return a Chat, PipelineStepGenerator, or None",
+                    f"Callback '{get_callable_name(callback)}' must return a Chat, PipelineStepGenerator, or None",
                 )
 
             generator = t.cast(
@@ -1720,14 +1735,14 @@ class ChatPipeline:
         try:
             messages = apply_cache_mode_to_messages(self.caching, messages)
 
-            with dn.task_span(
+            with dn.span(
                 f"generate - {self.generator.to_identifier(short=True)}",
                 attributes={"rigging.type": "chat_pipeline.generate"},
             ):
-                dn.log_input("messages", messages)
-                dn.log_input("params", params)
+                # dn.log_input("messages", messages)
+                # dn.log_input("params", params)
                 generated = await self.generator.generate_messages(messages, params)
-                dn.log_output("generated", generated)
+                # dn.log_output("generated", generated)
 
         # If we got a total failure here for generation as a whole,
         # we can't distinguish between incoming messages in terms
@@ -1830,7 +1845,7 @@ class ChatPipeline:
         # Then callbacks
 
         for then_callback, max_depth, as_task in self.then_callbacks:
-            callback_name = get_qualified_name(then_callback)
+            callback_name = get_callable_name(then_callback, short=True)
 
             states = [
                 self.CallbackState(
@@ -1843,7 +1858,7 @@ class ChatPipeline:
 
             callback_task = (
                 dn.task(
-                    name=f"then - {callback_name}",
+                    name=callback_name,
                     attributes={"rigging.type": "chat_pipeline.then_callback"},
                     log_inputs=True,
                     log_output=True,
@@ -1922,11 +1937,11 @@ class ChatPipeline:
         # Map callbacks
 
         for map_callback, max_depth, as_task in self.map_callbacks:
-            callback_name = get_qualified_name(map_callback)
+            callback_name = get_callable_name(map_callback, short=True)
 
             map_task = (
                 dn.task(
-                    name=f"map - {callback_name}",
+                    name=callback_name,
                     attributes={"rigging.type": "chat_pipeline.map_callback"},
                     log_inputs=True,
                     log_output=True,
@@ -2074,8 +2089,9 @@ class ChatPipeline:
 
         last: PipelineStep | None = None
         with dn.task_span(
-            name or f"pipeline - {self.task_name}",
+            name or self.task_name,
             label=name or f"pipeline_{self.task_name}",
+            tags=["rigging/pipeline"],
             attributes={"rigging.type": "chat_pipeline.run"},
         ) as task:
             dn.log_inputs(
@@ -2174,8 +2190,9 @@ class ChatPipeline:
 
         last: PipelineStep | None = None
         with dn.task_span(
-            name or f"pipeline - {self.task_name} (x{count})",
+            name or f"{self.task_name} (x{count})",
             label=name or f"pipeline_many_{self.task_name}",
+            tags=["rigging/pipeline"],
             attributes={"rigging.type": "chat_pipeline.run_many"},
         ) as task:
             dn.log_inputs(
@@ -2334,8 +2351,9 @@ class ChatPipeline:
 
         last: PipelineStep | None = None
         with dn.task_span(
-            name or f"pipeline - {self.task_name} (batch x{count})",
+            name or f"{self.task_name} (batch x{count})",
             label=name or f"pipeline_batch_{self.task_name}",
+            tags=["rigging/pipeline"],
             attributes={"rigging.type": "chat_pipeline.run_batch"},
         ) as task:
             dn.log_inputs(

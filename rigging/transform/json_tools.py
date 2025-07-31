@@ -16,7 +16,7 @@ from rigging.message import (
 from rigging.model import Model
 from rigging.tools.base import FunctionCall, ToolCall, ToolDefinition, ToolResponse
 from rigging.transform.base import PostTransform, Transform
-from rigging.util import extract_json_objects
+from rigging.util import extract_json_objects, shorten_string
 
 if t.TYPE_CHECKING:
     from rigging.chat import Chat
@@ -54,7 +54,8 @@ class JsonInXmlToolCall(Model):
     parameters: str
 
     def __str__(self) -> str:
-        return f"<JsonInXmlToolCall id={self.id} {self.name}({self.parameters})>"
+        parameters = shorten_string(self.parameters, max_length=50)
+        return f"JsonInXmlToolCall(name='{self.name}', parameters='{parameters}', id='{self.id}')"
 
 
 class JsonToolCall(Model):
@@ -62,7 +63,8 @@ class JsonToolCall(Model):
     content: str
 
     def __str__(self) -> str:
-        return f"<JsonToolCall id={self.id} {self.content}>"
+        content = shorten_string(self.content, max_length=50)
+        return f"JsonToolCall(content='{content}', id='{self.id}')"
 
 
 # Prompts

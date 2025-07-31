@@ -240,22 +240,19 @@ def test_prompt_render_ctx_in_dataclass() -> None:
 
 
 def test_prompt_parse_fail_nested_input() -> None:
-    async def foo(arg: list[list[str]]) -> Chat:
-        ...
+    async def foo(arg: list[list[str]]) -> Chat: ...
 
     with pytest.raises(TypeError):
         rg.prompt(foo)
 
-    async def bar(arg: tuple[int, str, tuple[str]]) -> Chat:
-        ...
+    async def bar(arg: tuple[int, str, tuple[str]]) -> Chat: ...
 
     with pytest.raises(TypeError):
         rg.prompt(bar)
 
 
 def test_prompt_parse_fail_unique_ouput() -> None:
-    async def foo(arg: int) -> tuple[str, str]:
-        ...
+    async def foo(arg: int) -> tuple[str, str]: ...
 
     with pytest.raises(TypeError):
         rg.prompt(foo)

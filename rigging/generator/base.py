@@ -310,6 +310,9 @@ class Usage(BaseModel):
             total_tokens=self.total_tokens + other.total_tokens,
         )
 
+    def __str__(self) -> str:
+        return f"in: {self.input_tokens} | out: {self.output_tokens} | total: {self.total_tokens}"
+
 
 GeneratedT = t.TypeVar("GeneratedT", Message, str)
 

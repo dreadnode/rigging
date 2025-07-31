@@ -18,7 +18,7 @@ from rigging.error import CompletionExhaustedMaxRoundsError
 from rigging.generator import GenerateParams, Generator, get_generator
 from rigging.generator.base import GeneratedText, StopReason, Usage
 from rigging.parsing import parse_many
-from rigging.util import get_qualified_name
+from rigging.util import get_callable_name
 
 if t.TYPE_CHECKING:
     from dreadnode import Span
@@ -577,13 +577,16 @@ class CompletionPipeline:
         def wrap_watch_callback(
             callback: WatchCompletionCallback,
         ) -> t.Callable[[list[Completion]], t.Awaitable[None]]:
-            callback_name = get_qualified_name(callback)
-            return dn.task(
-                name=f"watch - {callback_name}",
-                attributes={"rigging.type": "completion_pipeline.watch_callback"},
-                log_inputs=True,
-                log_output=False,
-            )(callback)
+            callback_name = get_callable_name(callback, short=True)
+
+            async def wrapped_callback(completions: list[Completion]) -> None:
+                with dn.span(
+                    name=callback_name,
+                    attributes={"rigging.type": "chat_pipeline.watch_callback"},
+                ):
+                    await callback(completions)
+
+            return wrapped_callback
 
         traced_callbacks = [wrap_watch_callback(callback) for callback in self.watch_callbacks]
         coros = [callback(completions) for callback in traced_callbacks]
@@ -636,9 +639,9 @@ class CompletionPipeline:
         # previous calls being ran.
 
         for map_callback in self.map_callbacks:
-            callback_name = get_qualified_name(map_callback)
+            callback_name = get_callable_name(map_callback)
             traced_map_callback = dn.task(
-                name=f"map - {callback_name}",
+                name=callback_name,
                 attributes={"rigging.type": "completion_pipeline.map_callback"},
                 log_inputs=True,
                 log_output=True,
@@ -650,9 +653,9 @@ class CompletionPipeline:
                 )
 
         for then_callback in self.then_callbacks:
-            callback_name = get_qualified_name(then_callback)
+            callback_name = get_callable_name(then_callback, short=True)
             traced_then_callback = dn.task(
-                name=f"then - {callback_name}",
+                name=callback_name,
                 attributes={"rigging.type": "completion_pipeline.then_callback"},
                 log_inputs=True,
                 log_output=True,

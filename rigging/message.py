@@ -28,7 +28,12 @@ from rigging.error import MessageWarning, MissingModelError
 from rigging.model import ErrorModel, Model, ModelT
 from rigging.parsing import try_parse_many
 from rigging.tools.base import ToolCall
-from rigging.util import AudioFormat, identify_audio_format, shorten_string, truncate_string
+from rigging.util import (
+    AudioFormat,
+    identify_audio_format,
+    shorten_string,
+    truncate_string,
+)
 
 Role = t.Literal["system", "user", "assistant", "tool"]
 """The role of a message. Can be 'system', 'user', 'assistant', or 'tool'."""
@@ -111,8 +116,9 @@ class MessageSlice(BaseModel):
 
     def __str__(self) -> str:
         """Returns a string representation of the slice."""
-        content_preview = self.content if self._message else "[detached]"
-        return f"<MessageSlice type='{self.type}' start={self.start} stop={self.stop} obj={self.obj.__class__.__name__ if self.obj else None} content='{shorten_string(content_preview, 50)}'>"
+        content = shorten_string(self.content if self._message else "[detached]", 50)
+        obj = self.obj.__class__.__name__ if self.obj else None
+        return f"MessageSlice(type='{self.type}', start={self.start}, stop={self.stop} obj={obj} content='{content}')"
 
     def clone(self) -> "MessageSlice":
         """
@@ -164,7 +170,7 @@ class ContentImageUrl(BaseModel):
     """Cache control entry for prompt caching."""
 
     def __str__(self) -> str:
-        return f"<ContentImageUrl url='{shorten_string(self.image_url.url, 50)}'>"
+        return f"ContentImageUrl(url='{shorten_string(self.image_url.url, 50)}')"
 
     @classmethod
     def from_file(
@@ -1122,6 +1128,21 @@ class Message(BaseModel):
         """
         new = self.clone()
         new.content = truncate_string(new.content, max_length, suf=suffix)
+        return new
+
+    def shorten(self, max_length: int, sep: str = "...") -> "Message":
+        """
+        Shortens the message content to at most max_length characters long by removing the middle of the string
+
+        Args:
+            max_length: The maximum length of the message content.
+            sep: The separator to use when shortening the content.
+
+        Returns:
+            The shortened message.
+        """
+        new = self.clone()
+        new.content = shorten_string(new.content, max_length, sep=sep)
         return new
 
     @property

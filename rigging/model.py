@@ -5,14 +5,15 @@ Models are the core datatypes for structured parsing.
 import dataclasses
 import inspect
 import re
+import textwrap
 import typing as t
 from xml.etree import ElementTree as ET  # nosec
 
 import typing_extensions as te
-import xmltodict  # type: ignore [import-untyped]
 from pydantic import (
     BaseModel,
     BeforeValidator,
+    ConfigDict,
     Field,
     SerializationInfo,
     ValidationError,
@@ -68,6 +69,8 @@ class XmlTagDescriptor:
 
 
 class Model(BaseXmlModel):
+    model_config = ConfigDict(use_attribute_docstrings=True)
+
     def __init_subclass__(
         cls,
         tag: str | None = None,
@@ -135,16 +138,66 @@ class Model(BaseXmlModel):
 
         return tree
 
-    # to_xml() doesn't prettify normally, and extended
-    # requirements like lxml seemed like poor form for
-    # just this feature
+    def _serialize_tree_prettily(
+        self, element: ET.Element, level: int = 0, indent_str: str = "  "
+    ) -> str:
+        # Essentially a custom work of ET.indent to better
+        # handle multi-line text so we get:
+        #
+        # <tag>
+        #   Some text
+        #   More text
+        # </tag>
+        #
+        # instead of:
+        #
+        # <tag>Some text
+        # More text</tag>
+
+        indent = indent_str * level
+        lines = []
+
+        attrs = "".join(f' {k}="{escape_xml(v)}"' for k, v in element.attrib.items())
+        tag_with_attrs = f"{element.tag}{attrs}"
+
+        text = element.text and element.text.strip()
+        multiline_text = text and "\n" in text
+        has_children = len(element) > 0
+
+        if not has_children and not multiline_text:
+            if level == 0 and not text:
+                lines.append(f"<{tag_with_attrs}></{element.tag}>")
+            elif not text:
+                lines.append(f"{indent}<{tag_with_attrs} />")
+            else:
+                lines.append(f"{indent}<{tag_with_attrs}>{text}</{element.tag}>")
+            return "\n".join(lines)
+
+        lines.append(f"{indent}<{tag_with_attrs}>")
+
+        if text and multiline_text:
+            dedented_text = textwrap.dedent(text).strip()
+            content_indent = indent_str * (level + 1)
+            for line in dedented_text.split("\n"):
+                lines.append(f"{content_indent}{line}" if line.strip() else "")  # noqa: PERF401
+
+        for child in element:
+            lines.append(self._serialize_tree_prettily(child, level + 1, indent_str))  # noqa: PERF401
+
+        lines.append(f"{indent}</{element.tag}>")
+
+        return "\n".join(lines)
+
+    # to_xml() doesn't prettify normally, and extended requirements
+    # like lxml seemed like poor form for just this feature
+
     def to_pretty_xml(
         self,
         *,
         skip_empty: bool = False,
         exclude_none: bool = False,
         exclude_unset: bool = False,
-        **kwargs: t.Any,
+        **_: t.Any,
     ) -> str:
         """
         Converts the model to a pretty XML string with indents and newlines.
@@ -157,22 +210,7 @@ class Model(BaseXmlModel):
             exclude_none=exclude_none,
             exclude_unset=exclude_unset,
         )
-        tree = self._postprocess_with_cdata(tree)
-
-        ET.indent(tree, "  ")
-        pretty_encoded_xml = str(
-            ET.tostring(
-                tree,
-                short_empty_elements=False,
-                encoding="utf-8",
-                **kwargs,
-            ).decode(),
-        )
-
-        # Now we can go back and safely unescape the XML
-        # that we observe between any CDATA tags
-
-        return unescape_cdata_tags(pretty_encoded_xml)
+        return self._serialize_tree_prettily(tree)
 
     def to_xml(
         self,
@@ -293,27 +331,55 @@ class Model(BaseXmlModel):
         """
         Returns an example XML representation of the given class.
 
-        Models should typically override this method to provide a more complex example.
+        This method generates a pretty-printed XML string that includes:
+        - Example values for each field, taken from the `example` argument
+          in a field constructor.
+        - Field descriptions as XML comments, derived from the field's
+          docstring or the `description` argument.
 
-        By default, this method returns a hollow XML scaffold one layer deep.
+        Note: This implementation is designed for models with flat structures
+        and does not recursively generate examples for nested models.
 
         Returns:
-            A string containing the XML representation of the class.
+            A string containing the pretty-printed XML example.
         """
         if cls.is_simple():
-            return cls.xml_tags()
+            field_info = next(iter(cls.model_fields.values()))
+            example = str(next(iter(field_info.examples or []), ""))
+            return f"<{cls.__xml_tag__}>{escape_xml(example)}</{cls.__xml_tag__}>"
 
-        schema = cls.model_json_schema()
-        properties = schema["properties"]
-        structure = {cls.__xml_tag__: dict.fromkeys(properties)}
-        xml_string = xmltodict.unparse(
-            structure,
-            pretty=True,
-            full_document=False,
-            indent="  ",
-            short_empty_elements=True,
-        )
-        return t.cast("str", xml_string)  # Bad type hints in xmltodict
+        lines = []
+        attribute_parts = []
+        element_fields = {}
+
+        for field_name, field_info in cls.model_fields.items():
+            if (
+                isinstance(field_info, XmlEntityInfo)
+                and field_info.location == EntityLocation.ATTRIBUTE
+            ):
+                path = field_info.path or field_name
+                example = str(next(iter(field_info.examples or []), "")).replace('"', "&quot;")
+                attribute_parts.append(f'{path}="{example}"')
+            else:
+                element_fields[field_name] = field_info
+
+        attr_string = (" " + " ".join(attribute_parts)) if attribute_parts else ""
+        lines.append(f"<{cls.__xml_tag__}{attr_string}>")
+
+        for field_name, field_info in element_fields.items():
+            path = (isinstance(field_info, XmlEntityInfo) and field_info.path) or field_name
+            description = field_info.description
+            example = str(next(iter(field_info.examples or []), ""))
+
+            if description:
+                lines.append(f"  <!-- {escape_xml(description.strip())} -->")
+            if example:
+                lines.append(f"  <{path}>{escape_xml(example)}</{path}>")
+            else:
+                lines.append(f"  <{path}/>")
+
+        lines.append(f"</{cls.__xml_tag__}>")
+        return "\n".join(lines)
 
     @classmethod
     def ensure_valid(cls) -> None:
@@ -383,7 +449,7 @@ class Model(BaseXmlModel):
             needs_escaping = escape_xml(unescape_xml(content)) != content
 
             if is_basic_field and not is_already_cdata and needs_escaping:
-                content = f"<![CDATA[{content}]]>"
+                content = f"<![CDATA[{textwrap.dedent(content).strip()}]]>"
 
             return f"<{field_name}{tag_attrs}>{content}</{field_name}>"
 
@@ -504,7 +570,13 @@ class Model(BaseXmlModel):
 
             try:
                 model = (
-                    cls(**{next(iter(cls.model_fields)): unescape_xml(inner)})
+                    cls(
+                        **{
+                            next(iter(cls.model_fields)): unescape_xml(
+                                textwrap.dedent(inner).strip()
+                            )
+                        }
+                    )
                     if cls.is_simple()
                     else cls.from_xml(
                         cls.preprocess_with_cdata(full_text),
@@ -514,7 +586,7 @@ class Model(BaseXmlModel):
                 # If our model is relatively simple (only attributes and a single non-element field)
                 # we should go back and update our non-element field with the extracted content.
 
-                if cls.is_simple_with_attrs():
+                if not cls.is_simple() and cls.is_simple_with_attrs():
                     name, field = next(
                         (name, field)
                         for name, field in cls.model_fields.items()
@@ -524,6 +596,14 @@ class Model(BaseXmlModel):
                         model.__dict__[name] = field.annotation(
                             unescape_xml(inner).strip(),
                         )
+
+                # Walk through any fields which are strings, and dedent them
+
+                for field_name, field_info in cls.model_fields.items():
+                    if isinstance(field_info, XmlEntityInfo) and field_info.annotation == str:  # noqa: E721
+                        model.__dict__[field_name] = textwrap.dedent(
+                            model.__dict__[field_name]
+                        ).strip()
 
                 extracted.append((model, slice_))
             except Exception as e:  # noqa: BLE001

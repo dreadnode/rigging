@@ -131,9 +131,7 @@ def escape_xml(xml_string: str) -> str:
     """
     escaped = xml_string.replace(r"&", "&amp;")
     escaped = escaped.replace(r"<", "&lt;")
-    escaped = escaped.replace(r">", "&gt;")
-    escaped = escaped.replace(r"'", "&apos;")
-    return escaped.replace(r'"', "&quot;")
+    return escaped.replace(r">", "&gt;")
 ```
 
 
@@ -234,58 +232,90 @@ def flatten_list(nested_list: t.Iterable[t.Iterable[t.Any] | t.Any]) -> list[t.A
 
 </Accordion>
 
-get\_qualified\_name
---------------------
+get\_callable\_name
+-------------------
 
 ```python
-get_qualified_name(obj: Callable[..., Any]) -> str
+get_callable_name(
+    obj: Callable[..., Any], *, short: bool = False
+) -> str
 ```
 
-Return a best guess at the qualified name of a callable object.
-This includes functions, methods, and callable classes.
+Return a best-effort, comprehensive name for a callable object.
+
+This function handles a wide variety of callables, including regular
+functions, methods, lambdas, partials, wrapped functions, and callable
+class instances.
+
+**Parameters:**
+
+* **`obj`**
+  (`Callable[..., Any]`)
+  –The callable object to name.
+* **`short`**
+  (`bool`, default:
+  `False`
+  )
+  –If True, returns a shorter name suitable for logs or UI,
+  typically omitting the module path. The class name is
+  retained for methods.
+
+**Returns:**
+
+* `str`
+  –A string representing the callable's name.
 
 <Accordion title="Source code in rigging/util.py" icon="code">
 ```python
-def get_qualified_name(obj: t.Callable[..., t.Any]) -> str:
+def get_callable_name(obj: t.Callable[..., t.Any], *, short: bool = False) -> str:
     """
-    Return a best guess at the qualified name of a callable object.
-    This includes functions, methods, and callable classes.
+    Return a best-effort, comprehensive name for a callable object.
+
+    This function handles a wide variety of callables, including regular
+    functions, methods, lambdas, partials, wrapped functions, and callable
+    class instances.
+
+    Args:
+        obj: The callable object to name.
+        short: If True, returns a shorter name suitable for logs or UI,
+               typically omitting the module path. The class name is
+               retained for methods.
+
+    Returns:
+        A string representing the callable's name.
     """
-    if obj is None or not callable(obj):
-        return "unknown"
+    if not callable(obj):
+        return repr(obj)
 
-    module = inspect.getmodule(obj)
-    module_name = module.__name__ if module else ""
-
-    # Partial functions
     if isinstance(obj, functools.partial):
-        base_name = get_qualified_name(obj.func)
-        return f"partial({base_name})"
+        inner_name = get_callable_name(obj.func, short=short)
+        return f"partial({inner_name})"
 
-    # Methods
-    if isinstance(obj, types.MethodType):
-        class_name = obj.__self__.__class__.__name__
-        method_name = obj.__func__.__name__
-        return f"{class_name}.{method_name}"
+    unwrapped = obj
+    with contextlib.suppress(Exception):
+        unwrapped = inspect.unwrap(obj)
 
-    # Functions
-    if isinstance(obj, types.FunctionType):
-        # Check if it's a wrapped function
-        if hasattr(obj, "__wrapped__"):
-            original_name = get_qualified_name(obj.__wrapped__)
-            return f"wrapped({original_name})"
+    name = getattr(unwrapped, "__qualname__", None)
 
-        name = obj.__qualname__ or obj.__name__
-        return f"{module_name}.{name}" if module_name != "__main__" else name
+    if name is None:
+        name = getattr(unwrapped, "__name__", None)
 
-    # Callable classes
-    if callable(obj):
-        if isinstance(obj, type):
-            return obj.__qualname__
-        return f"{obj.__class__.__qualname__}.__call__"
+    if name is None:
+        if hasattr(obj, "__class__"):
+            name = getattr(obj.__class__, "__qualname__", obj.__class__.__name__)
+        else:
+            return repr(obj)
 
-    # Fallback
-    return obj.__class__.__qualname__
+    if short:
+        return str(name).split(".")[-1]  # Return only the last part of the name
+
+    with contextlib.suppress(Exception):
+        if module := inspect.getmodule(unwrapped):
+            module_name = module.__name__
+            if module_name and module_name not in ("builtins", "__main__"):
+                return f"{module_name}.{name}"
+
+    return str(name)
 ```
 
 

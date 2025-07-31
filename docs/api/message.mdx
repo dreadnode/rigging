@@ -1953,6 +1953,51 @@ def replace_with_slice(
 
 </Accordion>
 
+### shorten
+
+```python
+shorten(max_length: int, sep: str = '...') -> Message
+```
+
+Shortens the message content to at most max\_length characters long by removing the middle of the string
+
+**Parameters:**
+
+* **`max_length`**
+  (`int`)
+  –The maximum length of the message content.
+* **`sep`**
+  (`str`, default:
+  `'...'`
+  )
+  –The separator to use when shortening the content.
+
+**Returns:**
+
+* `Message`
+  –The shortened message.
+
+<Accordion title="Source code in rigging/message.py" icon="code">
+```python
+def shorten(self, max_length: int, sep: str = "...") -> "Message":
+    """
+    Shortens the message content to at most max_length characters long by removing the middle of the string
+
+    Args:
+        max_length: The maximum length of the message content.
+        sep: The separator to use when shortening the content.
+
+    Returns:
+        The shortened message.
+    """
+    new = self.clone()
+    new.content = shorten_string(new.content, max_length, sep=sep)
+    return new
+```
+
+
+</Accordion>
+
 ### strip
 
 ```python
@@ -2469,8 +2514,9 @@ Returns a string representation of the slice.
 ```python
 def __str__(self) -> str:
     """Returns a string representation of the slice."""
-    content_preview = self.content if self._message else "[detached]"
-    return f"<MessageSlice type='{self.type}' start={self.start} stop={self.stop} obj={self.obj.__class__.__name__ if self.obj else None} content='{shorten_string(content_preview, 50)}'>"
+    content = shorten_string(self.content if self._message else "[detached]", 50)
+    obj = self.obj.__class__.__name__ if self.obj else None
+    return f"MessageSlice(type='{self.type}', start={self.start}, stop={self.stop} obj={obj} content='{content}')"
 ```
 
 

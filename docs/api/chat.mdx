@@ -1263,7 +1263,7 @@ def __init__(
     """How to handle failures in the pipeline unless overridden in calls."""
     self.caching: CacheMode | None = None
     """How to handle cache_control entries on messages."""
-    self.task_name: str = generator.to_identifier(short=True)
+    self.task_name: str = f"Chat with {generator.to_identifier(short=True)}"
     """The name of the pipeline task, used for logging and debugging."""
     self.scorers: list[Scorer[Chat]] = []
     """List of dreadnode scorers to evaluate the generated chat upon completion."""
@@ -1367,7 +1367,7 @@ List of dreadnode scorers to evaluate the generated chat upon completion.
 ### task\_name
 
 ```python
-task_name: str = to_identifier(short=True)
+task_name: str = f'Chat with {to_identifier(short=True)}'
 ```
 
 The name of the pipeline task, used for logging and debugging.
@@ -1942,7 +1942,7 @@ def map(
 
         if callback in [c[0] for c in self.map_callbacks]:
             raise ValueError(
-                f"Callback '{get_qualified_name(callback)}' is already registered.",
+                f"Callback '{get_callable_name(callback)}' is already registered.",
             )
 
     self.map_callbacks.extend([(callback, max_depth, as_task) for callback in callbacks])
@@ -2153,8 +2153,9 @@ async def run(
 
     last: PipelineStep | None = None
     with dn.task_span(
-        name or f"pipeline - {self.task_name}",
+        name or self.task_name,
         label=name or f"pipeline_{self.task_name}",
+        tags=["rigging/pipeline"],
         attributes={"rigging.type": "chat_pipeline.run"},
     ) as task:
         dn.log_inputs(
@@ -2286,8 +2287,9 @@ async def run_batch(
 
     last: PipelineStep | None = None
     with dn.task_span(
-        name or f"pipeline - {self.task_name} (batch x{count})",
+        name or f"{self.task_name} (batch x{count})",
         label=name or f"pipeline_batch_{self.task_name}",
+        tags=["rigging/pipeline"],
         attributes={"rigging.type": "chat_pipeline.run_batch"},
     ) as task:
         dn.log_inputs(
@@ -2433,8 +2435,9 @@ async def run_many(
 
     last: PipelineStep | None = None
     with dn.task_span(
-        name or f"pipeline - {self.task_name} (x{count})",
+        name or f"{self.task_name} (x{count})",
         label=name or f"pipeline_many_{self.task_name}",
+        tags=["rigging/pipeline"],
         attributes={"rigging.type": "chat_pipeline.run_many"},
     ) as task:
         dn.log_inputs(
@@ -2975,7 +2978,7 @@ def then(
 
         if callback in [c[0] for c in self.then_callbacks]:
             raise ValueError(
-                f"Callback '{get_qualified_name(callback)}' is already registered.",
+                f"Callback '{get_callable_name(callback)}' is already registered.",
             )
 
     self.then_callbacks.extend([(callback, max_depth, as_task) for callback in callbacks])
@@ -3075,7 +3078,7 @@ def transform(
     for callback in callbacks:
         if not allow_duplicates and callback in self.transforms:
             raise ValueError(
-                f"Callback '{get_qualified_name(callback)}' is already registered.",
+                f"Callback '{get_callable_name(callback)}' is already registered.",
             )
 
     self.transforms.extend(callbacks)
@@ -3473,7 +3476,7 @@ def watch(
     for callback in callbacks:
         if not allow_duplicates and callback in self.watch_callbacks:
             raise ValueError(
-                f"Callback '{get_qualified_name(callback)}' is already registered.",
+                f"Callback '{get_callable_name(callback)}' is already registered.",
             )
 
     self.watch_callbacks.extend(callbacks)

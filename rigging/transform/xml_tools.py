@@ -18,6 +18,7 @@ from rigging.message import (
 from rigging.model import Model
 from rigging.tools.base import FunctionCall, Tool, ToolCall, ToolResponse
 from rigging.transform.base import PostTransform, Transform
+from rigging.util import shorten_string
 
 if t.TYPE_CHECKING:
     from rigging.chat import Chat
@@ -114,7 +115,8 @@ class XmlToolCall(Model, tag=TOOL_CALL_TAG):
     parameters: str
 
     def __str__(self) -> str:
-        return f"<XmlToolCall {self.name}({self.parameters})>"
+        parameters = shorten_string(self.parameters, max_length=50)
+        return f"XmlToolCall(name='{self.name}' parameters='{parameters}')"
 
 
 XML_TOOLS_PREFIX = f"""\

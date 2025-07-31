@@ -25,7 +25,7 @@ from rigging.generator.base import GenerateParams, Generator, get_generator
 from rigging.message import Message
 from rigging.model import Model, SystemErrorModel, ValidationErrorModel, make_primitive
 from rigging.tools import Tool
-from rigging.util import escape_xml, get_qualified_name, to_snake, to_xml_tag
+from rigging.util import escape_xml, get_callable_name, to_snake, to_xml_tag
 
 DEFAULT_DOC = "Convert the following inputs to outputs ({func_name})."
 """Default docstring if none is provided to a prompt function."""
@@ -563,10 +563,10 @@ class Prompt(t.Generic[P, R]):
             # A bit weird, but we need from_chat to properly handle
             # wrapping Chat output types inside lists/dataclasses
             with dn.task_span(
-                f"prompt parse - {self.output.tag}",
+                f"parse - {self.output.tag}",
                 attributes={"rigging.type": "prompt.parse"},
             ):
-                dn.log_input("message", chat.last)
+                dn.log_input("message", str(chat.last))
                 self.output.from_chat(chat)
         except ValidationError as e:
             next_pipeline.add(
@@ -642,7 +642,7 @@ class Prompt(t.Generic[P, R]):
         for callback in callbacks:
             if not allow_duplicates and callback in self.watch_callbacks:
                 raise ValueError(
-                    f"Callback '{get_qualified_name(callback)}' is already registered.",
+                    f"Callback '{get_callable_name(callback)}' is already registered.",
                 )
 
         self.watch_callbacks.extend(callbacks)
@@ -680,7 +680,7 @@ class Prompt(t.Generic[P, R]):
         for callback in callbacks:
             if not asyncio.iscoroutinefunction(callback):
                 raise TypeError(
-                    f"Callback '{get_qualified_name(callback)}' must be an async function",
+                    f"Callback '{get_callable_name(callback)}' must be an async function",
                 )
 
             if allow_duplicates:
@@ -688,7 +688,7 @@ class Prompt(t.Generic[P, R]):
 
             if callback in self.then_callbacks:
                 raise ValueError(
-                    f"Callback '{get_qualified_name(callback)}' is already registered.",
+                    f"Callback '{get_callable_name(callback)}' is already registered.",
                 )
 
         self.then_callbacks.extend(callbacks)
@@ -726,7 +726,7 @@ class Prompt(t.Generic[P, R]):
         for callback in callbacks:
             if not asyncio.iscoroutinefunction(callback):
                 raise TypeError(
-                    f"Callback '{get_qualified_name(callback)}' must be an async function",
+                    f"Callback '{get_callable_name(callback)}' must be an async function",
                 )
 
             if allow_duplicates:
@@ -734,7 +734,7 @@ class Prompt(t.Generic[P, R]):
 
             if callback in self.map_callbacks:
                 raise ValueError(
-                    f"Callback '{get_qualified_name(callback)}' is already registered.",
+                    f"Callback '{get_callable_name(callback)}' is already registered.",
                 )
 
         self.map_callbacks.extend(callbacks)
@@ -850,9 +850,10 @@ class Prompt(t.Generic[P, R]):
             )
 
         async def run(*args: P.args, **kwargs: P.kwargs) -> R:
-            name = get_qualified_name(self.func) if self.func else "<generated>"
+            name = get_callable_name(self.func, short=True) if self.func else "<generated>"
             with dn.task_span(
-                f"prompt - {name}",
+                name,
+                tags=["rigging/prompt"],
                 attributes={"prompt_name": name, "rigging.type": "prompt.run"},
             ):
                 dn.log_inputs(**self._bind_args(*args, **kwargs))
@@ -913,10 +914,11 @@ class Prompt(t.Generic[P, R]):
             )
 
         async def run_many(count: int, /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
-            name = get_qualified_name(self.func) if self.func else "<generated>"
+            name = get_callable_name(self.func, short=True) if self.func else "<generated>"
             with dn.task_span(
-                f"prompt - {name} (x{count})",
+                f"{name} (x{count})",
                 label=f"prompt_{name}",
+                tags=["rigging/prompt"],
                 attributes={"prompt_name": name, "rigging.type": "prompt.run_many"},
             ) as span:
                 dn.log_inputs(**self._bind_args(*args, **kwargs))
