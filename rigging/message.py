@@ -1310,7 +1310,11 @@ class Message(BaseModel):
             metadata = {"error": models.content}
 
         return cls(
-            role=role, content=content, slices=slices_, tool_call_id=tool_call_id, metadata=metadata
+            role=role,
+            content=content,
+            slices=slices_,
+            tool_call_id=tool_call_id,
+            metadata=metadata or {},
         )
 
     @classmethod
