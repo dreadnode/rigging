@@ -1520,14 +1520,14 @@ files = [
 
 [[package]]
 name = "dreadnode"
-version = "1.13.2"
+version = "1.13.4"
 description = "Dreadnode SDK"
 optional = false
 python-versions = "<3.14,>=3.10"
 groups = ["main"]
 files = [
-    {file = "dreadnode-1.13.2-py3-none-any.whl", hash = "sha256:dbd7b15e5f7948fbcbbac4c1f1b7de34ae942bf9b7a874514eeb06427aeabad7"},
-    {file = "dreadnode-1.13.2.tar.gz", hash = "sha256:489ca59f60aeeeb202d05e7f0949263ca5a7dc08ecbde1cd761f2d8ee388e3a2"},
+    {file = "dreadnode-1.13.4-py3-none-any.whl", hash = "sha256:89df7ad89c6a8f68c8c32fc845bf4ffd686ce96db65a33acbd770dc61dc52544"},
+    {file = "dreadnode-1.13.4.tar.gz", hash = "sha256:e59b3673f72fdb30508a4fbc8034cb08a9a1abe6eb0be4583bed804d2e443091"},
 ]
 
 [package.dependencies]
