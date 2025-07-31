@@ -8,6 +8,161 @@ title: rigging.watchers
 
 Common watcher callback makers for use with generators, chats, and completions.
 
+stream\_to\_logs
+----------------
+
+```python
+stream_to_logs = make_stream_to_logs()
+```
+
+A convenience watch callback for chat pipelines to stream conversation messages to the console (via Loguru).
+
+Use `make_stream_to_logs()` to create a custom version with specific parameters.
+
+Example
+
+```python
+chat = (
+    await generator.chat(...)
+    .watch(stream_to_logs)
+    .run()
+)
+```
+
+make\_stream\_to\_logs
+----------------------
+
+```python
+make_stream_to_logs(
+    *,
+    level: LogLevelLiteral = "info",
+    max_chars: int = 500,
+    max_lines: int = 20,
+) -> WatchChatCallback
+```
+
+Creates a watch-style callback that streams conversation progress to the console (via Loguru).
+
+This version intelligently tracks the conversation by comparing the hash history
+of messages, making it robust against unpredictable UUIDs or history rewrites.
+If the history deviates, it treats it as a new conversation.
+
+**Parameters:**
+
+* **`level`**
+  (`LogLevelLiteral`, default:
+  `'info'`
+  )
+  –The Loguru log level to use.
+* **`max_chars`**
+  (`int`, default:
+  `500`
+  )
+  –Max characters to display for content before shortening.
+* **`max_lines`**
+  (`int`, default:
+  `20`
+  )
+  –Max lines to display for content before shortening.
+* **`**kwargs`**
+  –Additional arguments to pass to the Loguru logger.
+
+**Returns:**
+
+* `WatchChatCallback`
+  –An awaitable callback function for use with `ChatPipeline.watch()`.
+
+<Accordion title="Source code in rigging/watchers.py" icon="code">
+```python
+def make_stream_to_logs(
+    *,
+    level: LogLevelLiteral = "info",
+    max_chars: int = 500,
+    max_lines: int = 20,
+) -> "WatchChatCallback":
+    """
+    Creates a watch-style callback that streams conversation progress to the console (via Loguru).
+
+    This version intelligently tracks the conversation by comparing the hash history
+    of messages, making it robust against unpredictable UUIDs or history rewrites.
+    If the history deviates, it treats it as a new conversation.
+
+    Args:
+        level: The Loguru log level to use.
+        max_chars: Max characters to display for content before shortening.
+        max_lines: Max lines to display for content before shortening.
+        **kwargs: Additional arguments to pass to the Loguru logger.
+
+    Returns:
+        An awaitable callback function for use with `ChatPipeline.watch()`.
+    """
+    last_tracked_hashes: list[int] = []
+    last_printed_hash: int | None = None
+    error_logged_for_hash: int | None = None
+
+    logger.enable("rigging")
+
+    async def stream_to_logs(chats: "list[Chat]") -> None:
+        nonlocal last_tracked_hashes, last_printed_hash, error_logged_for_hash
+
+        if not chats:
+            return
+
+        chat = chats[0]
+
+        current_hashes = [m.hash for m in chat.all]
+        is_continuation = (
+            last_tracked_hashes
+            and current_hashes[: len(last_tracked_hashes)] == last_tracked_hashes
+        )
+
+        print_from_index = 0
+
+        if not is_continuation:
+            last_printed_hash = None
+
+        elif last_printed_hash:
+            # It IS a continuation. Find where we left off.
+            try:
+                last_printed_index = current_hashes.index(last_printed_hash)
+                print_from_index = last_printed_index + 1
+            except ValueError:
+                # This can happen if the history was rewritten in a way that
+                # preserved the beginning but removed the last message we saw.
+                # We can try to find the last valid message from our old history.
+                for i in range(len(last_tracked_hashes) - 1, -1, -1):
+                    try:
+                        last_known_index = current_hashes.index(last_tracked_hashes[i])
+                        print_from_index = last_known_index + 1
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    print_from_index = 0
+
+        for i in range(print_from_index, len(chat.all)):
+            message = chat.all[i]
+            current_hash = current_hashes[i]
+            if current_hash == last_printed_hash:
+                continue
+
+            _log_message(
+                message,
+                level=level,
+                max_chars=max_chars,
+                max_lines=max_lines,
+            )
+
+            last_printed_hash = current_hash
+
+        last_tracked_hashes = current_hashes
+
+    return stream_to_logs
+```
+
+
+</Accordion>
+
 write\_chats\_to\_elastic
 -------------------------
 

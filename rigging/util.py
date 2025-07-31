@@ -228,33 +228,74 @@ def get_qualified_name(obj: t.Callable[..., t.Any]) -> str:
 # Formatting
 
 
-def shorten_string(content: str, max_length: int, *, sep: str = "...") -> str:
+def shorten_text(
+    text: str,
+    *,
+    max_lines: int | None = None,
+    max_chars: int | None = None,
+    separator: str = "...",
+) -> str:
     """
-    Return a string at most max_length characters long by removing the middle of the string.
+    Shortens text to a maximum number of lines and/or characters by removing
+    content from the middle.
+
+    Line shortening is applied first, followed by character shortening.
+
+    Args:
+        text: The string to shorten.
+        max_lines: The maximum number of lines to allow.
+        max_chars: The maximum number of characters to allow.
+        separator: The separator to insert in the middle of the shortened text.
+
+    Returns:
+        The shortened text
     """
-    if len(content) <= max_length:
-        return content
+    # 1 - line count first
+    if max_lines is not None:
+        lines = text.splitlines()
+        if len(lines) > max_lines:
+            remaining_lines = max_lines - 1  # leave space for the separator
+            if remaining_lines <= 0:
+                text = separator  # if max_lines is 1, just use the separator
+            else:
+                half = remaining_lines // 2
+                start_lines = lines[:half]
+                end_lines = lines[-(remaining_lines - half) :]
+                text = "\n".join([*start_lines, separator, *end_lines])
 
-    remaining = max_length - len(sep)
-    if remaining <= 0:
-        return sep
+    # 2 - character count
+    if max_chars is not None and len(text) > max_chars:
+        remaining_chars = max_chars - len(separator)
+        if remaining_chars <= 0:
+            text = separator
+        else:
+            half_chars = remaining_chars // 2
+            text = text[:half_chars] + separator + text[-half_chars:]
 
-    middle = remaining // 2
-    return content[:middle] + sep + content[-middle:]
+    return text
 
 
-def truncate_string(content: str, max_length: int, *, suf: str = "...") -> str:
+def shorten_string(text: str, max_length: int | None, *, sep: str = "...") -> str:
+    """
+    Return a string at most max_length characters long by removing the middle.
+    """
+    if max_length is None or len(text) <= max_length:
+        return text
+    return shorten_text(text, max_chars=max_length, separator=sep)
+
+
+def truncate_string(text: str, max_length: int, *, suf: str = "...") -> str:
     """
     Return a string at most max_length characters long by removing the end of the string.
     """
-    if len(content) <= max_length:
-        return content
+    if len(text) <= max_length:
+        return text
 
     remaining = max_length - len(suf)
     if remaining <= 0:
         return suf
 
-    return content[:remaining] + suf
+    return text[:remaining] + suf
 
 
 # List utilities

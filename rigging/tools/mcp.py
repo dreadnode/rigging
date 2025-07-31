@@ -22,6 +22,7 @@ from mcp.types import CallToolResult, TextResourceContents
 
 from rigging.error import Stop
 from rigging.tools.base import Tool
+from rigging.util import flatten_list
 
 if t.TYPE_CHECKING:
     from rigging.message import Content
@@ -106,7 +107,9 @@ def _convert_rigging_return_to_mcp(result: t.Any) -> t.Any:
     return result
 
 
-def _create_mcp_handler(tool: t.Callable[P, t.Any]) -> t.Callable[P, t.Awaitable[t.Any]]:
+def _create_mcp_handler(
+    tool: t.Callable[P, t.Any],
+) -> t.Callable[P, t.Awaitable[t.Any]]:
     @functools.wraps(tool)
     async def handler(*args: P.args, **kwargs: P.kwargs) -> t.Any:
         try:
@@ -285,8 +288,7 @@ def mcp(transport: Transport, **connection: t.Any) -> MCPClient:
 
 
 def as_mcp(
-    tools: t.Iterable[Tool[..., t.Any] | t.Callable[..., t.Any]],
-    *,
+    *tools: t.Any,
     name: str = "Rigging Tools",
 ) -> "FastMCP":
     """
@@ -297,10 +299,9 @@ def as_mcp(
     the conversion between Rigging's `Tool` objects and the MCP specification.
 
     Args:
-        tools: An iterable of `rigging.Tool` objects or raw Python functions
-               to be exposed. If raw functions are passed, they will be
-               converted to `Tool` objects automatically.
-        name: The name of the MCP server. This is used for identification
+        tools: Any number of `rigging.Tool` objects, raw Python functions,
+               or class instances with `@tool_method` methods.
+        name: The name of the MCP server. This is used for identification.
 
     Example:
         ```python
@@ -314,15 +315,32 @@ def as_mcp(
             return a + b
 
         if __name__ == "__main__":
-            rg.as_mcp([add_numbers]).run(
+            rg.as_mcp(add_numbers).run(
                 transport="stdio"
             )
         ```
     """
-    rigging_tools = [t if isinstance(t, Tool) else Tool.from_callable(t) for t in tools]
+    rigging_tools: list[Tool[..., t.Any]] = []
+    for tool in flatten_list(list(tools)):
+        interior_tools = [
+            val
+            for _, val in inspect.getmembers(
+                tool,
+                predicate=lambda x: isinstance(x, Tool),
+            )
+        ]
+        if interior_tools:
+            rigging_tools.extend(interior_tools)
+        elif not isinstance(tool, Tool):
+            rigging_tools.append(Tool.from_callable(tool))
+        else:
+            rigging_tools.append(tool)
+
     fastmcp_tools = [
         FastMCPTool.from_function(
-            fn=_create_mcp_handler(tool.fn), name=tool.name, description=tool.description
+            fn=_create_mcp_handler(tool.fn),
+            name=tool.name,
+            description=tool.description,
         )
         for tool in rigging_tools
     ]
