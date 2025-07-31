@@ -1,5 +1,6 @@
 import typing as t
 from contextlib import nullcontext as does_not_raise
+from textwrap import dedent
 
 import pytest
 
@@ -70,6 +71,43 @@ class MixedModel(Model):
     nested: ContentAsElement = element()
 
 
+MULTI_LINE_TEXT = """\
+Multiline content with indentation
+some extra spaces
+
+Some more text\
+"""
+MULTI_LINE_CONTENT_TAG = """\
+<tag>
+  Multiline content with indentation
+  some extra spaces
+
+  Some more text
+</tag>
+"""
+MULTI_LINE_CONTENT_AS_ELEMENT = """\
+<outer>
+  <content>
+    Multiline content with indentation
+    some extra spaces
+
+    Some more text
+  </content>
+</outer>
+"""
+MULTI_LINE_CONTENT_MULTI_FIELD = """\
+<multi-field-model type="cmd">
+  <foo>Process <pid> terminated</foo>
+  <bar>
+    Multiline content with indentation
+    some extra spaces
+
+    Some more text
+  </bar>
+</multi-field-model>
+"""
+
+
 @pytest.mark.parametrize(
     ("content", "models"),
     [
@@ -115,13 +153,23 @@ class MixedModel(Model):
             id="question_with_answer_tag_2",
         ),
         pytest.param(
-            "<question-answer><question>hello</question><answer>world</answer></question-answer>",
+            dedent("""\
+            <question-answer>
+              <question>hello</question>
+              <answer>world</answer>
+            </question-answer>\
+            """),
             [QuestionAnswer(question=Question(content="hello"), answer=Answer(content="world"))],
             id="question_answer",
         ),
         pytest.param(
-            "<delimited-answer>- hello\n - world</delimited-answer>",
-            [DelimitedAnswer(content="- hello\n - world", _items=["hello", "world"])],
+            dedent("""\
+            <delimited-answer>
+              - hello
+              - world
+            </delimited-answer>\
+            """),
+            [DelimitedAnswer(content="- hello\n- world", _items=["hello", "world"])],
             id="newline_delimited_answer",
         ),
         pytest.param(
@@ -145,12 +193,22 @@ class MixedModel(Model):
             id="slash_delimited_answer",
         ),
         pytest.param(
-            '<name-with-things name="test"><thing>a</thing><thing>b</thing></name-with-things>',
+            dedent("""\
+            <name-with-things name="test">
+              <thing>a</thing>
+              <thing>b</thing>
+            </name-with-things>\
+            """),
             [NameWithThings(name="test", things=["a", "b"])],
             id="name_with_things",
         ),
         pytest.param(
-            '<wrapped><inner type="cat">meow</inner><inner type="dog">bark</inner></wrapped>',
+            dedent("""\
+            <wrapped>
+              <inner type="cat">meow</inner>
+              <inner type="dog">bark</inner>
+            </wrapped>\
+            """),
             [
                 Wrapped(
                     inners=[
@@ -196,6 +254,27 @@ class MixedModel(Model):
             id="tag_in_text_and_xml",
         ),
         pytest.param(
+            MULTI_LINE_CONTENT_TAG,
+            [ContentTag(content=MULTI_LINE_TEXT)],
+            id="indented_multiline_content_tag",
+        ),
+        pytest.param(
+            MULTI_LINE_CONTENT_AS_ELEMENT,
+            [ContentAsElement(content=MULTI_LINE_TEXT)],
+            id="indented_multiline_content_as_element",
+        ),
+        pytest.param(
+            MULTI_LINE_CONTENT_MULTI_FIELD,
+            [
+                MultiFieldModel(
+                    type_="cmd",
+                    foo_field="Process <pid> terminated",
+                    bar_field=MULTI_LINE_TEXT,
+                ),
+            ],
+            id="indented_multiline_content_multi_field",
+        ),
+        pytest.param(
             "<answer>first</answer> text <answer>second</answer> more text <answer>third</answer>",
             [Answer(content="first"), Answer(content="second"), Answer(content="third")],
             id="multiple_same_tags_order",
@@ -211,7 +290,12 @@ class MixedModel(Model):
             id="xml_breaking_chars_with_ampersand",
         ),
         pytest.param(
-            '<multi-field-model type="cmd"><foo>Process <pid> terminated</foo><bar>Exit code <1></bar></multi-field-model>',
+            dedent("""\
+            <multi-field-model type="cmd">
+              <foo>Process <pid> terminated</foo>
+              <bar>Exit code <1></bar>
+            </multi-field-model>\
+            """),
             [
                 MultiFieldModel(
                     type_="cmd",
@@ -222,7 +306,13 @@ class MixedModel(Model):
             id="multi_field_with_xml_breaking_chars",
         ),
         pytest.param(
-            "<outer>Volume in drive C:\n Directory of C:\\\n 01/02/2024 <DIR> Program Files</outer>",
+            dedent("""\
+            <outer>
+              Volume in drive C:
+               Directory of C:\\
+               01/02/2024 <DIR> Program Files
+            </outer>\
+            """),
             [
                 Content(
                     content="Volume in drive C:\n Directory of C:\\\n 01/02/2024 <DIR> Program Files",
@@ -231,7 +321,14 @@ class MixedModel(Model):
             id="shell_output_simulation",
         ),
         pytest.param(
-            "<mixed-model><content>Error in <module> at line <42></content><outer><content>normal nested content</content></outer></mixed-model>",
+            dedent("""\
+            <mixed-model>
+              <content>Error in <module> at line <42></content>
+              <outer>
+                <content>normal nested content</content>
+              </outer>
+            </mixed-model>\
+            """),
             [
                 MixedModel(
                     content_field="Error in <module> at line <42>",
@@ -249,7 +346,7 @@ def test_xml_parsing(content: str, models: list[Model]) -> None:
         assert obj.model_dump() == expected.model_dump(), (
             f"Failed to parse model {expected.__class__.__name__} <- {obj!s} ({parsed})"
         )
-        xml = obj.to_xml()
+        xml = obj.to_pretty_xml()
         assert xml == content[slice_], (
             f"Failed to serialize model {expected.__class__.__name__} back to XML: {xml!r} != {content!r}"
         )
@@ -258,7 +355,7 @@ def test_xml_parsing(content: str, models: list[Model]) -> None:
 @pytest.mark.parametrize(
     ("content", "models"),
     [
-        # These cases parse correctly, but their XML representation doesn't yeild
+        # These cases parse correctly, but their XML representation doesn't yield
         # the original content as some escape sequences are not preserved.
         pytest.param(
             "<outer>Text with &lt;inner&gt; as escaped HTML entities</outer>",

@@ -30,7 +30,7 @@ from rigging.model import (
     make_from_schema,
     make_from_signature,
 )
-from rigging.util import deref_json
+from rigging.util import deref_json, shorten_string
 
 if t.TYPE_CHECKING:
     from rigging.message import Message
@@ -116,7 +116,8 @@ class ToolCall(BaseModel):
     function: FunctionCall
 
     def __str__(self) -> str:
-        return f"<ToolCall id={self.id} {self.function.name}({self.function.arguments})>"
+        arguments = shorten_string(self.function.arguments, max_length=50)
+        return f"ToolCall({self.function.name}({arguments}), id='{self.id}')"
 
     @property
     def name(self) -> str:
@@ -359,7 +360,8 @@ class Tool(BaseModel, t.Generic[P, R]):
         from rigging.message import ContentText, ContentTypes, Message
 
         with dn.task_span(
-            f"tool - {self.name}",
+            self.name,
+            tags=["rigging/tool"],
             attributes={"tool_name": self.name, "rigging.type": "tool"},
         ) as task:
             dn.log_input("tool_call", tool_call)
@@ -433,7 +435,9 @@ class Tool(BaseModel, t.Generic[P, R]):
             message.content_parts = [ContentText(text=str(result))]
 
         if self.truncate:
-            message = message.truncate(self.truncate)
+            # Use shorten instead of truncate to try and preserve
+            # the most context possible.
+            message = message.shorten(self.truncate)
 
         return message, stop
 

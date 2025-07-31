@@ -277,9 +277,10 @@ def bind(
         )
 
     async def run(*args: P.args, **kwargs: P.kwargs) -> R:
-        name = get_qualified_name(self.func) if self.func else "<generated>"
+        name = get_callable_name(self.func, short=True) if self.func else "<generated>"
         with dn.task_span(
-            f"prompt - {name}",
+            name,
+            tags=["rigging/prompt"],
             attributes={"prompt_name": name, "rigging.type": "prompt.run"},
         ):
             dn.log_inputs(**self._bind_args(*args, **kwargs))
@@ -380,10 +381,11 @@ def bind_many(
         )
 
     async def run_many(count: int, /, *args: P.args, **kwargs: P.kwargs) -> list[R]:
-        name = get_qualified_name(self.func) if self.func else "<generated>"
+        name = get_callable_name(self.func, short=True) if self.func else "<generated>"
         with dn.task_span(
-            f"prompt - {name} (x{count})",
+            f"{name} (x{count})",
             label=f"prompt_{name}",
+            tags=["rigging/prompt"],
             attributes={"prompt_name": name, "rigging.type": "prompt.run_many"},
         ) as span:
             dn.log_inputs(**self._bind_args(*args, **kwargs))
@@ -659,7 +661,7 @@ def map(
     for callback in callbacks:
         if not asyncio.iscoroutinefunction(callback):
             raise TypeError(
-                f"Callback '{get_qualified_name(callback)}' must be an async function",
+                f"Callback '{get_callable_name(callback)}' must be an async function",
             )
 
         if allow_duplicates:
@@ -667,7 +669,7 @@ def map(
 
         if callback in self.map_callbacks:
             raise ValueError(
-                f"Callback '{get_qualified_name(callback)}' is already registered.",
+                f"Callback '{get_callable_name(callback)}' is already registered.",
             )
 
     self.map_callbacks.extend(callbacks)
@@ -1038,7 +1040,7 @@ def then(
     for callback in callbacks:
         if not asyncio.iscoroutinefunction(callback):
             raise TypeError(
-                f"Callback '{get_qualified_name(callback)}' must be an async function",
+                f"Callback '{get_callable_name(callback)}' must be an async function",
             )
 
         if allow_duplicates:
@@ -1046,7 +1048,7 @@ def then(
 
         if callback in self.then_callbacks:
             raise ValueError(
-                f"Callback '{get_qualified_name(callback)}' is already registered.",
+                f"Callback '{get_callable_name(callback)}' is already registered.",
             )
 
     self.then_callbacks.extend(callbacks)
@@ -1135,7 +1137,7 @@ def watch(
     for callback in callbacks:
         if not allow_duplicates and callback in self.watch_callbacks:
             raise ValueError(
-                f"Callback '{get_qualified_name(callback)}' is already registered.",
+                f"Callback '{get_callable_name(callback)}' is already registered.",
             )
 
     self.watch_callbacks.extend(callbacks)
