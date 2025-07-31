@@ -447,7 +447,7 @@ class HTTPGenerator(Generator):
             api_key: Optional API key to use for authentication.
             method: HTTP method to use (default is "POST").
             headers: Optional headers to include in the request.
-                Defaults to {"Content-Type": "application/json"}.
+                Defaults to "Content-Type": "application/json".
             auth: Optional authentication configuration for API key headers.
             response: Optional configuration for parsing the response body.
             valid_status_codes: List of valid HTTP status codes (default is [200]).
@@ -538,7 +538,7 @@ class HTTPGenerator(Generator):
             api_key: Optional API key to use for authentication.
             method: HTTP method to use (default is "POST").
             headers: Optional headers to include in the request.
-                Defaults to {"Content-Type": "text/plain"}.
+                Defaults to "Content-Type": "text/plain".
             auth: Optional authentication configuration for API key headers.
             valid_status_codes: List of valid HTTP status codes (default is [200]).
             timeout: Optional timeout in seconds for the request.

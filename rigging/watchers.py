@@ -229,7 +229,6 @@ def make_stream_to_logs(
         level: The Loguru log level to use.
         max_chars: Max characters to display for content before shortening.
         max_lines: Max lines to display for content before shortening.
-        **kwargs: Additional arguments to pass to the Loguru logger.
 
     Returns:
         An awaitable callback function for use with `ChatPipeline.watch()`.

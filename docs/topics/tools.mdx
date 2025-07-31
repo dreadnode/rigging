@@ -318,6 +318,7 @@ async with rg.mcp("sse", url=MCP_SSE_URL) as mcp_client:
     else:
         print("No MCP tools found.")
 ```
+</CodeGroup>
 
 The `mcp` context manager handles the connection, tool discovery, and communication with the MCP server. Inside the `async with` block, `mcp_client.tools` provides the list of discovered `Tool` objects ready to be used with `.using()`.
 
