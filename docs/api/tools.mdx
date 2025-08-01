@@ -567,7 +567,7 @@ tool_method(
     *,
     name: str | None = None,
     description: str | None = None,
-    catch: bool | Iterable[type[Exception]] = False,
+    catch: bool | Iterable[type[Exception]] | None = None,
     truncate: int | None = None,
 ) -> t.Callable[
     [t.Callable[t.Concatenate[t.Any, P], R]],
@@ -588,7 +588,7 @@ tool_method(
     *,
     name: str | None = None,
     description: str | None = None,
-    catch: bool | Iterable[type[Exception]] = False,
+    catch: bool | Iterable[type[Exception]] | None = None,
     truncate: int | None = None,
 ) -> (
     t.Callable[
@@ -635,7 +635,7 @@ def tool_method(
     *,
     name: str | None = None,
     description: str | None = None,
-    catch: bool | t.Iterable[type[Exception]] = False,
+    catch: bool | t.Iterable[type[Exception]] | None = None,
     truncate: int | None = None,
 ) -> t.Callable[[t.Callable[t.Concatenate[t.Any, P], R]], ToolMethod[P, R]] | ToolMethod[P, R]:
     """

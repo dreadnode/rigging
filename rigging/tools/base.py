@@ -618,7 +618,7 @@ class ToolMethod(property, t.Generic[P, R]):
         self._tool_signature = signature
         self._tool_type_adapter = type_adapter
 
-    @te.overload  # type: ignore [override]
+    @te.overload  # type: ignore [override, unused-ignore]
     def __get__(self, instance: None, owner: type[object] | None = None) -> Tool[P, R]: ...
 
     @te.overload
@@ -667,7 +667,7 @@ def tool_method(
     *,
     name: str | None = None,
     description: str | None = None,
-    catch: bool | t.Iterable[type[Exception]] = False,
+    catch: bool | t.Iterable[type[Exception]] | None = None,
     truncate: int | None = None,
 ) -> t.Callable[[t.Callable[t.Concatenate[t.Any, P], R]], ToolMethod[P, R]]: ...
 
@@ -685,7 +685,7 @@ def tool_method(
     *,
     name: str | None = None,
     description: str | None = None,
-    catch: bool | t.Iterable[type[Exception]] = False,
+    catch: bool | t.Iterable[type[Exception]] | None = None,
     truncate: int | None = None,
 ) -> t.Callable[[t.Callable[t.Concatenate[t.Any, P], R]], ToolMethod[P, R]] | ToolMethod[P, R]:
     """
