@@ -1,12 +1,14 @@
 import typing as t
 
 from pydantic import Field
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer  # type: ignore [import-not-found, unused-ignore]
 
 from rigging.tokenizer.base import Tokenizer
 
 if t.TYPE_CHECKING:
-    from transformers.tokenization_utils import PreTrainedTokenizer
+    from transformers.tokenization_utils import (  # type: ignore [import-not-found, unused-ignore]
+        PreTrainedTokenizer,
+    )
 
     from rigging.chat import Chat
 
@@ -67,7 +69,7 @@ class TransformersTokenizer(Tokenizer):
             "clean_up_tokenization_spaces": False,
             **self.decode_kwargs,
         }
-        return self.tokenizer.decode(tokens, **decode_kwargs)
+        return self.tokenizer.decode(tokens, **decode_kwargs)  # type: ignore [no-any-return, unused-ignore]
 
     def format_chat(self, chat: "Chat") -> str:
         messages = [m.to_openai(compatibility_flags={"content_as_str"}) for m in chat.all]
@@ -85,7 +87,7 @@ class TransformersTokenizer(Tokenizer):
         return str(
             self.tokenizer.apply_chat_template(
                 messages,
-                tools=tools,  # type: ignore [arg-type]
+                tools=tools,  # type: ignore [arg-type, unused-ignore]
                 **apply_chat_template_kwargs,
             ),
         )

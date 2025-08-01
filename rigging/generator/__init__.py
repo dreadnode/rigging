@@ -33,7 +33,7 @@ def get_vllm_lazy() -> type[Generator]:
         from rigging.generator.vllm_ import VLLMGenerator
     except ImportError as e:
         raise ImportError(
-            "VLLMGenerator is not available. Please install `vllm` or use `rigging[extra]`.",
+            "VLLMGenerator is not available. Please install `vllm` or use `rigging[llm]`.",
         ) from e
 
     return VLLMGenerator
@@ -47,7 +47,7 @@ def get_transformers_lazy() -> type[Generator]:
         from rigging.generator.transformers_ import TransformersGenerator
     except ImportError as e:
         raise ImportError(
-            "TransformersGenerator is not available. Please install `transformers` or use `rigging[extra]`.",
+            "TransformersGenerator is not available. Please install `transformers` or use `rigging[llm]`.",
         ) from e
 
     return TransformersGenerator

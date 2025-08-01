@@ -6,15 +6,16 @@ import itertools
 import json
 import typing as t
 
-import pandas as pd
-from mypy_boto3_s3 import S3Client
-
 from rigging.chat import Chat
 from rigging.message import Message
 
 if t.TYPE_CHECKING:
-    import elasticsearch
-    from elastic_transport import ObjectApiResponse
+    import elasticsearch  # type: ignore [import-not-found, unused-ignore]
+    import pandas as pd
+    from elastic_transport import (  # type: ignore [import-not-found, unused-ignore]
+        ObjectApiResponse,
+    )
+    from mypy_boto3_s3 import S3Client
 
 
 def flatten_chats(chats: Chat | t.Sequence[Chat]) -> list[dict[t.Any, t.Any]]:
@@ -126,7 +127,7 @@ def unflatten_chats(messages: t.Sequence[dict[t.Any, t.Any]]) -> list[Chat]:
 # Pandas
 
 
-def chats_to_df(chats: Chat | t.Sequence[Chat]) -> pd.DataFrame:
+def chats_to_df(chats: Chat | t.Sequence[Chat]) -> "pd.DataFrame":
     """
     Convert a Chat or list of Chat objects into a pandas DataFrame.
 
@@ -141,6 +142,13 @@ def chats_to_df(chats: Chat | t.Sequence[Chat]) -> pd.DataFrame:
         A pandas DataFrame containing the chat data.
 
     """
+    try:
+        import pandas as pd
+    except ImportError as e:
+        raise ImportError(
+            "Pandas is not available. Please install `pandas` or use `rigging[data]`.",
+        ) from e
+
     chats = [chats] if isinstance(chats, Chat) else chats
 
     flattened = flatten_chats(chats)
@@ -165,7 +173,7 @@ def chats_to_df(chats: Chat | t.Sequence[Chat]) -> pd.DataFrame:
     )
 
 
-def df_to_chats(df: pd.DataFrame) -> list[Chat]:
+def df_to_chats(df: "pd.DataFrame") -> list[Chat]:
     """
     Convert a pandas DataFrame into a list of Chat objects.
 
@@ -180,6 +188,7 @@ def df_to_chats(df: pd.DataFrame) -> list[Chat]:
         A list of Chat objects.
 
     """
+
     chats = []
     for chat_id, chat_group in df.groupby("chat_id"):
         chat_data = chat_group.iloc[0]
@@ -279,10 +288,10 @@ async def chats_to_elastic(
         The indexed count from the bulk operation
     """
     try:
-        import elasticsearch.helpers
+        import elasticsearch.helpers  # type: ignore [import-not-found, unused-ignore]
     except ImportError as e:
         raise ImportError(
-            "Elasticsearch is not available. Please install `elasticsearch` or use `rigging[extra]`.",
+            "Elasticsearch is not available. Please install `elasticsearch` or use `rigging[data]`.",
         ) from e
 
     es_data = chats_to_elastic_data(chats, index, op_type=op_type)
@@ -293,7 +302,7 @@ async def chats_to_elastic(
             await client.indices.put_mapping(index=index, properties=ElasticMapping["properties"])
 
     results = await elasticsearch.helpers.async_bulk(client, es_data, **kwargs)
-    return results[0]  # Return modified count
+    return results[0]  # type: ignore [no-any-return, unused-ignore]
 
 
 def elastic_data_to_chats(
@@ -352,7 +361,7 @@ async def elastic_to_chats(
     return elastic_data_to_chats(t.cast("dict[str, t.Any]", data))
 
 
-async def s3_bucket_exists(client: S3Client, bucket: str) -> bool:
+async def s3_bucket_exists(client: "S3Client", bucket: str) -> bool:
     """
     Determine if an S3 bucket exists.
 
@@ -373,7 +382,7 @@ async def s3_bucket_exists(client: S3Client, bucket: str) -> bool:
     return True
 
 
-async def s3_object_exists(client: S3Client, bucket: str, key: str) -> bool:
+async def s3_object_exists(client: "S3Client", bucket: str, key: str) -> bool:
     """
     Determine if an S3 object exists.
 

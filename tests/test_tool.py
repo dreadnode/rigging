@@ -286,3 +286,98 @@ async def test_tool_error_catching() -> None:
 
     assert stop is False
     assert "This is a test error" in message.content
+
+
+class PydanticTool(BaseModel):
+    prefix: str
+
+    @rg.tool_method(description="A custom method description.")
+    def my_method(self, text: str) -> str:
+        """Applies a prefix to the text."""
+        return f"{self.prefix}: {text}"
+
+    @rg.tool_method(name="custom_named_tool")
+    def another_method(self, num: int) -> int:
+        """A method with a custom name."""
+        return num * 2
+
+
+def test_pydantic_model_instantiation() -> None:
+    """Ensure a Pydantic model with a @tool_method can be instantiated without raising an error."""
+
+    instance = PydanticTool(prefix="test")
+    assert isinstance(instance, BaseModel)
+    assert instance.prefix == "test"
+
+
+def test_pydantic_instance_access_returns_bound_tool() -> None:
+    """Accessing the method on an INSTANCE returns a bound Tool whose function can access `self`."""
+    instance = PydanticTool(prefix="instance_prefix")
+    bound_tool = instance.my_method
+
+    assert isinstance(bound_tool, Tool)
+    assert bound_tool.name == "my_method"
+    assert bound_tool.description == "A custom method description."
+
+    # Crucially, test that the function is bound to the instance
+    result = bound_tool.fn("world")
+    assert result == "instance_prefix: world"
+
+
+def test_pydantic_class_access_returns_unbound_tool() -> None:
+    """Accessing the method on the base model class returns an unbound Tool suitable for inspection."""
+
+    unbound_tool = PydanticTool.my_method
+
+    assert isinstance(unbound_tool, Tool)
+    assert unbound_tool.name == "my_method"
+
+    # Calling the unbound function directly should fail
+    with pytest.raises(TypeError, match="missing 1 required positional argument"):
+        unbound_tool.fn("world")
+
+
+def test_pydantic_decorator_arguments_are_respected() -> None:
+    """That arguments passed to the @tool_method decorator (like `name`) are correctly applied."""
+
+    instance = PydanticTool(prefix="test")
+    tool = instance.another_method
+    assert tool.name == "custom_named_tool"
+    assert tool.description == "A method with a custom name."  # Docstring is the fallback
+
+
+@pytest.mark.asyncio
+async def test_pydantic_handle_tool_call_on_bound_tool() -> None:
+    """The full end-to-end functionality of a bound tool."""
+
+    instance = PydanticTool(prefix="end-to-end")
+    bound_tool = instance.my_method
+
+    assert bound_tool("works") == "end-to-end: works"
+
+    tool_call = ToolCall(
+        id="call456",
+        function=FunctionCall(
+            name="my_method",
+            arguments=json.dumps({"text": "works"}),
+        ),
+    )
+
+    message, stop = await bound_tool.handle_tool_call(tool_call)
+
+    assert stop is False
+    assert message.role == "tool"
+    assert message.tool_call_id == "call456"
+    assert message.content == "end-to-end: works"
+
+
+def test_pydantic_type_hinting_and_static_analysis() -> None:
+    """Confirms that the types inferred from accessing the decorated method are correct."""
+
+    # Static analysis for instance access
+    instance_tool = PydanticTool(prefix="").my_method
+    assert isinstance(instance_tool, Tool)
+
+    # Static analysis for class access
+    class_tool = PydanticTool.my_method
+    assert isinstance(class_tool, Tool)

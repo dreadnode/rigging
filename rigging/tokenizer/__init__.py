@@ -18,7 +18,7 @@ def get_transformers_lazy() -> type[Tokenizer]:
         from rigging.tokenizer.transformers_ import TransformersTokenizer
     except ImportError as e:
         raise ImportError(
-            "TransformersTokenizer is not available. Please install `transformers` or use `rigging[extra]`.",
+            "TransformersTokenizer is not available. Please install `transformers` or use `rigging[llm]`.",
         ) from e
 
     return TransformersTokenizer

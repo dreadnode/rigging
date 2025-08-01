@@ -60,7 +60,7 @@ from rigging.util import flatten_list, get_callable_name
 if t.TYPE_CHECKING:
     from dreadnode.metric import Scorer, ScorerCallable
     from dreadnode.scorers.rigging import ChatFilterFunction, ChatFilterMode
-    from elasticsearch import AsyncElasticsearch
+    from elasticsearch import AsyncElasticsearch  # type: ignore [import-not-found, unused-ignore]
 
     from rigging.data import ElasticOpType
     from rigging.prompt import Prompt

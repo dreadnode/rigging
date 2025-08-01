@@ -13,18 +13,16 @@ from pathlib import Path
 from types import TracebackType
 
 import typing_extensions as te
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.sse import sse_client
-from mcp.client.stdio import stdio_client
-from mcp.server.fastmcp import FastMCP, Image
-from mcp.server.fastmcp.tools import Tool as FastMCPTool
-from mcp.types import CallToolResult, TextResourceContents
 
 from rigging.error import Stop
 from rigging.tools.base import Tool
 from rigging.util import flatten_list
 
 if t.TYPE_CHECKING:
+    from mcp import ClientSession
+    from mcp.server.fastmcp import FastMCP
+    from mcp.types import CallToolResult
+
     from rigging.message import Content
 
 INITIALIZE_TIMEOUT = 5
@@ -51,7 +49,9 @@ class SSEConnection(te.TypedDict):
     sse_read_timeout: float
 
 
-def _convert_mcp_result_to_message_parts(result: CallToolResult) -> list[t.Any]:
+def _convert_mcp_result_to_message_parts(result: "CallToolResult") -> list[t.Any]:
+    from mcp.types import TextResourceContents
+
     from rigging.message import ContentImageUrl, ContentText
 
     parts: list[Content] = []
@@ -82,6 +82,8 @@ def _convert_rigging_return_to_mcp(result: t.Any) -> t.Any:
     Returns:
         A value compatible with MCP serialization (JSON types, mcp.Image, etc.).
     """
+    from mcp.server.fastmcp import Image
+
     from rigging.message import ContentImageUrl, ContentText, Message
 
     if isinstance(result, Stop):
@@ -134,7 +136,7 @@ class MCPClient:
     tools: list[Tool[..., t.Any]]
     """A list of tools available on the server"""
 
-    def __init__(self, transport: Transport, connection: StdioConnection | SSEConnection) -> None:
+    def __init__(self, transport: Transport, connection: "StdioConnection | SSEConnection") -> None:
         self.transport = transport
         self.connection = connection
         self.tools = []
@@ -142,7 +144,7 @@ class MCPClient:
         self._session: ClientSession | None = None
 
     @property
-    def session(self) -> ClientSession:
+    def session(self) -> "ClientSession":
         if self._session is None:
             raise RuntimeError("Session not initialized")
         return self._session
@@ -169,12 +171,18 @@ class MCPClient:
             for tool in mcp_tool_result.tools
         ]
 
-    async def _connect_via_stdio(self, connection: StdioConnection) -> ClientSession:
+    async def _connect_via_stdio(self, connection: "StdioConnection") -> "ClientSession":
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
         server_params = StdioServerParameters(**connection)
         read, write = await self._exit_stack.enter_async_context(stdio_client(server_params))
         return await self._exit_stack.enter_async_context(ClientSession(read, write))
 
-    async def _connect_via_sse(self, connection: SSEConnection) -> ClientSession:
+    async def _connect_via_sse(self, connection: "SSEConnection") -> "ClientSession":
+        from mcp import ClientSession
+        from mcp.client.sse import sse_client
+
         client = sse_client(**connection)
         read, write = await self._exit_stack.enter_async_context(client)
         return await self._exit_stack.enter_async_context(ClientSession(read, write))
@@ -320,6 +328,9 @@ def as_mcp(
             )
         ```
     """
+    from mcp.server.fastmcp import FastMCP
+    from mcp.server.fastmcp.tools import Tool as FastMCPTool
+
     rigging_tools: list[Tool[..., t.Any]] = []
     for tool in flatten_list(list(tools)):
         interior_tools = [

@@ -3,8 +3,8 @@ import re
 import typing as t
 from pathlib import Path
 
-from markdown import Markdown  # type: ignore[import-untyped]
-from markdownify import MarkdownConverter  # type: ignore[import-untyped]
+from markdown import Markdown  # type: ignore [import-untyped]
+from markdownify import MarkdownConverter  # type: ignore [import-untyped]
 from markupsafe import Markup
 from mkdocstrings_handlers.python._internal.config import PythonConfig
 from mkdocstrings_handlers.python._internal.handler import (
@@ -14,7 +14,7 @@ from mkdocstrings_handlers.python._internal.handler import (
 # ruff: noqa: T201
 
 
-class CustomMarkdownConverter(MarkdownConverter):  # type: ignore[misc]
+class CustomMarkdownConverter(MarkdownConverter):  # type: ignore [misc]
     # Strip extra whitespace from code blocks
     def convert_pre(self, el: t.Any, text: str, parent_tags: t.Any) -> t.Any:
         return super().convert_pre(el, text.strip(), parent_tags)

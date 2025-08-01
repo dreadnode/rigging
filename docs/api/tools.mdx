@@ -41,10 +41,9 @@ Base class for representing a tool to a generator.
 ### catch
 
 ```python
-catch: bool | set[type[Exception]] = {
-    JSONDecodeError,
-    ValidationError,
-}
+catch: bool | set[type[Exception]] = set(
+    DEFAULT_CATCH_EXCEPTIONS
+)
 ```
 
 Whether to catch exceptions and return them as messages.
@@ -207,6 +206,8 @@ async def handle_tool_call(  # noqa: PLR0912
             kwargs = json.loads(tool_call.function.arguments)
             if self._type_adapter is not None:
                 kwargs = self._type_adapter.validate_python(kwargs)
+            kwargs = kwargs or {}
+
             dn.log_inputs(**kwargs)
 
             # Call the function
@@ -367,7 +368,51 @@ def with_(
 ToolMethod
 ----------
 
-A Tool wrapping a class method.
+```python
+ToolMethod(
+    fget: Callable[..., Any],
+    name: str,
+    description: str,
+    parameters_schema: dict[str, Any],
+    catch: bool | Iterable[type[Exception]] | None,
+    truncate: int | None,
+    signature: Signature,
+    type_adapter: TypeAdapter[Any],
+)
+```
+
+A descriptor that acts as a factory for creating bound Tool instances.
+
+It inherits from `property` to be ignored by pydantic's `ModelMetaclass`
+during field inspection. This prevents validation errors which would
+otherwise treat the descriptor as a field and stop tool\_method decorators
+from being applied in BaseModel classes.
+
+<Accordion title="Source code in rigging/tools/base.py" icon="code">
+```python
+def __init__(
+    self,
+    fget: t.Callable[..., t.Any],
+    name: str,
+    description: str,
+    parameters_schema: dict[str, t.Any],
+    catch: bool | t.Iterable[type[Exception]] | None,
+    truncate: int | None,
+    signature: inspect.Signature,
+    type_adapter: TypeAdapter[t.Any],
+):
+    super().__init__(fget)
+    self.tool_name = name
+    self.tool_description = description
+    self.tool_parameters_schema = parameters_schema
+    self.tool_catch = catch
+    self.tool_truncate = truncate
+    self._tool_signature = signature
+    self._tool_type_adapter = type_adapter
+```
+
+
+</Accordion>
 
 tool
 ----
@@ -621,41 +666,38 @@ def tool_method(
         ~~~
     """
 
-    def make_tool(func: t.Callable[..., t.Any]) -> ToolMethod[P, R]:
-        # TODO: Improve consistency of detection here before enabling this warning
-        # if not _is_unbound_method(func):
-        #     warnings.warn(
-        #         "Passing a regular function to @tool_method improperly handles the 'self' argument, use @tool instead.",
-        #         SyntaxWarning,
-        #         stacklevel=3,
-        #     )
+    def make_tool(f: t.Callable[t.Concatenate[t.Any, P], R]) -> ToolMethod[P, R]:
+        # This logic is specialized from `Tool.from_callable` to correctly
+        # handle the `self` parameter in method signatures.
 
-        # Strip the `self` argument from the function signature so
-        # our schema generation doesn't include it under the hood.
+        signature = inspect.signature(f)
+        params_without_self = [p for p_name, p in signature.parameters.items() if p_name != "self"]
+        schema_signature = signature.replace(parameters=params_without_self)
 
-        @functools.wraps(func)
-        def wrapper(self: t.Any, *args: P.args, **kwargs: P.kwargs) -> R:
-            return func(self, *args, **kwargs)  # type: ignore [no-any-return]
+        @functools.wraps(f)
+        def empty_func(*_: t.Any, **kwargs: t.Any) -> t.Any:
+            return kwargs
 
-        wrapper.__signature__ = inspect.signature(func).replace(  # type: ignore [attr-defined]
-            parameters=tuple(
-                param
-                for param in inspect.signature(func).parameters.values()
-                if param.name != "self"
-            ),
-        )
+        empty_func.__signature__ = schema_signature  # type: ignore [attr-defined]
+        type_adapter: TypeAdapter[t.Any] = TypeAdapter(empty_func)
+        schema = deref_json(type_adapter.json_schema(), is_json_schema=True)
 
-        return ToolMethod.from_callable(
-            wrapper,  # type: ignore [arg-type]
-            name=name,
-            description=description,
+        tool_name = name or f.__name__
+        tool_description = inspect.cleandoc(description or f.__doc__ or "")
+
+        return ToolMethod(
+            fget=f,
+            name=tool_name,
+            description=tool_description,
+            parameters_schema=schema,
             catch=catch,
             truncate=truncate,
+            signature=schema_signature,
+            type_adapter=type_adapter,
         )
 
     if func is not None:
         return make_tool(func)
-
     return make_tool
 ```
 
@@ -677,7 +719,7 @@ A client for communicating with MCP servers.
 
 <Accordion title="Source code in rigging/tools/mcp.py" icon="code">
 ```python
-def __init__(self, transport: Transport, connection: StdioConnection | SSEConnection) -> None:
+def __init__(self, transport: Transport, connection: "StdioConnection | SSEConnection") -> None:
     self.transport = transport
     self.connection = connection
     self.tools = []
@@ -793,6 +835,9 @@ def as_mcp(
             )
         ~~~
     """
+    from mcp.server.fastmcp import FastMCP
+    from mcp.server.fastmcp.tools import Tool as FastMCPTool
+
     rigging_tools: list[Tool[..., t.Any]] = []
     for tool in flatten_list(list(tools)):
         interior_tools = [
