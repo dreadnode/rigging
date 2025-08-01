@@ -343,7 +343,7 @@ Create a watcher to write each chat to an Amazon S3 bucket.
 <Accordion title="Source code in rigging/watchers.py" icon="code">
 ```python
 def write_chats_to_s3(
-    client: S3Client,
+    client: "S3Client",
     bucket: str,
     key: str,
     *,

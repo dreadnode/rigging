@@ -140,6 +140,9 @@ def _is_unbound_method(func: t.Any) -> bool:
     return is_method is not hasattr(func, "__self__")
 
 
+DEFAULT_CATCH_EXCEPTIONS: set[type[Exception]] = {json.JSONDecodeError, ValidationError}
+
+
 class Tool(BaseModel, t.Generic[P, R]):
     """Base class for representing a tool to a generator."""
 
@@ -154,7 +157,7 @@ class Tool(BaseModel, t.Generic[P, R]):
         exclude=True,
     )
     """The function to call."""
-    catch: bool | set[type[Exception]] = {json.JSONDecodeError, ValidationError}
+    catch: bool | set[type[Exception]] = set(DEFAULT_CATCH_EXCEPTIONS)
     """
     Whether to catch exceptions and return them as messages.
 
@@ -283,7 +286,7 @@ class Tool(BaseModel, t.Generic[P, R]):
             description=description,
             parameters_schema=schema,
             fn=fn,
-            catch=catch or {json.JSONDecodeError, ValidationError},
+            catch=catch or DEFAULT_CATCH_EXCEPTIONS,
             truncate=truncate,
         )
 
@@ -378,6 +381,8 @@ class Tool(BaseModel, t.Generic[P, R]):
                 kwargs = json.loads(tool_call.function.arguments)
                 if self._type_adapter is not None:
                     kwargs = self._type_adapter.validate_python(kwargs)
+                kwargs = kwargs or {}
+
                 dn.log_inputs(**kwargs)
 
                 # Call the function
@@ -583,27 +588,75 @@ def tool(
 # Special code for handling tool decorators on class methods
 
 
-class ToolMethod(Tool[P, R]):
-    """A Tool wrapping a class method."""
+class ToolMethod(property, t.Generic[P, R]):
+    """
+    A descriptor that acts as a factory for creating bound Tool instances.
 
-    def __get__(self, instance: t.Any, owner: t.Any) -> "Tool[P, R]":
+    It inherits from `property` to be ignored by pydantic's `ModelMetaclass`
+    during field inspection. This prevents validation errors which would
+    otherwise treat the descriptor as a field and stop tool_method decorators
+    from being applied in BaseModel classes.
+    """
+
+    def __init__(
+        self,
+        fget: t.Callable[..., t.Any],
+        name: str,
+        description: str,
+        parameters_schema: dict[str, t.Any],
+        catch: bool | t.Iterable[type[Exception]] | None,
+        truncate: int | None,
+        signature: inspect.Signature,
+        type_adapter: TypeAdapter[t.Any],
+    ):
+        super().__init__(fget)
+        self.tool_name = name
+        self.tool_description = description
+        self.tool_parameters_schema = parameters_schema
+        self.tool_catch = catch
+        self.tool_truncate = truncate
+        self._tool_signature = signature
+        self._tool_type_adapter = type_adapter
+
+    @te.overload  # type: ignore [override]
+    def __get__(self, instance: None, owner: type[object] | None = None) -> Tool[P, R]: ...
+
+    @te.overload
+    def __get__(self, instance: object, owner: type[object] | None = None) -> Tool[P, R]: ...
+
+    @te.override
+    def __get__(self, instance: object | None, owner: type[object] | None = None) -> Tool[P, R]:
+        if self.fget is None:
+            raise AttributeError(
+                f"Tool '{self.tool_name}' is not defined on instance of {owner.__name__ if owner else 'unknown'}.",
+            )
+
+        # Class access: return an unbound Tool for inspection.
         if instance is None:
-            return self
+            tool = Tool[P, R](
+                fn=self.fget,
+                name=self.tool_name,
+                description=self.tool_description,
+                parameters_schema=self.tool_parameters_schema,
+                catch=self.tool_catch or DEFAULT_CATCH_EXCEPTIONS,
+                truncate=self.tool_truncate,
+            )
+            tool._signature = self._tool_signature  # noqa: SLF001
+            tool._type_adapter = self._tool_type_adapter  # noqa: SLF001
+            return tool
 
-        bound_method = self.fn.__get__(instance, owner)
+        # Instance access: return a new Tool bound to the instance.
+        bound_method = self.fget.__get__(instance, owner)
         bound_tool = Tool[P, R](
-            name=self.name,
-            description=self.description,
-            parameters_schema=self.parameters_schema,
             fn=bound_method,
-            catch=self.catch,
+            name=self.tool_name,
+            description=self.tool_description,
+            parameters_schema=self.tool_parameters_schema,
+            catch=self.tool_catch or DEFAULT_CATCH_EXCEPTIONS,
+            truncate=self.tool_truncate,
         )
-
-        bound_tool.__signature__ = self.__signature__  # type: ignore [misc]
-        bound_tool._signature = self._signature  # noqa: SLF001
-        bound_tool._type_adapter = self._type_adapter  # noqa: SLF001
-        bound_tool._model = self._model  # noqa: SLF001
-
+        bound_tool._signature = self._tool_signature  # noqa: SLF001
+        bound_tool._type_adapter = self._tool_type_adapter  # noqa: SLF001
         return bound_tool
 
 
@@ -663,39 +716,36 @@ def tool_method(
         ```
     """
 
-    def make_tool(func: t.Callable[..., t.Any]) -> ToolMethod[P, R]:
-        # TODO: Improve consistency of detection here before enabling this warning
-        # if not _is_unbound_method(func):
-        #     warnings.warn(
-        #         "Passing a regular function to @tool_method improperly handles the 'self' argument, use @tool instead.",
-        #         SyntaxWarning,
-        #         stacklevel=3,
-        #     )
+    def make_tool(f: t.Callable[t.Concatenate[t.Any, P], R]) -> ToolMethod[P, R]:
+        # This logic is specialized from `Tool.from_callable` to correctly
+        # handle the `self` parameter in method signatures.
 
-        # Strip the `self` argument from the function signature so
-        # our schema generation doesn't include it under the hood.
+        signature = inspect.signature(f)
+        params_without_self = [p for p_name, p in signature.parameters.items() if p_name != "self"]
+        schema_signature = signature.replace(parameters=params_without_self)
 
-        @functools.wraps(func)
-        def wrapper(self: t.Any, *args: P.args, **kwargs: P.kwargs) -> R:
-            return func(self, *args, **kwargs)  # type: ignore [no-any-return]
+        @functools.wraps(f)
+        def empty_func(*_: t.Any, **kwargs: t.Any) -> t.Any:
+            return kwargs
 
-        wrapper.__signature__ = inspect.signature(func).replace(  # type: ignore [attr-defined]
-            parameters=tuple(
-                param
-                for param in inspect.signature(func).parameters.values()
-                if param.name != "self"
-            ),
-        )
+        empty_func.__signature__ = schema_signature  # type: ignore [attr-defined]
+        type_adapter: TypeAdapter[t.Any] = TypeAdapter(empty_func)
+        schema = deref_json(type_adapter.json_schema(), is_json_schema=True)
 
-        return ToolMethod.from_callable(
-            wrapper,  # type: ignore [arg-type]
-            name=name,
-            description=description,
+        tool_name = name or f.__name__
+        tool_description = inspect.cleandoc(description or f.__doc__ or "")
+
+        return ToolMethod(
+            fget=f,
+            name=tool_name,
+            description=tool_description,
+            parameters_schema=schema,
             catch=catch,
             truncate=truncate,
+            signature=schema_signature,
+            type_adapter=type_adapter,
         )
 
     if func is not None:
         return make_tool(func)
-
     return make_tool

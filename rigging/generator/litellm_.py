@@ -4,8 +4,6 @@ import datetime
 import re
 import typing as t
 
-import litellm
-import litellm.types.utils
 from loguru import logger
 
 from rigging.generator.base import (
@@ -21,14 +19,8 @@ from rigging.generator.base import (
 from rigging.message import ContentAudioInput, ContentImageUrl, ContentText, Message
 from rigging.tools.base import FunctionDefinition, ToolDefinition
 
-# We should probably let people configure
-# this independently, but for now we'll
-# fix it to prevent confusion
-litellm.drop_params = True
-
-# Prevent the small debug statements
-# from being printed to the console
-litellm.suppress_debug_info = True
+if t.TYPE_CHECKING:
+    from litellm.types.utils import ModelResponse, TextCompletionResponse
 
 
 class OpenAIToolsWithImageURLsFixup(Fixup):
@@ -151,6 +143,18 @@ class LiteLLMGenerator(Generator):
     _last_request_time: datetime.datetime | None = None
     _supports_function_calling: bool | None = None
 
+    def __post_model_init__(self, _: t.Any) -> None:
+        import litellm
+
+        # We should probably let people configure
+        # this independently, but for now we'll
+        # fix it to prevent confusion
+        litellm.drop_params = True
+
+        # Prevent the small debug statements
+        # from being printed to the console
+        litellm.suppress_debug_info = True
+
     @property
     def semaphore(self) -> asyncio.Semaphore:
         if self._semaphore is None:
@@ -161,6 +165,7 @@ class LiteLLMGenerator(Generator):
 
     async def supports_function_calling(self) -> bool | None:
         import dreadnode as dn
+        import litellm.utils
 
         if self._supports_function_calling is not None:
             return self._supports_function_calling
@@ -233,8 +238,10 @@ class LiteLLMGenerator(Generator):
 
     def _parse_model_response(
         self,
-        response: litellm.types.utils.ModelResponse,
+        response: "ModelResponse",
     ) -> GeneratedMessage:
+        import litellm.types.utils
+
         choice = response.choices[-1]
         usage = None
         if getattr(response, "usage", None) is not None:
@@ -312,7 +319,7 @@ class LiteLLMGenerator(Generator):
 
     def _parse_text_completion_response(
         self,
-        response: litellm.types.utils.TextCompletionResponse,
+        response: "TextCompletionResponse",
     ) -> GeneratedText:
         choice = response.choices[-1]
         usage = None
@@ -333,6 +340,8 @@ class LiteLLMGenerator(Generator):
         messages: t.Sequence[Message],
         params: GenerateParams,
     ) -> GeneratedMessage:
+        import litellm
+
         async with self.semaphore:
             # if params.max_tokens is None:
             #     params.max_tokens = get_max_tokens_for_model(self.model)
@@ -353,6 +362,8 @@ class LiteLLMGenerator(Generator):
             return self._parse_model_response(response)
 
     async def _generate_text(self, text: str, params: GenerateParams) -> GeneratedText:
+        import litellm
+
         async with self.semaphore:
             # if params.max_tokens is None:
             #     params.max_tokens = get_max_tokens_for_model(self.model)
@@ -419,6 +430,8 @@ def get_max_tokens_for_model(model: str) -> int | None:
     Returns:
         The maximum number of tokens.
     """
+    import litellm
+
     while model not in litellm.model_cost:
         if "/" not in model:
             return None

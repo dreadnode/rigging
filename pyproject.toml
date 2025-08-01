@@ -16,11 +16,8 @@ pydantic = "^2.7.3"
 pydantic-xml = "^2.11.0"
 loguru = "^0.7.2"
 litellm = "^1.67.2"
-pandas = "^2.2.2"
 xmltodict = "^0.13.0"
 colorama = "^0.4.6"
-boto3 = "^1.35.0"
-boto3-stubs = { extras = ["s3"], version = "^1.35.0" }
 jsonpath-ng = "^1.7.0"
 ruamel-yaml = "^0.18.10"
 jsonref = "^1.1.0"
@@ -30,7 +27,6 @@ dreadnode = ">=1.12.0"
 vllm = { version = "^0.5.0", optional = true }
 transformers = { version = "^4.41.0", optional = true }
 accelerate = { version = "^0.30.1", optional = true }
-elasticsearch = { version = "^8.13.2", optional = true }
 
 asyncssh = { version = "^2.14.2", optional = true }
 click = { version = "^8.1.7", optional = true }
@@ -38,10 +34,13 @@ httpx = { version = "^0.28.0", optional = true }
 aiodocker = { version = "^0.22.2", optional = true }
 websockets = { version = "^13.0", optional = true }
 
+elasticsearch = { version = "^8.13.2", optional = true }
+pandas = { version = "^2.2.2", optional = true }
 
 [tool.poetry.extras]
-tracing = ["logfire"]
+data = ["pandas", "elasticsearch"]
 examples = ["asyncssh", "click", "httpx", "aiodocker", "websockets"]
+llm = ["vllm", "transformers", "accelerate"]
 all = [
     "vllm",
     "transformers",
@@ -53,6 +52,7 @@ all = [
     "websockets",
     "logfire",
     "elasticsearch",
+    "pandas",
 ]
 
 [tool.poetry.group.dev.dependencies]
@@ -70,6 +70,7 @@ beautifulsoup4 = "^4.13.4"
 mkdocstrings = { extras = ["python"], version = "^0.29.1" }
 markdown = "^3.8"
 markdownify = "^1.1.0"
+boto3-stubs = { extras = ["s3"], version = "^1.35.0" }
 
 # Build
 

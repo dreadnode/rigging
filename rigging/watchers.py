@@ -7,7 +7,6 @@ import typing as t
 from pathlib import Path
 
 from loguru import logger
-from mypy_boto3_s3 import S3Client
 
 from rigging.data import chats_to_elastic, flatten_chats, s3_object_exists
 from rigging.logging import LogLevelLiteral
@@ -15,7 +14,8 @@ from rigging.message import ContentText, Message
 from rigging.util import shorten_text
 
 if t.TYPE_CHECKING:
-    from elasticsearch import AsyncElasticsearch
+    from elasticsearch import AsyncElasticsearch  # type: ignore [import-not-found, unused-ignore]
+    from mypy_boto3_s3 import S3Client
 
     from rigging.chat import Chat, WatchChatCallback
 
@@ -111,7 +111,7 @@ def write_chats_to_elastic(
 
 
 def write_chats_to_s3(
-    client: S3Client,
+    client: "S3Client",
     bucket: str,
     key: str,
     *,

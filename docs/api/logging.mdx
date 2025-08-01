@@ -32,7 +32,7 @@ configure\_logging
 
 ```python
 configure_logging(
-    log_level: LogLevelLiteral,
+    log_level: LogLevelLiteral = "info",
     log_file: Path | None = None,
     log_file_level: LogLevelLiteral = "debug",
 ) -> None
@@ -43,7 +43,9 @@ Configures common loguru handlers.
 **Parameters:**
 
 * **`log_level`**
-  (`LogLevelLiteral`)
+  (`LogLevelLiteral`, default:
+  `'info'`
+  )
   –The desired log level.
 * **`log_file`**
   (`Path | None`, default:
@@ -60,7 +62,7 @@ Configures common loguru handlers.
 <Accordion title="Source code in rigging/logging.py" icon="code">
 ```python
 def configure_logging(
-    log_level: LogLevelLiteral,
+    log_level: LogLevelLiteral = "info",
     log_file: pathlib.Path | None = None,
     log_file_level: LogLevelLiteral = "debug",
 ) -> None:

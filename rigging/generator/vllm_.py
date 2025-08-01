@@ -2,8 +2,8 @@ import gc
 import inspect
 import typing as t
 
-import torch
-import vllm
+import torch  # type: ignore [import-not-found, import-untyped, unused-ignore]
+import vllm  # type: ignore [import-not-found,import-untyped, unused-ignore]
 
 from rigging.generator.base import (
     GeneratedMessage,

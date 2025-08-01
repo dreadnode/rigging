@@ -1,9 +1,9 @@
 import gc
 import typing as t
 
-import torch
-import transformers  # type: ignore [import-untyped, unused-ignore]
-from transformers import (  # type: ignore [attr-defined]
+import torch  # type: ignore [import-not-found, import-untyped, unused-ignore]
+import transformers  # type: ignore [import-not-found, import-untyped, unused-ignore]
+from transformers import (  # type: ignore [import-not-found, attr-defined, unused-ignore]
     AutoModelForCausalLM,
     AutoTokenizer,
     TextGenerationPipeline,
@@ -80,7 +80,7 @@ class TransformersGenerator(Generator):
                     "load_in_4bit",
                 },
             )
-            self._llm = AutoModelForCausalLM.from_pretrained(self.model, **llm_kwargs)  # type: ignore [no-untyped-call] # nosec
+            self._llm = AutoModelForCausalLM.from_pretrained(self.model, **llm_kwargs)  # type: ignore [no-untyped-call, unused-ignore] # nosec
         return self._llm
 
     @property
@@ -94,13 +94,13 @@ class TransformersGenerator(Generator):
     def pipeline(self) -> TextGenerationPipeline:
         """The underlying `TextGenerationPipeline` instance."""
         if self._pipeline is None:
-            self._pipeline = transformers.pipeline(  # type: ignore [attr-defined, assignment]
+            self._pipeline = transformers.pipeline(  # type: ignore [attr-defined, assignment, unused-ignore]
                 "text-generation",
                 return_full_text=False,
-                model=self.llm,  # type: ignore [arg-type]
-                tokenizer=self.tokenizer,  # type: ignore [arg-type]
+                model=self.llm,  # type: ignore [arg-type, unused-ignore]
+                tokenizer=self.tokenizer,  # type: ignore [arg-type, unused-ignore]
             )
-        return self._pipeline  # type: ignore [return-value]
+        return self._pipeline  # type: ignore [return-value, unused-ignore]
 
     @classmethod
     def from_obj(

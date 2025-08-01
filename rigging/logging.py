@@ -18,7 +18,7 @@ LogLevelLiteral = t.Literal["trace", "debug", "info", "success", "warning", "err
 
 
 def configure_logging(
-    log_level: LogLevelLiteral,
+    log_level: LogLevelLiteral = "info",
     log_file: pathlib.Path | None = None,
     log_file_level: LogLevelLiteral = "debug",
 ) -> None:
