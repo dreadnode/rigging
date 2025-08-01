@@ -439,7 +439,7 @@ class Tool(BaseModel, t.Generic[P, R]):
         else:
             with contextlib.suppress(Exception):
                 if type(result) not in [str, int, float, bool]:
-                    result = TypeAdapter(t.Any).dump_json(result, indent=2)
+                    result = TypeAdapter(t.Any).dump_json(result).decode(errors="replace")
             message.content_parts = [ContentText(text=str(result))]
 
         if self.truncate:
