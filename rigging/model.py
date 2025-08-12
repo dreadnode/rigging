@@ -27,7 +27,7 @@ from pydantic_xml import create_model as create_pydantic_xml_model
 from pydantic_xml import element as element  # noqa: PLC0414
 from pydantic_xml import wrapped as wrapped  # noqa: PLC0414
 from pydantic_xml.element import SearchMode  # type: ignore [attr-defined]
-from pydantic_xml.model import XmlEntityInfo
+from pydantic_xml.fields import XmlEntityInfo
 from pydantic_xml.typedefs import EntityLocation, NsMap
 
 from rigging.error import MissingModelError
