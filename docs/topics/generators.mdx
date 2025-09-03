@@ -22,7 +22,7 @@ openai/o3-mini
 gemini/gemini-2.5-pro
 claude-4-sonnet-latest
 vllm_hosted/meta-llama/Llama-3.1-8B-Instruct
-ollama/qwen3
+ollama_chat/qwen3
 
 openai/gpt-4,api_key=sk-1234
 anthropic/claude-3-7-haiku-latest,stop=output:;---,seed=1337
@@ -184,12 +184,30 @@ NAME          ID              SIZE      PROCESSOR    UNTIL
 qwen3:0.6b    7df6b6e09427    2.3 GB    100% GPU     4 minutes from now
 ```
 
-Using this model in Rigging is as simple as using the `ollama/` or `ollama_chat/` prefixes:
+<Warning>
+Ollama is configured with a maximum context length on the server, by default 4096 tokens. This does not change depending on model and requires configuration to update.
+
+If the input messages to the API would exceed this length, Ollama will silently truncate them to fit in the context window. This behavior can cause unexpected generation results due to missing context and is very difficult to detect in Rigging.
+
+We make a best effort by monitoring model responses and checking if the reported input tokens is far less than the input messages we just sent. If observed, the following warning will be emitted.
+
+```
+GeneratorWarning: Input messages may have been truncated ...
+```
+
+When in doubt, monitor the Ollama server logs for the following:
+
+```bash
+... msg="truncating input prompt" limit=4096 prompt=6767 keep=4 new=409
+```
+</Warning>
+
+Using this model in Rigging is as simple as using the `ollama_chat/` (recommended) or `ollama/` prefixes:
 
 ```python
 import rigging as rg
 
-qwen = rg.get_generator("ollama/qwen3:0.6b")
+qwen = rg.get_generator("ollama_chat/qwen3:0.6b")
 
 chat = await qwen.chat("Hello!").run()
 print(chat.conversation)
@@ -211,7 +229,7 @@ If you are running the Ollama server somewhere besides localhost, just pass the 
 
 ```python
 qwen = rg.get_generator(
-  "ollama/qwen3:0.6b,api_base=http://remote-server:11434"
+  "ollama_chat/qwen3:0.6b,api_base=http://remote-server:11434"
 )
 ```
 </Note>

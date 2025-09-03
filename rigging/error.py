@@ -82,6 +82,15 @@ class TokenizerWarning(Warning):
     """
 
 
+class GeneratorWarning(Warning):
+    """
+    Base class for all generator warnings.
+
+    This is used to indicate that something unexpected happened during the generator execution,
+    but it is not critical enough to stop the execution.
+    """
+
+
 # System Exceptions
 
 

@@ -3,9 +3,11 @@ import base64
 import datetime
 import re
 import typing as t
+import warnings
 
 from loguru import logger
 
+from rigging.error import GeneratorWarning
 from rigging.generator.base import (
     Fixup,
     GeneratedMessage,
@@ -206,7 +208,7 @@ class LiteLLMGenerator(Generator):
                     ):
                         self._supports_function_calling = True
             except Exception as e:  # noqa: BLE001
-                logger.warning(f"Failed to check for function calling support: {e}")
+                logger.warning(f"Error checking for function calling support: {e}")
                 span.set_attribute("error", str(e))
 
             span.set_attribute("supports_function_calling", self._supports_function_calling)
@@ -235,6 +237,36 @@ class LiteLLMGenerator(Generator):
     #
     # This seems like a brittle feature at the moment, so we'll
     # leave it out for now.
+
+    def _warn_on_input_truncation(
+        self, messages: list[Message], response: "GeneratedMessage"
+    ) -> None:
+        # Ollama has a known behavior where it performs silent truncation
+        # of input messages rather than return an error or any API indication.
+        #
+        # This code attempts to detect such truncation by comparing the expected
+        # input length with the reported usage - but it's not foolproof.
+        #
+        # See:
+        # - https://github.com/ollama/ollama/issues/7043
+        # - https://github.com/ollama/ollama/issues/7987
+        # - https://github.com/ollama/ollama/issues/4967
+
+        # We can't check with usage info
+        if not response.usage:
+            return
+
+        # Get a general view of how long we might expect the input prompt to - erring towards small
+        input_length_guess = sum(len(message.content) for message in messages)
+
+        # Check if the response reports that accepted input tokens are less than this
+        if response.usage.input_tokens < input_length_guess:
+            warnings.warn(
+                f"Input messages may have been truncated - see https://github.com/ollama/ollama/issues/7043 "
+                f"(input tokens: {response.usage.input_tokens})",
+                GeneratorWarning,
+                stacklevel=2,
+            )
 
     def _parse_model_response(
         self,
@@ -359,7 +391,9 @@ class LiteLLMGenerator(Generator):
             )
 
             self._last_request_time = datetime.datetime.now(tz=datetime.timezone.utc)
-            return self._parse_model_response(response)
+            generated = self._parse_model_response(response)
+            self._warn_on_input_truncation(list(messages), generated)
+            return generated
 
     async def _generate_text(self, text: str, params: GenerateParams) -> GeneratedText:
         import litellm
