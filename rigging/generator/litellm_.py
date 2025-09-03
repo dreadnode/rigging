@@ -256,14 +256,15 @@ class LiteLLMGenerator(Generator):
         if not response.usage:
             return
 
-        # Get a general view of how long we might expect the input prompt to - erring towards small
-        input_length_guess = sum(len(message.content) for message in messages)
+        # Get a general view of how long we might expect the input prompt to
+        # We'll use a gracious 4 char per token estimate
+        input_tokens_estimate = int(sum(len(message.content) for message in messages) / 4)
 
         # Check if the response reports that accepted input tokens are less than this
-        if response.usage.input_tokens < input_length_guess:
+        if response.usage.input_tokens < input_tokens_estimate:
             warnings.warn(
                 f"Input messages may have been truncated - see https://github.com/ollama/ollama/issues/7043 "
-                f"(input tokens: {response.usage.input_tokens})",
+                f"(input tokens: {response.usage.input_tokens} < estimate: {input_tokens_estimate})",
                 GeneratorWarning,
                 stacklevel=2,
             )
