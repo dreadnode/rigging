@@ -4,7 +4,6 @@ import contextlib
 import functools
 import inspect
 import typing as t
-from functools import lru_cache
 
 from loguru import logger
 from pydantic import (
@@ -738,8 +737,9 @@ def get_identifier(
     return identifier
 
 
-@lru_cache(maxsize=128)
-def get_generator(identifier: str, *, params: GenerateParams | None = None) -> Generator:
+def get_generator(
+    identifier: str, *, params: GenerateParams | dict[str, t.Any] | None = None
+) -> Generator:
     """
     Get a generator by an identifier string. Uses LiteLLM by default.
 
@@ -835,6 +835,8 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
 
         if isinstance(v, str) and v.lower() in ["true", "false"]:
             init_kwargs[k] = v.lower() == "true"
+
+    params = GenerateParams(**params) if isinstance(params, dict) else params
 
     try:
         merged_params = GenerateParams(**kwargs).merge_with(params)

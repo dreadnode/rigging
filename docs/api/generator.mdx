@@ -1934,7 +1934,9 @@ get\_generator
 
 ```python
 get_generator(
-    identifier: str, *, params: GenerateParams | None = None
+    identifier: str,
+    *,
+    params: GenerateParams | dict[str, Any] | None = None,
 ) -> Generator
 ```
 
@@ -1964,7 +1966,7 @@ You can also specify arguments to the generator by comma-separating them:
   (`str`)
   –The identifier string to use to get a generator.
 * **`params`**
-  (`GenerateParams | None`, default:
+  (`GenerateParams | dict[str, Any] | None`, default:
   `None`
   )
   –The generation parameters to use for the generator.
@@ -1982,8 +1984,9 @@ You can also specify arguments to the generator by comma-separating them:
 
 <Accordion title="Source code in rigging/generator/base.py" icon="code">
 ```python
-@lru_cache(maxsize=128)
-def get_generator(identifier: str, *, params: GenerateParams | None = None) -> Generator:
+def get_generator(
+    identifier: str, *, params: GenerateParams | dict[str, t.Any] | None = None
+) -> Generator:
     """
     Get a generator by an identifier string. Uses LiteLLM by default.
 
@@ -2079,6 +2082,8 @@ def get_generator(identifier: str, *, params: GenerateParams | None = None) -> G
 
         if isinstance(v, str) and v.lower() in ["true", "false"]:
             init_kwargs[k] = v.lower() == "true"
+
+    params = GenerateParams(**params) if isinstance(params, dict) else params
 
     try:
         merged_params = GenerateParams(**kwargs).merge_with(params)

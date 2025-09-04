@@ -99,16 +99,24 @@ class Model(BaseXmlModel):
         )
         cls.__xml_tag__ = tag or XmlTagDescriptor()  # type: ignore [assignment]
 
+    @classmethod
+    def _get_field_xml_name(cls, field_name: str, field_info: t.Any) -> str:
+        """Get the effective XML name for a field, considering aliases and XML paths."""
+        if isinstance(field_info, XmlEntityInfo) and field_info.path:
+            return field_info.path
+
+        # Check for field alias
+        if hasattr(field_info, "alias") and field_info.alias:
+            return field_info.alias
+
+        return field_name
+
     def _postprocess_with_cdata(self, tree: ET.Element) -> ET.Element:
         # Walk the first elements down and find any that align with str-based fields
         # If so, we should encode them as CDATA to avoid escaping issues
 
         basic_fields = {
-            (
-                field_info.path
-                if isinstance(field_info, XmlEntityInfo) and field_info.path
-                else field_name
-            ): field_info
+            self._get_field_xml_name(field_name, field_info): field_info
             for field_name, field_info in self.__class__.model_fields.items()
         }
 
@@ -357,7 +365,7 @@ class Model(BaseXmlModel):
                 isinstance(field_info, XmlEntityInfo)
                 and field_info.location == EntityLocation.ATTRIBUTE
             ):
-                path = field_info.path or field_name
+                path = cls._get_field_xml_name(field_name, field_info)
                 example = str(next(iter(field_info.examples or []), "")).replace('"', "&quot;")
                 attribute_parts.append(f'{path}="{example}"')
             else:
@@ -367,7 +375,7 @@ class Model(BaseXmlModel):
         lines.append(f"<{cls.__xml_tag__}{attr_string}>")
 
         for field_name, field_info in element_fields.items():
-            path = (isinstance(field_info, XmlEntityInfo) and field_info.path) or field_name
+            path = cls._get_field_xml_name(field_name, field_info)
             description = field_info.description
             example = str(next(iter(field_info.examples or []), ""))
 
@@ -421,11 +429,7 @@ class Model(BaseXmlModel):
             }
         else:
             field_map = {
-                (
-                    field_info.path
-                    if isinstance(field_info, XmlEntityInfo) and field_info.path
-                    else field_name
-                ): field_info
+                cls._get_field_xml_name(field_name, field_info): field_info
                 for field_name, field_info in cls.model_fields.items()
                 if isinstance(field_info, XmlEntityInfo)
                 and field_info.location == EntityLocation.ELEMENT
@@ -600,7 +604,7 @@ class Model(BaseXmlModel):
                 # Walk through any fields which are strings, and dedent them
 
                 for field_name, field_info in cls.model_fields.items():
-                    if isinstance(field_info, XmlEntityInfo) and field_info.annotation == str:  # noqa: E721
+                    if isinstance(field_info, XmlEntityInfo) and field_info.annotation is str:
                         model.__dict__[field_name] = textwrap.dedent(
                             model.__dict__[field_name]
                         ).strip()
@@ -608,7 +612,7 @@ class Model(BaseXmlModel):
                 extracted.append((model, slice_))
             except Exception as e:  # noqa: BLE001
                 extracted.append((e, slice_))
-                continue
+            continue
 
         # sort back to original order
         extracted.sort(key=lambda x: x[1].start)
@@ -817,12 +821,16 @@ def make_from_schema(
     for field_name, field_schema in properties.items():
         field_type, field_info = _process_field(field_name, field_schema)
 
+        # Use the field name as alias if it differs from python naming conventions
+        alias = field_name if field_name != field_name.replace("-", "_") else None
+
         fields[field_name] = (
             field_type,
             field_cls(
                 default=... if field_name in required else None,
                 description=field_schema.get("description", ""),
                 title=field_schema.get("title", ""),
+                alias=alias,
                 **field_info,
             )
             if isinstance(field_info, dict)
