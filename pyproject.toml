@@ -56,7 +56,7 @@ all = [
 ]
 
 [tool.poetry.group.dev.dependencies]
-ipykernel = "^6.27.1"
+ipykernel = "^7.0.0"
 mypy = "^1.15.0"
 ruff = "^0.10.0"
 pytest = "^8.0.0"
