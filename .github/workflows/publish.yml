@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
 
       - name: Setup Python
-        uses: actions/setup-python@2e3e4b15a884dc73a63f962bff250a855150a234
+        uses: actions/setup-python@18566f86b301499665bd3eb1a2247e0849c64fa5
         with:
           python-version: "3.10"
 
