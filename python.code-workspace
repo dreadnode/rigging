@@ -1,0 +1,53 @@
+{
+    "folders": [
+      {
+        "path": "."
+      }
+    ],
+    "extensions": {
+      "recommendations": [
+        "bibhasdn.unique-lines",
+        "charliermarsh.ruff",
+        "esbenp.prettier-vscode",
+        "hashicorp.terraform",
+        "mhutchie.git-graph",
+        "ms-python.mypy-type-checker",
+        "ms-python.vscode-pylance",
+        "ms-python.python",
+        "nefrob.vscode-just-syntax",
+        "tamasfe.even-better-toml"
+      ]
+    },
+    "settings": {
+      "files.exclude": {
+      },
+      "files.watcherExclude": {
+        "**/__pycache__/**": true,
+        "**/.git/objects/**": true,
+        "**/.git/subtree-cache/**": true,
+        "**/.hg/store/**": true,
+        "**/.ipynb_checkpoints/**": true,
+        "**/.mypy_cache/**": true,
+        "**/.pytest_cache/**": true,
+        "**/.venv/**": true,
+        "**/*.egg-info/**": true,
+      },
+      "[python][typescript][svelte]": {
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.fixAll": "explicit",
+          "source.organizeImports": "explicit"
+        }
+      },
+      "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff"
+      },
+      "[typescript][svelte]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+      },
+      "python.envFile": ".disable-loading-env-because-pollutes-shell-session",
+      "mypy-type-checker.importStrategy": "fromEnvironment",
+      "mypy-type-checker.reportingScope": "workspace",
+      "mypy-type-checker.preferDaemon": true
+    }
+  }
