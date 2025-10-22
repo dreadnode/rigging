@@ -29,7 +29,7 @@ jobs:
         poetry config virtualenvs.in-project true --local
 
     - name: Setup Python ${{ matrix.python-version }}
-      uses: actions/setup-python@18566f86b301499665bd3eb1a2247e0849c64fa5
+      uses: actions/setup-python@cfd55ca82492758d853442341ad4d8010466803a
       with:
         python-version: ${{ matrix.python-version }}
         cache: "poetry"
