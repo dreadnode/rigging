@@ -750,7 +750,7 @@ def _process_field(
     if field_schema.get("type") == "object":
         # dictionaries
         additional_schema = field_schema.get("additionalProperties")
-        if additional_schema:
+        if additional_schema and isinstance(additional_schema, dict):
             dict_type, _ = _process_field(f"{field_name}Item", additional_schema)
             return dict[str, dict_type], field_info  # type: ignore [valid-type]
 
