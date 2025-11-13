@@ -107,7 +107,7 @@ class Model(BaseXmlModel):
 
         # Check for field alias
         if hasattr(field_info, "alias") and field_info.alias:
-            return field_info.alias
+            return str(field_info.alias)
 
         return field_name
 

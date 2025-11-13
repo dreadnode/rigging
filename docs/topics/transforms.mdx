@@ -111,6 +111,7 @@ chat = (
 - `"json"` - Raw JSON format (compact but can be harder to parse)
 - `"json-in-xml"` - XML structure with JSON parameters
 - `"xml"` - Pure XML format (verbose but very explicit)
+- `"pythonic"` - Python-style function call format
 
 <CodeGroup>
 ```python mode="json"
@@ -140,9 +141,14 @@ chat = (
 
 ```python mode="xml"
 # Model sees and generates:
-<rg-tool-call name="get_weather">
+<tool-call name="get_weather">
 <city>Paris</city>
-</rg-tool-call>
+</tool-call>
+```
+
+```python mode="pythonic"
+# Model sees and generates:
+[get_weather(city="Paris")]
 ```
 </CodeGroup>
 

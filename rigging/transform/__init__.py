@@ -6,6 +6,10 @@ from rigging.transform.json_tools import (
     tools_to_json_transform,
     tools_to_json_with_tag_transform,
 )
+from rigging.transform.pythonic_tools import (
+    make_tools_to_pythonic_transform,
+    tools_to_pythonic_transform,
+)
 from rigging.transform.xml_tools import make_tools_to_xml_transform
 
 
@@ -26,6 +30,8 @@ def get_transform(identifier: str) -> Transform:
             return tools_to_json_in_xml_transform
         case "json-with-tag":
             return tools_to_json_with_tag_transform
+        case "pythonic":
+            return tools_to_pythonic_transform
         case _:
             raise ValueError(f"Unknown transform identifier: {identifier}")
 
@@ -35,8 +41,10 @@ __all__ = [
     "PostTransform",
     "Transform",
     "make_tools_to_json_transform",
+    "make_tools_to_pythonic_transform",
     "make_tools_to_xml_transform",
     "tools_to_json_in_xml_transform",
     "tools_to_json_transform",
     "tools_to_json_with_tag_transform",
+    "tools_to_pythonic_transform",
 ]

@@ -268,8 +268,9 @@ async def test_tokenize_chat() -> None:
         assert slice_.metadata["role"] == messages[i].role
 
 
+@pytest.mark.parametrize("transform", ["json", "json-with-tag", "json-in-xml", "pythonic"])
 @pytest.mark.asyncio
-async def test_tokenize_chat_with_tool_calls() -> None:
+async def test_tokenize_chat_with_tool_calls(transform: str) -> None:
     """Test tokenizing a chat with tool calls."""
     tokenizer = MockTokenizer(model="test")
 
@@ -295,7 +296,7 @@ async def test_tokenize_chat_with_tool_calls() -> None:
     chat = Chat(messages)
 
     # Tokenize the chat
-    tokenized = await chat.to_tokens(tokenizer, transform="json-with-tag")
+    tokenized = await chat.to_tokens(tokenizer, transform=transform)
 
     assert len(tokenized.slices) == 6
 

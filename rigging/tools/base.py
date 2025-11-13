@@ -38,7 +38,7 @@ TOOL_STOP_TAG = "rg-stop"
 P = t.ParamSpec("P")
 R = t.TypeVar("R")
 
-ToolMode = t.Literal["auto", "api", "xml", "json", "json-in-xml", "json-with-tag"]
+ToolMode = t.Literal["auto", "api", "xml", "json", "json-in-xml", "json-with-tag", "pythonic"]
 """
 How tool calls are handled.
 
@@ -48,6 +48,7 @@ How tool calls are handled.
 - `json`: Tool calls are parsed as raw name/arg JSON anywhere in assistant message content.
 - `json-in-xml`: Tool calls are parsed using JSON for arguments, and XML for everything else.
 - `json-with-tag`: Tool calls are parsed as name/arg JSON structures inside an XML tag to identify it.
+- `pythonic`: Tool calls are parsed as pythonic function call syntax.
 """
 
 
