@@ -59,7 +59,7 @@ from rigging.transform import (
 from rigging.util import flatten_list, get_callable_name
 
 if t.TYPE_CHECKING:
-    from dreadnode.metric import Scorer, ScorerCallable
+    from dreadnode.scorers import Scorer, ScorerCallable
     from dreadnode.scorers.rigging import ChatFilterFunction, ChatFilterMode
     from elasticsearch import AsyncElasticsearch  # type: ignore [import-not-found, unused-ignore]
 
@@ -1441,7 +1441,7 @@ class ChatPipeline:
         self.scorers.extend(
             [
                 dn.scorers.wrap_chat(
-                    scorer if isinstance(scorer, dn.Scorer) else dn.Scorer.from_callable(scorer),
+                    scorer if isinstance(scorer, dn.Scorer) else dn.Scorer(scorer),
                     filter=filter,
                 )
                 for scorer in scorers

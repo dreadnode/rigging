@@ -357,7 +357,7 @@ class Model(BaseXmlModel):
             return f"<{cls.__xml_tag__}>{escape_xml(example)}</{cls.__xml_tag__}>"
 
         lines = []
-        attribute_parts = []
+        attribute_parts: list[str] = []
         element_fields = {}
 
         for field_name, field_info in cls.model_fields.items():

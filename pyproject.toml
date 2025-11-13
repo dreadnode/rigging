@@ -13,7 +13,7 @@ packages = [{ include = "rigging" }]
 [tool.poetry.dependencies]
 python = ">=3.10,<3.14"
 pydantic = "^2.7.3"
-pydantic-xml = "^2.11.0"
+pydantic-xml = "<=2.17.0"
 loguru = "^0.7.2"
 litellm = "^1.67.2"
 xmltodict = "^0.13.0"

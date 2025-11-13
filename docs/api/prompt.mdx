@@ -67,8 +67,8 @@ Prompt(
     max_parsing_rounds: int = DEFAULT_MAX_PARSE_ROUNDS,
     max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS,
     inputs: list[Input] = list(),
-    output: Output = lambda: ChatOutput(
-        id="chat", context=Ctx()
+    output: Output = (
+        lambda: ChatOutput(id="chat", context=(Ctx()))
     )(),
     watch_callbacks: list[WatchChatCallback] = list(),
     then_callbacks: list[ThenChatCallback] = list(),

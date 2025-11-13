@@ -1646,12 +1646,18 @@ Create a new instance of TransformersGenerator from an already loaded model and 
   (`Any`)
   –The loaded model for text generation.
 * **`tokenizer`**
+  (`AutoTokenizer`)
   –The tokenizer associated with the model.
 * **`pipeline`**
   (`TextGenerationPipeline | None`, default:
   `None`
   )
   –The text generation pipeline. Defaults to None.
+* **`params`**
+  (`GenerateParams | None`, default:
+  `None`
+  )
+  –Generation parameters. Defaults to None.
 
 **Returns:**
 
@@ -1674,8 +1680,9 @@ def from_obj(
 
     Args:
         model: The loaded model for text generation.
-        tokenizer : The tokenizer associated with the model.
+        tokenizer: The tokenizer associated with the model.
         pipeline: The text generation pipeline. Defaults to None.
+        params: Generation parameters. Defaults to None.
 
     Returns:
         The TransformersGenerator instance.
@@ -2491,12 +2498,18 @@ Create a new instance of TransformersGenerator from an already loaded model and 
   (`Any`)
   –The loaded model for text generation.
 * **`tokenizer`**
+  (`AutoTokenizer`)
   –The tokenizer associated with the model.
 * **`pipeline`**
   (`TextGenerationPipeline | None`, default:
   `None`
   )
   –The text generation pipeline. Defaults to None.
+* **`params`**
+  (`GenerateParams | None`, default:
+  `None`
+  )
+  –Generation parameters. Defaults to None.
 
 **Returns:**
 
@@ -2519,8 +2532,9 @@ def from_obj(
 
     Args:
         model: The loaded model for text generation.
-        tokenizer : The tokenizer associated with the model.
+        tokenizer: The tokenizer associated with the model.
         pipeline: The text generation pipeline. Defaults to None.
+        params: Generation parameters. Defaults to None.
 
     Returns:
         The TransformersGenerator instance.

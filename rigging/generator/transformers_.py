@@ -116,8 +116,9 @@ class TransformersGenerator(Generator):
 
         Args:
             model: The loaded model for text generation.
-            tokenizer : The tokenizer associated with the model.
+            tokenizer: The tokenizer associated with the model.
             pipeline: The text generation pipeline. Defaults to None.
+            params: Generation parameters. Defaults to None.
 
         Returns:
             The TransformersGenerator instance.
