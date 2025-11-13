@@ -3,7 +3,6 @@
   extends: [
     "config:base",
     ":disableRateLimiting",
-    ":dependencyDashboard",
     ":semanticCommits",
     ":enablePreCommit",
     ":automergeDigest",
@@ -16,31 +15,14 @@
   "pre-commit": {
     enabled: true,
   },
-  poetry: {
-    fileMatch: ["pyproject.toml"],
-  },
-  pip_requirements: {
-    fileMatch: [
-      "requirements-test.txt",
-      "requirements-composer.txt",
-      "constraints.txt",
-      "constraints-test.txt",
-    ],
-  },
+  enabledManagers: [
+    "github-actions",
+    "dockerfile",
+    "docker-compose",
+    "pre-commit"
+  ],
+  ignorePaths: [],
   packageRules: [
-    {
-      matchManagers: ["poetry", "pip_requirements"],
-      matchPackagePatterns: ["^pytest"],
-      groupName: "pytest packages",
-      groupSlug: "pytest",
-      separateMinorPatch: true,
-    },
-    {
-      matchManagers: ["poetry", "pip_requirements"],
-      matchDepTypes: ["python"],
-      allowedVersions: "^3.9",
-      enabled: true,
-    },
     {
       description: "Auto merge non-major updates",
       matchUpdateTypes: ["minor", "patch"],
@@ -48,5 +30,4 @@
       automergeType: "pr",
     },
   ],
-  ignorePaths: [],
 }
