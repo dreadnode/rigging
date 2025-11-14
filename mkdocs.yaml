@@ -1,0 +1,65 @@
+---
+site_name: your-project-here
+site_description: Some description here
+site_author: Dreadnode
+site_url: https://rigging.dreadnode.io
+repo_url: https://github.com/dreadnode/your-project-here
+
+nav:
+  - Home:
+      - index.md
+
+theme:
+  logo: assets/logo_black.png
+  favicon: assets/logo_white.png
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    scheme: slate
+    primary: custom
+  features:
+    - content.code.copy
+    - content.code.annotate
+    - navigation.footer
+    - navigation.indexes
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - navigation.tabs
+    - navigation.tabs.sticky
+
+plugins:
+  - search
+  - section-index
+  # Social cards removed due to cairo dependency issues
+  # See README.md for setup instructions if needed
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight:
+      anchor_linenums: true
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: "#"
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+
+extra:
+  homepage: https://dreadnode.io
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/dreadnode
+    - icon: fontawesome/brands/twitter
+      link: https://twitter.com/dreadnode
