@@ -254,13 +254,17 @@ class LiteLLMGenerator(Generator):
         # - https://github.com/ollama/ollama/issues/7987
         # - https://github.com/ollama/ollama/issues/4967
 
+        # Not perfect
+        if "ollama" not in self.model.lower():
+            return
+
         # We can't check with usage info
         if not response.usage:
             return
 
         # Get a general view of how long we might expect the input prompt to
-        # We'll use a gracious 4 char per token estimate
-        input_tokens_estimate = int(sum(len(message.content) for message in messages) / 4)
+        # We'll use a gracious 10 char per token estimate
+        input_tokens_estimate = int(sum(len(message.content) for message in messages) / 10)
 
         # Check if the response reports that accepted input tokens are less than this
         if response.usage.input_tokens < input_tokens_estimate:

@@ -104,7 +104,7 @@ def _attempt_parse_tool_calls_from_string(candidate_str: str) -> list[ToolCall] 
 def _render_tool_call_to_pythonic_string(tool_call: ToolCall) -> str:
     """Renders a single ToolCall object to its pythonic string representation."""
     args_dict = json.loads(tool_call.function.arguments)
-    args_str = ", ".join(f"{key}={json.dumps(value)}" for key, value in args_dict.items())
+    args_str = ", ".join(f"{key}={value!r}" for key, value in args_dict.items())
     return f"{tool_call.function.name}({args_str})"
 
 
