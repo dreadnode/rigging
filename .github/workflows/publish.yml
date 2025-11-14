@@ -20,7 +20,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@cfd55ca82492758d853442341ad4d8010466803a
         with:
-          python-version: "3.10"
+          python-version: "3.14"
 
       - name: Install Poetry
         uses: abatilo/actions-poetry@b8f6fe29ba2eb78e0d45ccbf41cd14154c4e25b2
