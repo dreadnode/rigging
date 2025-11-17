@@ -1,147 +1,115 @@
-[tool.poetry]
-name = "rigging"
-version = "3.3.5"
-description = "LLM Interaction Framework"
-authors = ["Nick Landers <monoxgas@gmail.com>"]
-license = "MIT"
-repository = "https://github.com/dreadnode/rigging"
-readme = "README.md"
-packages = [{ include = "rigging" }]
-
-# Dependencies
-
-[tool.poetry.dependencies]
-python = ">=3.10,<3.14"
-pydantic = "^2.7.3"
-pydantic-xml = "<=2.17.0"
-loguru = "^0.7.2"
-litellm = "^1.67.2"
-xmltodict = "^0.13.0"
-colorama = "^0.4.6"
-jsonpath-ng = "^1.7.0"
-ruamel-yaml = "^0.18.10"
-jsonref = "^1.1.0"
-mcp = "^1.5.0"
-dreadnode = ">=1.12.0"
-
-vllm = { version = "^0.5.0", optional = true }
-transformers = { version = "^4.41.0", optional = true }
-accelerate = { version = "^0.30.1", optional = true }
-
-asyncssh = { version = "^2.14.2", optional = true }
-click = { version = "^8.1.7", optional = true }
-httpx = { version = "^0.28.0", optional = true }
-aiodocker = { version = "^0.22.2", optional = true }
-websockets = { version = "^13.0", optional = true }
-
-elasticsearch = { version = "^8.13.2", optional = true }
-pandas = { version = "^2.2.2", optional = true }
-
-[tool.poetry.extras]
-data = ["pandas", "elasticsearch"]
-examples = ["asyncssh", "click", "httpx", "aiodocker", "websockets"]
-llm = ["vllm", "transformers", "accelerate"]
-all = [
-    "vllm",
-    "transformers",
-    "accelerate",
-    "asyncssh",
-    "click",
-    "httpx",
-    "aiodocker",
-    "websockets",
-    "logfire",
-    "elasticsearch",
-    "pandas",
+[project]
+name = "python-template"
+version = "0.1.0"
+description = "A Python project template"
+requires-python = ">=3.9"
+dependencies = [
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.6.1",
+    "mkdocs-section-index>=0.3.8",
+    "tomli>=2.0.1",
 ]
 
-[tool.poetry.group.dev.dependencies]
-ipykernel = "^6.27.1"
-mypy = "^1.15.0"
-ruff = "^0.10.0"
-pytest = "^8.0.0"
-pandas-stubs = "^2.2.1.240316"
-coverage = "^7.5.1"
-ipywidgets = "^8.1.3"
-pytest-asyncio = "^1.0.0"
-types-colorama = "^0.4.15.20240311"
-types-requests = "2.32.4.20250611"
-beautifulsoup4 = "^4.13.4"
-mkdocstrings = { extras = ["python"], version = "^0.29.1" }
-markdown = "^3.8"
-markdownify = "^1.1.0"
-boto3-stubs = { extras = ["s3"], version = "^1.35.0" }
-
-# Build
+[project.optional-dependencies]
+dev = [
+    "pre-commit>=4.1.0",
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "pytest-randomly>=3.15.0",
+    "tomli>=2.0.1",
+]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
-
-# Tests / Coverage
-
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function"
-filterwarnings = ["ignore::DeprecationWarning"]
-
-[tool.coverage.run]
-command_line = "-m pytest"
-
-[tool.coverage.report]
-include = ["rigging/*.py"]
-show_missing = true
-
-[tool.coverage.lcov]
-output = "lcov.info"
-
-# Tracing
-
-[tool.logfire]
-ignore_no_config = true
-
-# Security
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [tool.bandit]
-exclude_dirs = ["examples/*", ".github/*", ".hooks/*"]
+exclude_dirs = ["tests"]
+skips = ["B101"]
 
-# Type Checking
+[tool.poetry]
+name = "python-template"
+version = "0.1.0"
+description = "A Python project template"
+authors = ["Your Name <your.email@example.com>"]
 
-[tool.mypy]
-plugins = "pydantic.mypy"
-strict = true
+[tool.poetry.dependencies]
+python = ">=3.10,<3.13"
 
-# Formatting / Linting
+[tool.poetry.group.docs.dependencies]
+mkdocs = "^1.6.1"
+mkdocs-material = { extras = ["imaging"], version = "^9.5.20" }
+mkdocstrings = "^0.30.0"
+mkdocstrings-python = "^1.10.0"
+mkdocs-section-index = "^0.3.9"
+pymdown-extensions = "^10.8.1"
+pygments = "^2.18.0"
+
+[tool.poetry.group.dev.dependencies]
+pre-commit = "^4.1.0"
+pytest = "^9.0.0"
+pytest-cov = "^7.0.0"
+pytest-randomly = "^4.0.0"
+tomli = "^2.0.1"
+rigging = "^3.0.0"
+
+[tool.poetry.scripts]
+# Define CLI entry points here, e.g.:
+# mycommand = "my_project.module:function"
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = ["--strict-markers", "--cov=scripts", "--cov-report=term-missing"]
+pythonpath = ["."]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+]
 
 [tool.ruff]
-target-version = "py310"
 line-length = 100
-extend-exclude = [
-    "*.ipynb",    # jupyter notebooks
-    "examples/*", # example files
-    ".github/*",  # github files
-    ".hooks/*",   # git hooks
-]
-
-[tool.ruff.lint]
-select = ["ALL"]
-ignore = [
-    "E501",    # line too long (we make best effort)
-    "TRY003",  # long messages in exception classes
-    "EM",      # picky message construction for exceptions
-    "C90",     # mccabe complexity
-    "A002",    # shadowing built-in
-    "D",       # docstrings
-    "ANN",     # annotations (handled by mypy)
-    "PLR0913", # too many arguments
-    "ERA001",  # commented out code
-    "FIX002",  # contains todo, consider fixing
-    "TD002",   # TODO
-    "TD003",   # TODO
-    "PLR0911", # too many return statements
-    "FBT003",  # boolean positional in function call
-    "COM812",  # missing trailing comma in function call
-]
+target-version = "py39"
+include = ["*.py", "**/pyproject.toml", "*.ipynb"]
+extend-include = [".hooks/*.py"]
 
 [tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 skip-magic-trailing-comma = false
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N"]
+ignore = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.coverage.run]
+branch = true
+source = ["scripts"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+[tool.readme]
+github_org = "dreadnode"
+logo_url = "https://d1lppblt9t2x15.cloudfront.net/logos/5714928f3cdc09503751580cffbe8d02.png"
+tagline = "with batteries included 🔋"
+emoji = "🐍"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.hatch.build.targets.sdist]
+packages = ["src"]
