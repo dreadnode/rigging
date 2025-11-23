@@ -1,0 +1,58 @@
+---
+name: Pre-Commit
+on:
+  merge_group:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+  push:
+    branches:
+      - main
+  schedule:
+    # Run once a week (see https://crontab.guru)
+    - cron: "0 0 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  group: pre-commit-${{ github.run_id }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: 3.12.6
+  TASK_VERSION: 3.38.0
+
+permissions:
+  actions: read
+  checks: write
+  contents: read
+  pull-requests: write # Allows merge queue updates
+  security-events: write # Required for GitHub Security tab
+
+jobs:
+  pre-commit:
+    name: Pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up git repository
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install python dependencies
+        run: python3 -m pip install pre-commit
+
+      - name: Setup go-task
+        uses: rnorton5432/setup-task@eec4717ae80f02d1614a4fecfa4a55d507768696 # v1.0.0
+        if: always()
+        with:
+          task-version: ${{ env.TASK_VERSION }}
+
+      - name: Run pre-commit
+        run: export TASK_X_REMOTE_TASKFILES=1 task run-pre-commit -y || true

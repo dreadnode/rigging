@@ -1,151 +1,217 @@
-<p align="center">
-    <img
-    src="https://d1lppblt9t2x15.cloudfront.net/logos/5714928f3cdc09503751580cffbe8d02.png"
-    alt="Logo"
-    align="center"
-    width="144px"
-    height="144px"
-    />
-</p>
+# Python Project Template 🐍
 
-<h3 align="center">
-Flexible LLM library for code and agents
-</h3>
+<div align="center">
 
-<h4 align="center">
-    <img alt="PyPI - Python Version" src="https://img.shields.io/pypi/pyversions/rigging">
-    <img alt="PyPI - Version" src="https://img.shields.io/pypi/v/rigging">
-    <img alt="GitHub License" src="https://img.shields.io/github/license/dreadnode/rigging">
-    <img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/dreadnode/rigging/ci.yml">
-</h4>
+<img
+  src="https://d1lppblt9t2x15.cloudfront.net/logos/5714928f3cdc09503751580cffbe8d02.png"
+  alt="Logo"
+  align="center"
+  width="144px"
+  height="144px"
+/>
 
-</br>
+**A Modern Python Project Scaffold**
 
-Rigging is a lightweight LLM framework to make using language models in production code as simple and effective as possible. Here are the highlights:
+_... with batteries included_ 🔋
 
-- **Structured Pydantic models** can be used interchangeably with unstructured text output.
-- LiteLLM as the default generator giving you **instant access to a huge array of models**.
-- Define prompts as python functions with **type hints and docstrings**.
-- Simple **tool use**, even for models which don't support them at the API.
-- Store different models and configs as **simple connection strings** just like databases.
-- Integrated tracing support with [Logfire](https://logfire.pydantic.dev/docs/).
-- Chat templating, forking, continuations, generation parameter overloads, stripping segments, etc.
-- Async batching and fast iterations for **large scale generation**.
-- Metadata, callbacks, and data format conversions.
-- Modern python with type hints, async support, pydantic validation, serialization, etc.
+</div>
 
-```py
-import rigging as rg
+<!-- BEGIN_AUTO_BADGES -->
+<div align="center">
 
-@rg.prompt(generator_id="gpt-4")
-async def get_authors(count: int = 3) -> list[str]:
-    """Provide famous authors."""
+[![Pre-Commit](https://github.com/dreadnode/python-template/actions/workflows/pre-commit.yaml/badge.svg)](https://github.com/dreadnode/python-template/actions/workflows/pre-commit.yaml)
+[![Renovate](https://github.com/dreadnode/python-template/actions/workflows/renovate.yaml/badge.svg)](https://github.com/dreadnode/python-template/actions/workflows/renovate.yaml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-print(await get_authors())
+</div>
+<!-- END_AUTO_BADGES -->
 
-# ['William Shakespeare', 'J.K. Rowling', 'Jane Austen']
-```
+---
 
-Rigging is built by [**dreadnode**](https://dreadnode.io) where we use it daily.
+- [Python Project Template 🐍](#python-project-template-)
+  - [🚀 Quick Start](#-quick-start)
+  - [📦 What's Included](#-whats-included)
+  - [📁 Project Structure](#-project-structure)
+  - [🛠️ Development](#️-development)
+    - [Prerequisites](#prerequisites)
+    - [Common Commands](#common-commands)
+    - [VSCode Integration](#vscode-integration)
+  - [📚 Documentation](#-documentation)
+    - [Using This Template](#using-this-template)
+    - [Template Development](#template-development)
+  - [🤝 Contributing](#-contributing)
+  - [📄 License](#-license)
+  - [🔐 Security](#-security)
+  - [⭐ Star History](#-star-history)
 
-## Installation
 
-We publish every version to Pypi:
+## 🚀 Quick Start
+
+1. Click the green `Use this template` button at the top of this page
+1. Name your repository and select options
+1. Clone your new repository:
+
+   ```bash
+   git clone https://github.com/yourusername/your-repo-name.git
+   cd your-repo-name
+   ```
+
+1. Initialize with your preferred package manager:
+
+   ```bash
+   # Using pip
+   python -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   pip install -r requirements.txt
+
+   # Using uv
+   uv venv --python 3.11 # Optional: specify Python version
+   source .venv/bin/activate
+   uv pip install -r requirements.txt
+
+   # Using poetry
+   poetry install
+   ```
+
+1. Set up pre-commit hooks:
+
+   ```bash
+   pre-commit install
+   ```
+
+## 📦 What's Included
+
+- 📝 Modern `pyproject.toml` configuration
+- 🧪 Testing setup with pytest
+- 🔍 Code quality tools:
+  - Black (code formatting)
+  - Ruff (fast linting)
+  - mypy (type checking)
+  - pre-commit hooks
+- 📚 Documentation template
+- 🔄 GitHub Actions workflows
+- 🔒 Security policy template
+- 👥 CODEOWNERS template
+
+## 📁 Project Structure
+
 ```bash
-pip install rigging
+.
+├── CODEOWNERS          # Repository access control
+├── LICENSE            # Apache License 2.0
+├── README.md          # This file
+├── SECURITY.md        # Security policy
+├── Taskfile.yaml      # Task automation
+├── docs/              # Documentation
+├── examples/          # Usage examples
+├── pyproject.toml     # Python project config
+├── requirements.txt   # Dependencies
+└── tests/             # Test suite
 ```
 
-If you want to build from source:
+## 🛠️ Development
+
+### Prerequisites
+
+- Python 3.9+
+- One of: pip, uv, or poetry
+- [pre-commit](https://pre-commit.com/)
+- [Task](https://taskfile.dev/installation/) (optional, but recommended)
+- Ruby 2.7.0+ (for pre-commit hooks)
+
+  ```bash
+  # Install Ruby using rbenv (recommended)
+  brew install rbenv  # or use your system's package manager
+  rbenv install 3.3.0
+  rbenv global 3.3.0
+  rbenv rehash
+
+  # Install required Ruby gems
+  gem install rubocop-ast
+  ```
+
+### Common Commands
+
 ```bash
-cd rigging/
-poetry install
+# Run tests
+task test  # or: pytest
+
+# Format code
+task format  # or: black .
+
+# Run linting
+task lint  # or: ruff check .
+
+# Type checking
+task types  # or: mypy .
+
+# Run all checks
+task check
 ```
 
-## Supported LLMs
+### VSCode Integration
 
-Rigging will run just about any language model:
+1. Open `python.code-workspace` in VSCode
+1. Install recommended extensions when prompted
+1. Enjoy automated formatting and linting!
 
-- Any model from [**LiteLLM**](https://litellm.vercel.app/docs/providers)
-- Any model from [**vLLM**](https://docs.vllm.ai/en/latest/models/supported_models.html)
-- Any model from [**transformers**](https://huggingface.co/docs/transformers/)
+## 📚 Documentation
 
-### API Keys
+The project uses MkDocs for documentation with automated builds via pre-commit hooks.
 
-Pass the `api_key` in an generator id or use standard environment variables.
+### Using This Template
 
-```py
-rg.get_generator("gpt-4-turbo,api_key=...")
-```
+For step-by-step instructions on creating a new project using this template,
+see our [Project Setup Guide](docs/topics/project-from-template.md).
 
-```bash
-export OPENAI_API_KEY=...
-export MISTRAL_API_KEY=...
-export ANTHROPIC_API_KEY=...
-...
-```
+### Template Development
 
-Check out [the docs](https://docs.dreadnode.io/open-source/rigging/topics/generators#api-keys) for more.
+If you're contributing to the template itself:
 
-## Getting Started
+1. Set up documentation tools:
 
-**Check out the guide [in the docs](https://docs.dreadnode.io/open-source/rigging/intro#getting-started)**
+   ```bash
+   pip install -r requirements.txt
+   pre-commit install
+   ```
 
-1. **Get a generator** using a connection string.
-2. Build a **chat** or **completion** pipeline
-3. **Run** the pipeline and get the output.
+1. (Optional) Install social card dependencies:
 
-```py
-import rigging as rg
-import asyncio
+   ```bash
+   # macOS
+   brew install cairo freetype2 libffi
 
-async def main():
-    # 1 - Get a generator
-    generator = rg.get_generator("claude-3-sonnet-20240229")
+   # Ubuntu/Debian
+   apt-get install libcairo2-dev libfreetype6-dev libffi-dev
 
-    # 2 - Build a chat pipeline
-    pipeline = generator.chat(
-        [
-            {"role": "system", "content": "Talk like a pirate."},
-            {"role": "user", "content": "Say hello!"},
-        ]
-    )
+   # Then uncomment social-cards plugin in mkdocs.yaml
+   ```
 
-    # 3 - Run the pipeline
-    chat = await pipeline.run()
-    print(chat.conversation)
+1. Preview documentation locally:
 
-# Run the main function
-asyncio.run(main())
+   ```bash
+   mkdocs serve
+   ```
 
-# [system]: Talk like a pirate.
-# [user]: Say hello!
-# [assistant]: Ahoy, matey! Here be the salty sea dog ready to trade greetings wit' ye. Arrr!
-```
+Documentation is automatically built before each commit via pre-commit hooks.
 
-Want more?
+## 🤝 Contributing
 
-- Use [structured pydantic parsing](https://docs.dreadnode.io/open-source/rigging/topics/chats-and-messages#parsed-parts)
-- Check out [raw completions](https://docs.dreadnode.io/open-source/rigging/topics/completions/)
-- Give the LLM [access to tools](https://docs.dreadnode.io/open-source/rigging/topics/tools/)
-- Track behavior with [tracing](https://docs.dreadnode.io/open-source/rigging/topics/tracing/)
-- Play with [generation params](https://docs.dreadnode.io/open-source/rigging/topics/generators/#overload-generation-params)
-- Use [callbacks in the pipeline](https://docs.dreadnode.io/open-source/rigging/topics/callbacks-and-mapping/)
-- Scale up with [iterating and batching](https://docs.dreadnode.io/open-source/rigging/topics/iterating-and-batching/)
-- Save your work with [serialization](https://docs.dreadnode.io/open-source/rigging/topics/serialization/)
+Contributions are welcome! Please see our [Contributing Guide](docs/contributing.md).
 
-## Examples
+## 📄 License
 
-- Basic interactive chat: [**chat.py**](examples/chat.py)
-- Jupyter code interpreter: [**jupyter.py**](examples/jupyter.py)
-- OverTheWire Bandit Agent: [**bandit.py**](examples/bandit.py)
-- Damn Vulnerable Restaurant Agent: [**dvra.py**](examples/dvra.py)
-- RAG Pipeline: [**rag.py**](examples/rag.py) (from [kyleavery](https://github.com/kyleavery/))
-- Integrating dreadnode-owned [robopages](https://github.com/dreadnode/robopages-cli) as a tool server (basic nmap scan example): [**rigging_example.py**](https://github.com/dreadnode/robopages-cli/blob/main/examples/rigging_example.py)
+This project is licensed under the Apache License 2.0 - see the
+[LICENSE](LICENSE) file for details.
 
-## Documentation
+## 🔐 Security
 
-**[docs.dreadnode.io](https://docs.dreadnode.io/open-source/rigging/intro)** has everything you need.
+See our [Security Policy](SECURITY.md) for reporting vulnerabilities.
 
-## Star History
+## ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=dreadnode/rigging&type=Date)](https://star-history.com/#dreadnode/rigging&Date)
+[![GitHub stars](https://img.shields.io/github/stars/dreadnode/python-template?style=social)](https://github.com/dreadnode/python-template/stargazers)
+
+By watching the repo, you can also be notified of any upcoming releases.
+
+[![Star history graph](https://api.star-history.com/svg?repos=dreadnode/python-template&type=Date)](https://star-history.com/#dreadnode/python-template&Date)
