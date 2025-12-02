@@ -1,0 +1,58 @@
+---
+name: 🐍 Python Tests
+on:
+  merge_group:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: pre-commit-${{ github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  checks: write
+  contents: read
+  pull-requests: write # Allows merge queue updates
+  security-events: write # Required for GitHub Security tab
+
+jobs:
+  test:
+    name: 🐍 Run python tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11"]
+
+    steps:
+      - name: Set up git repository
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov ruff
+          pip install -e .
+
+      - name: Lint with ruff
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Run tests with coverage
+        run: |
+          pytest --cov=src --cov-report=term-missing
