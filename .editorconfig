@@ -1,0 +1,20 @@
+[*.sh]
+# like -i=4
+indent_style = space
+indent_size = 4
+
+binary_next_line = false  # Prevents breaking `|` onto new lines
+switch_case_indent = true  # Indent case statements
+space_redirects = true  # Ensure spacing around redirects
+keep_padding = true  # Keep aligned padding
+
+[shfmt]
+binary_next_line = false
+
+[*.tf]
+indent_style = space
+indent_size = 2
+
+[*.hcl]
+indent_style = space
+indent_size = 2
