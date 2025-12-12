@@ -14,7 +14,6 @@ repos:
       - id: check-yaml
       - id: detect-private-key
       - id: end-of-file-fixer
-        exclude: ^docs/
       - id: trailing-whitespace
 
   - repo: https://github.com/rhysd/actionlint
@@ -32,7 +31,32 @@ repos:
     rev: v2.4.1
     hooks:
       - id: codespell
-        entry: codespell -q 3 -f --skip=".git,.github" -L te,Sie,braket,astroid
+        entry: codespell -q 3 -f --skip=".git,.github,README.md" --ignore-words-list="astroid"
+
+  - repo: https://github.com/RodrigoGonzalez/check-mkdocs
+    rev: v1.2.0
+    hooks:
+      - id: check-mkdocs
+        name: check-mkdocs
+        args: ["--config", "mkdocs.yaml"]
+        additional_dependencies:
+          - mkdocs-material
+          - mkdocs-section-index
+
+  - repo: https://github.com/jumanjihouse/pre-commit-hooks
+    rev: 3.0.0
+    hooks:
+      - id: script-must-have-extension
+        name: Ensure shell scripts end with .sh
+        types: [shell]
+      - id: shellcheck
+      - id: shfmt
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.46.0
+    hooks:
+      - id: markdownlint
+        args: ["--fix", "--config", ".hooks/linters/markdownlint.json"]
 
   # Python code security
   - repo: https://github.com/PyCQA/bandit
@@ -48,7 +72,7 @@ repos:
     rev: v1.5.0
     hooks:
       - id: detect-secrets
-        args: ["--baseline", ".secrets.baseline", "--exclude-files", "examples/*"]
+        args: ["--baseline", ".secrets.baseline"]
         exclude: .secrets.baseline
 
   # Clean jupyter notebook outputs
@@ -58,22 +82,21 @@ repos:
       - id: nbstripout
         args: [--keep-id]
 
-  # - repo: https://github.com/astral-sh/ruff-pre-commit
-  #   rev: v0.11.7
-  #   hooks:
-  #     - id: ruff
-  #       args: [--fix]
-  #     - id: ruff-format
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.8
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
 
-  # - repo: https://github.com/pre-commit/mirrors-mypy
-  #   rev: v1.15.0
-  #   hooks:
-  #     - id: mypy
-  #       additional_dependencies:
-  #         - "pydantic"
-  #         - "types-PyYAML"
-  #         - "types-requests"
-  #         - "types-setuptools"
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.19.0
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - "types-PyYAML"
+          - "types-requests"
+          - "types-setuptools"
 
   - repo: local
     hooks:
@@ -90,10 +113,14 @@ repos:
         language: script
         types: [json, yaml]
 
-      # Generate documentation
-      - id: generate-docs
-        name: Generate docs
-        entry: poetry run python .hooks/generate_docs.py
-        language: system
+      - id: generate-readme
+        name: Generate README
+        description: Updates auto-generated sections in README.md
+        entry: python scripts/generate_readme.py
+        language: python
+        files: ^(pyproject\.toml|templates/README\.md\.j2)$
         pass_filenames: false
-        always_run: true
+        require_serial: true
+        additional_dependencies:
+          - jinja2
+          - tomli>=2.0.1
