@@ -75,11 +75,6 @@
   description: >-
     Changes to shell scripts
 
-- name: area/dev
-  color: "CC6699"  # Dusty Rose
-  description: >-
-    Changes to development tools and assets
-
 # Renovate Labels
 - name: renovate/container
   color: "9933CC"  # Purple

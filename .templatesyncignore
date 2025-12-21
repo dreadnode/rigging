@@ -1,0 +1,6 @@
+.github/renovate/autoMerge.json5
+.github/renovate-bot.json5
+README.md
+*.py
+test/*
+Taskfile.yaml
