@@ -1,0 +1,131 @@
+---
+version: "3"
+
+includes:
+  github: "https://raw.githubusercontent.com/CowDogMoo/taskfile-templates/main/github/Taskfile.yaml"
+  pre-commit: "https://raw.githubusercontent.com/CowDogMoo/taskfile-templates/main/pre-commit/Taskfile.yaml"
+  renovate: "https://raw.githubusercontent.com/CowDogMoo/taskfile-templates/main/renovate/Taskfile.yaml"
+
+vars:
+  API_DIR: "."
+
+tasks:
+  default:
+    desc: List all available tasks
+    cmds:
+      - task --list --sort none
+
+  # Setup and initialization tasks
+  check-command:
+    internal: true
+    vars:
+      COMMAND: '{{.CLI_ARGS}}'
+    cmds:
+      - |
+        command -v {{.COMMAND}} >/dev/null 2>&1 || (echo "Command '{{.COMMAND}}' not found. Please install it." && exit 1)
+
+  check-dependencies:
+    internal: true
+    cmds:
+      - task: check-command
+        vars: { COMMAND: docker }
+      - task: check-command
+        vars: { COMMAND: python3 }
+      - task: check-command
+        vars: { COMMAND: ruby }
+
+  setup-env:
+    internal: true
+    cmds:
+      - cp -n .env.example .env || true
+
+  get-dotenv-value:
+    internal: true
+    vars:
+      KEY: '{{.CLI_ARGS}}'
+    cmds:
+      - grep '^{{.KEY}}=' .env | sed 's/^{{.KEY}}=//;s/^"//;s/"$//'
+
+  deactivate:
+    internal: true
+    cmds:
+      - |
+        if [ -n "${VIRTUAL_ENV:-}" ]; then
+          echo "Deactivated venv - try again."
+          deactivate
+        fi
+
+  setup-git-hooks:
+    desc: Set up Git hooks
+    cmds:
+      - |
+        #!/bin/bash
+        set -e
+        ln -sf .hooks/post_merge.sh .git/hooks/post-merge
+        chmod +x .git/hooks/post-merge
+        echo "Post-merge git hooks successfully installed!"
+
+  init:
+    desc: Initialize the project
+    deps: [check-dependencies]
+    cmds:
+      - task: setup-env
+      - task: setup-git-hooks
+      - poetry install
+      - task: pre-commit:install
+      - echo "Project is ready to go! 🚀"
+
+  # Tools and pre-commit tasks
+  run-pre-commit:
+    desc: Run pre-commit hooks on all files
+    cmds:
+      - task: pre-commit:update-hooks
+      - task: pre-commit:clear-cache
+      - task: pre-commit:run-hooks
+
+  clean:
+    desc: Clean Python artifacts and cache directories
+    cmds:
+      - |
+        find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+        find . -type f -name "*.pyc" -delete
+        find . -type f -name "*.pyo" -delete
+        find . -type f -name "*.pyd" -delete
+        rm -rf .coverage htmlcov/ .pytest_cache/ .mypy_cache/ build/ dist/ ./*.egg-info/
+
+  # Poetry and API tasks
+  poetry:
+    desc: Run poetry in the API directory
+    vars:
+      ARGS: '{{.CLI_ARGS}}'
+    cmds:
+      - task: deactivate
+      - cd {{.API_DIR}} && export PYTHONPATH="$(pwd)" && poetry {{.ARGS}}
+
+  mypy:
+    desc: Run type checking with mypy
+    cmds:
+      - task: poetry
+        vars: { ARGS: "run mypy ." }
+
+  ruff:
+    desc: Run linting and formatting with ruff
+    cmds:
+      - task: poetry
+        vars: { ARGS: "run ruff check ." }
+      - task: poetry
+        vars: { ARGS: "run ruff format ." }
+
+  pytest:
+    desc: Run tests with pytest and coverage reporting
+    vars:
+      ARGS: '{{default "--cov=. --cov-report=term-missing tests/" .CLI_ARGS}}'
+    cmds:
+      - task: poetry
+        vars: { ARGS: "run pytest {{.ARGS}}" }
+
+  # GitHub tasks
+  create-release:
+    desc: Create a release on GitHub
+    cmds:
+      - task: github:create-release
