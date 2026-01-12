@@ -40,10 +40,21 @@ area/workspace:
   - changed-files:
       - any-glob-to-any-file: "python.code-workspace"
 
-# Development Labels
-area/dev:
+area/assets:
   - changed-files:
-      - any-glob-to-any-file: "dev/**/*"
+      - any-glob-to-any-file: "assets/**/*"
+
+area/scripts:
+  - changed-files:
+      - any-glob-to-any-file: "scripts/**/*"
+
+area/src:
+  - changed-files:
+      - any-glob-to-any-file: "src/**/*"
+
+area/templates:
+  - changed-files:
+      - any-glob-to-any-file: "templates/**/*"
 
 # Semantic Type Labels
 type/digest:
