@@ -2654,7 +2654,7 @@ def score(
     self.scorers.extend(
         [
             dn.scorers.wrap_chat(
-                scorer if isinstance(scorer, dn.Scorer) else dn.Scorer.from_callable(scorer),
+                scorer if isinstance(scorer, dn.Scorer) else dn.Scorer(scorer),
                 filter=filter,
             )
             for scorer in scorers

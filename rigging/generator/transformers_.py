@@ -80,21 +80,23 @@ class TransformersGenerator(Generator):
                     "load_in_4bit",
                 },
             )
-            self._llm = AutoModelForCausalLM.from_pretrained(self.model, **llm_kwargs)  # type: ignore [no-untyped-call, unused-ignore] # nosec
+            self._llm = AutoModelForCausalLM.from_pretrained(self.model, **llm_kwargs)  # type: ignore [no-untyped-call, assignment, unused-ignore] # nosec
+            if self._llm is None:
+                raise ValueError(f"Failed to load model '{self.model}'")
         return self._llm
 
     @property
     def tokenizer(self) -> AutoTokenizer:
         """The underlying `AutoTokenizer` instance."""
         if self._tokenizer is None:
-            self._tokenizer = AutoTokenizer.from_pretrained(self.model)  # nosec
+            self._tokenizer = AutoTokenizer.from_pretrained(self.model)  # type: ignore [no-untyped-call, unused-ignore] # nosec
         return self._tokenizer
 
     @property
     def pipeline(self) -> TextGenerationPipeline:
         """The underlying `TextGenerationPipeline` instance."""
         if self._pipeline is None:
-            self._pipeline = transformers.pipeline(  # type: ignore [attr-defined, assignment, unused-ignore]
+            self._pipeline = transformers.pipeline(  # type: ignore [attr-defined, call-overload, assignment, unused-ignore]
                 "text-generation",
                 return_full_text=False,
                 model=self.llm,  # type: ignore [arg-type, unused-ignore]
@@ -116,8 +118,9 @@ class TransformersGenerator(Generator):
 
         Args:
             model: The loaded model for text generation.
-            tokenizer : The tokenizer associated with the model.
+            tokenizer: The tokenizer associated with the model.
             pipeline: The text generation pipeline. Defaults to None.
+            params: Generation parameters. Defaults to None.
 
         Returns:
             The TransformersGenerator instance.
@@ -159,7 +162,7 @@ class TransformersGenerator(Generator):
         if any(k in kwargs for k in ["temperature", "top_k", "top_p"]):
             kwargs["do_sample"] = True
 
-        outputs = self.pipeline(inputs, **kwargs)
+        outputs = self.pipeline(inputs, **kwargs)  # type: ignore [call-overload]
 
         # TODO: We do strip() here as it's often needed, but I think
         # we should return and standardize this behavior.

@@ -54,11 +54,12 @@ from rigging.transform import (
     tools_to_json_in_xml_transform,
     tools_to_json_transform,
     tools_to_json_with_tag_transform,
+    tools_to_pythonic_transform,
 )
 from rigging.util import flatten_list, get_callable_name
 
 if t.TYPE_CHECKING:
-    from dreadnode.metric import Scorer, ScorerCallable
+    from dreadnode.scorers import Scorer, ScorerCallable
     from dreadnode.scorers.rigging import ChatFilterFunction, ChatFilterMode
     from elasticsearch import AsyncElasticsearch  # type: ignore [import-not-found, unused-ignore]
 
@@ -1440,7 +1441,7 @@ class ChatPipeline:
         self.scorers.extend(
             [
                 dn.scorers.wrap_chat(
-                    scorer if isinstance(scorer, dn.Scorer) else dn.Scorer.from_callable(scorer),
+                    scorer if isinstance(scorer, dn.Scorer) else dn.Scorer(scorer),
                     filter=filter,
                 )
                 for scorer in scorers
@@ -1718,6 +1719,8 @@ class ChatPipeline:
                     transforms.append(tools_to_json_with_tag_transform)
                 case "json":
                     transforms.append(tools_to_json_transform)
+                case "pythonic":
+                    transforms.append(tools_to_pythonic_transform)
 
         post_transforms: list[list[PostTransform | None]] = []
         for i, (_messages, _params) in enumerate(zip(messages, params, strict=True)):

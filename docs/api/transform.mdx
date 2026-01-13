@@ -55,6 +55,19 @@ tool responses are converted to user messages with a "tool\_response" type.
 
 See `make_tools_to_json_transform` for more details and more behavior options.
 
+tools\_to\_pythonic\_transform
+------------------------------
+
+```python
+tools_to_pythonic_transform = (
+    make_tools_to_pythonic_transform()
+)
+```
+
+A transform that converts tool calls to a pythonic list format.
+
+See `make_tools_to_pythonic_transform` for more details and more behavior options.
+
 PostTransform
 -------------
 
@@ -159,6 +172,8 @@ def get_transform(identifier: str) -> Transform:
             return tools_to_json_in_xml_transform
         case "json-with-tag":
             return tools_to_json_with_tag_transform
+        case "pythonic":
+            return tools_to_pythonic_transform
         case _:
             raise ValueError(f"Unknown transform identifier: {identifier}")
 ```
@@ -289,20 +304,31 @@ def make_tools_to_json_transform(  # noqa: PLR0915
 
         # Render all our existing tool calls as JSON in the content
 
-        for message in messages:
-            if tool_responses_as_user_messages and message.role == "tool":
-                message.replace_with_slice(
-                    tool_response_cls(
-                        id=message.tool_call_id or "",
-                        result=message.content,
-                    ),
-                    "tool_response",
-                    metadata={"id": message.tool_call_id or ""},
-                )
-                message.role = "user"
-                message.tool_call_id = None
+        updated_messages: list[Message] = []
 
-            elif message.tool_calls:
+        for is_tool_group, message_group in itertools.groupby(
+            messages, key=lambda m: tool_responses_as_user_messages and m.role == "tool"
+        ):
+            if is_tool_group:
+                user_message = Message(role="user", content="")
+                for message in message_group:
+                    user_message.append_slice(
+                        tool_response_cls(
+                            id=message.tool_call_id or "",
+                            result=message.content,
+                        ),
+                        "tool_response",
+                        metadata={"id": message.tool_call_id or ""},
+                    )
+                updated_messages.append(user_message)
+                continue
+
+            for message in message_group:
+                if not message.tool_calls:
+                    updated_messages.append(message)
+                    continue
+
+                updated_message = message.clone()
                 for tool_call in message.tool_calls:
                     content: str | Model
                     match mode:
@@ -321,14 +347,15 @@ def make_tools_to_json_transform(  # noqa: PLR0915
                                 content=f'{{"name": "{tool_call.function.name}", "arguments": "{tool_call.function.arguments}"}}',
                             )
 
-                    message.append_slice(
+                    updated_message.append_slice(
                         content,
                         "tool_call",
                         obj=tool_call,
                         metadata={"id": tool_call.id or ""},
                     )
 
-                message.tool_calls = None
+                updated_message.tool_calls = None
+                updated_messages.append(updated_message)
 
         # Save any existing tool params
 
@@ -434,13 +461,22 @@ def make_tools_to_json_transform(  # noqa: PLR0915
 
             # Convert our tool responses
 
-            for message in [m for m in chat.all if m.role == "user"]:
-                if (tool_response := message.try_parse(tool_response_cls)) is None:
+            updated_messages = []
+            for message in messages:
+                if message.role != "user" or not (
+                    tool_responses := message.try_parse_set(tool_response_cls)
+                ):
+                    updated_messages.append(message)
                     continue
 
-                message.content = tool_response.result
-                message.tool_call_id = tool_response.id
-                message.role = "tool"
+                for tool_response in tool_responses:
+                    updated_messages.append(  # noqa: PERF401
+                        Message(
+                            role="tool",
+                            content=tool_response.result,
+                            tool_call_id=tool_response.id,
+                        )
+                    )
 
             # Restore the params
 
@@ -450,13 +486,227 @@ def make_tools_to_json_transform(  # noqa: PLR0915
 
             # Strip the system prompt content
 
-            chat.messages = strip_system_content(chat.messages, system_prompt)
+            chat.messages = strip_system_content(updated_messages, system_prompt)
 
             return chat
 
-        return messages, params, json_to_tools_transform
+        return updated_messages, params, json_to_tools_transform
 
     return tools_to_json_transform
+```
+
+
+</Accordion>
+
+make\_tools\_to\_pythonic\_transform
+------------------------------------
+
+```python
+make_tools_to_pythonic_transform(
+    *,
+    system_tool_prompt: Callable[
+        [list[ToolDefinition]], str
+    ]
+    | str
+    | None = None,
+    tool_responses_as_user_messages: bool = True,
+    tool_response_tag: str = "tool-response",
+) -> Transform
+```
+
+Create a transform that converts tool calls to a pythonic list format.
+
+This transform will:
+1. Inject a system prompt with tool definitions serialized as JSON.
+2. Convert existing tool calls in messages to `[my_func(arg=...)]` format.
+3. Convert tool result messages into `<tool-response>` blocks in a user message (optional).
+4. In the post-transform, parse the model's output using a robust,
+AST-based parser to extract tool calls from the generated string.
+
+**Parameters:**
+
+* **`system_tool_prompt`**
+  (`Callable[[list[ToolDefinition]], str] | str | None`, default:
+  `None`
+  )
+  –A callable or string that generates the system prompt for tools.
+* **`tool_responses_as_user_messages`**
+  (`bool`, default:
+  `True`
+  )
+  –If True, tool responses will be converted to user messages wrapped in tool response tags.
+* **`tool_response_tag`**
+  (`str`, default:
+  `'tool-response'`
+  )
+  –The tag to use for tool responses in user messages.
+
+**Returns:**
+
+* `Transform`
+  –A transform function that processes messages and generate params.
+
+<Accordion title="Source code in rigging/transform/pythonic_tools.py" icon="code">
+```python
+def make_tools_to_pythonic_transform(
+    *,
+    system_tool_prompt: t.Callable[[list[ToolDefinition]], str] | str | None = None,
+    tool_responses_as_user_messages: bool = True,
+    tool_response_tag: str = "tool-response",
+) -> Transform:
+    """
+    Create a transform that converts tool calls to a pythonic list format.
+
+    This transform will:
+    1. Inject a system prompt with tool definitions serialized as JSON.
+    2. Convert existing tool calls in messages to `[my_func(arg=...)]` format.
+    3. Convert tool result messages into `<tool-response>` blocks in a user message (optional).
+    4. In the post-transform, parse the model's output using a robust,
+       AST-based parser to extract tool calls from the generated string.
+
+    Args:
+        system_tool_prompt: A callable or string that generates the system prompt for tools.
+        tool_responses_as_user_messages: If True, tool responses will be converted to user messages wrapped in tool response tags.
+        tool_response_tag: The tag to use for tool responses in user messages.
+
+    Returns:
+        A transform function that processes messages and generate params.
+    """
+
+    system_tool_prompt = system_tool_prompt or pythonic_tools_prompt
+
+    tool_response_cls = pydantic_xml_create_model(
+        "ToolResponse",
+        __base__=ToolResponse,
+        __cls_kwargs__={"tag": tool_response_tag},
+        __tag__=tool_response_tag,
+    )
+
+    async def tools_to_pythonic_transform(
+        messages: list[Message],
+        params: GenerateParams,
+    ) -> tuple[list[Message], GenerateParams, PostTransform | None]:
+        # Inject tool definitions into the system prompt
+
+        system_prompt = (
+            system_tool_prompt
+            if isinstance(system_tool_prompt, str)
+            else system_tool_prompt(params.tools or [])
+        )
+        messages = inject_system_content(messages, system_prompt)
+
+        # Render existing tool calls and responses
+
+        updated_messages: list[Message] = []
+
+        for is_tool_group, message_group in itertools.groupby(
+            messages, key=lambda m: tool_responses_as_user_messages and m.role == "tool"
+        ):
+            if is_tool_group:
+                user_message = Message(role="user", content="")
+                for tool_message in message_group:
+                    user_message.append_slice(
+                        tool_response_cls(
+                            id=tool_message.tool_call_id or "",
+                            result=tool_message.content,
+                        ),
+                        "tool_response",
+                        metadata={"id": tool_message.tool_call_id or ""},
+                    )
+                updated_messages.append(user_message)
+                continue
+
+            for message in message_group:
+                if not message.tool_calls:
+                    updated_messages.append(message)
+                    continue
+
+                updated_message = message.clone()
+                rendered_calls = [
+                    _render_tool_call_to_pythonic_string(tc) for tc in message.tool_calls
+                ]
+                updated_message.tool_calls = None
+                updated_message.append_slice(
+                    f"[{', '.join(rendered_calls)}]",
+                    "tool_call",
+                    metadata={
+                        "id": message.tool_calls[0].id or ""
+                    },  # TODO(nick): Handle multiple tool call slices
+                )
+                updated_messages.append(updated_message)
+
+        # Save any existing tool params
+
+        existing_tool_definitions = params.tools
+        params.tools = None
+        existing_tool_choice = params.tool_choice
+        params.tool_choice = None
+
+        # Build post transform
+
+        async def pythonic_to_tools_transform(chat: "Chat") -> "Chat":
+            # Convert the tool calls and strip them
+
+            for message in [m for m in chat.all if m.role == "assistant"]:
+                # Restore original tool calls - fast path for efficiency and consistency
+
+                for slice_ in message.slices:
+                    if slice_.type == "tool_call" and isinstance(slice_.obj, ToolCall):
+                        message.tool_calls = message.tool_calls or []
+                        message.tool_calls.append(slice_.obj)
+                        message.remove_slices(slice_)
+
+                # Otherwise, find any new tool calls in the content
+
+                candidates = _extract_bracketed_blocks(message.content)
+                parsed_results: list[tuple[str, list[ToolCall]]] = []
+                for candidate_str in candidates:
+                    if parsed_calls := _attempt_parse_tool_calls_from_string(candidate_str):
+                        parsed_results.append((candidate_str, parsed_calls))  # noqa: PERF401
+
+                if not parsed_results:
+                    continue
+
+                # NOTE(nick): We only take the last successfully parsed block
+                tool_calls_str, tool_calls = parsed_results[-1]
+                message.tool_calls = tool_calls
+                message.remove_slices()
+                message.content = message.content.replace(tool_calls_str, "").strip()
+
+            # Convert our tool responses
+
+            updated_messages = []
+            for message in messages:
+                if message.role != "user" or not (
+                    tool_responses := message.try_parse_set(tool_response_cls)
+                ):
+                    updated_messages.append(message)
+                    continue
+
+                for tool_response in tool_responses:
+                    updated_messages.append(  # noqa: PERF401
+                        Message(
+                            role="tool",
+                            content=tool_response.result,
+                            tool_call_id=tool_response.id,
+                        )
+                    )
+
+            # Restore the params
+
+            chat.params = chat.params or GenerateParams()
+            chat.params.tools = existing_tool_definitions
+            chat.params.tool_choice = existing_tool_choice
+
+            # Strip the system prompt content
+
+            chat.messages = strip_system_content(updated_messages, system_prompt)
+
+            return chat
+
+        return updated_messages, params, pythonic_to_tools_transform
+
+    return tools_to_pythonic_transform
 ```
 
 

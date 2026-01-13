@@ -7,7 +7,7 @@ import warnings
 
 from loguru import logger
 
-from rigging.error import GeneratorWarning
+from rigging.error import GeneratorWarning, ProcessingError
 from rigging.generator.base import (
     Fixup,
     GeneratedMessage,
@@ -101,6 +101,8 @@ g_fixups = [
     CacheTooSmallFixup(),
     GroqAssistantContentFixup(),
 ]
+
+vertex_image_pattern = re.compile(r"(data:[\w/]+?;base64,[A-Za-z0-9+/=]+)")
 
 
 class LiteLLMGenerator(Generator):
@@ -208,7 +210,7 @@ class LiteLLMGenerator(Generator):
                     ):
                         self._supports_function_calling = True
             except Exception as e:  # noqa: BLE001
-                logger.warning(f"Error checking for function calling support: {e}")
+                logger.warning(f"Failed to check for function calling support: {e}")
                 span.set_attribute("error", str(e))
 
             span.set_attribute("supports_function_calling", self._supports_function_calling)
@@ -252,13 +254,17 @@ class LiteLLMGenerator(Generator):
         # - https://github.com/ollama/ollama/issues/7987
         # - https://github.com/ollama/ollama/issues/4967
 
+        # Not perfect
+        if "ollama" not in self.model.lower():
+            return
+
         # We can't check with usage info
         if not response.usage:
             return
 
         # Get a general view of how long we might expect the input prompt to
-        # We'll use a gracious 4 char per token estimate
-        input_tokens_estimate = int(sum(len(message.content) for message in messages) / 4)
+        # We'll use a gracious 10 char per token estimate
+        input_tokens_estimate = int(sum(len(message.content) for message in messages) / 10)
 
         # Check if the response reports that accepted input tokens are less than this
         if response.usage.input_tokens < input_tokens_estimate:
@@ -274,6 +280,9 @@ class LiteLLMGenerator(Generator):
         response: "ModelResponse",
     ) -> GeneratedMessage:
         import litellm.types.utils
+
+        if not response.choices:
+            raise ProcessingError(f"No choices in model response: {response.model_dump()}")
 
         choice = response.choices[-1]
         usage = None
@@ -324,7 +333,7 @@ class LiteLLMGenerator(Generator):
         if choice.message.content is not None:
             # Check for lazy litellm handling
             # https://github.com/BerriAI/litellm/blob/0f9ebc23a5c1e386195267dfc8d91ba7169c4508/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py#L578C1-L599C48
-            if match := re.match(r"(data:[\w/]+?;base64,[A-Za-z0-9+/=]+)", choice.message.content):
+            if match := vertex_image_pattern.match(choice.message.content):
                 encoded_data = match.group(1)
                 choice.message.content = choice.message.content.replace(encoded_data, "").strip()
                 message.content_parts.append(ContentImageUrl.from_url(encoded_data))

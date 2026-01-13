@@ -1,3 +1,4 @@
+import itertools
 import json
 import typing as t
 import uuid
@@ -71,7 +72,7 @@ class JsonToolCall(Model):
 
 
 def json_tools_prompt(tools: list[ToolDefinition], tool_call_tag: str | None = None) -> str:
-    tools_str = "\n".join(tool.model_dump_json() for tool in tools)
+    tools_str = "\n".join(tool.function.model_dump_json() for tool in tools)
     if tool_call_tag:
         tool_call_format = f'<{tool_call_tag}>\n{{"name": <function-name>, "arguments": <args-dict>}}\n</{tool_call_tag}>'
     else:
@@ -82,13 +83,16 @@ def json_tools_prompt(tools: list[ToolDefinition], tool_call_tag: str | None = N
 You may call one or more functions to assist with the user query. \
 Don't make assumptions about what values to plug into functions.
 
-<tools>
+<available-tools>
 {tools_str}
-</tools>
+</available-tools>
 
-To call a function, respond with the following format:
+If you decide to invoke one or more of the tools, \
+you must respond in the following format:
 
+```
 {tool_call_format}
+```
 """
 
 
@@ -96,30 +100,25 @@ def json_in_xml_tools_prompt(
     tools: list[ToolDefinition],
     tool_call_tag: str | None = "tool-call",
 ) -> str:
-    definitions = [
-        JsonInXmlToolDefinition(
-            name=tool.function.name,
-            description=tool.function.description or "",
-            parameters=json.dumps(tool.function.parameters),
-        )
-        for tool in tools or []
-    ]
-    tools_str = "\n".join([definition.to_pretty_xml() for definition in definitions])
+    tools_str = "\n".join(tool.function.model_dump_json() for tool in tools)
     return f"""\
 # Tools
 
 You may call one or more functions to assist with the user query. \
 Don't make assumptions about what values to plug into functions.
 
-<tools>
+<available-tools>
 {tools_str}
-</tools>
+</available-tools>
 
-To call a function, respond with the following format:
+If you decide to invoke one or more of the tools, \
+you must respond in the following format:
 
+```
 <{tool_call_tag} name="$tool_name">
 {{"$param_name": "argument one", "$param_name": 123}}
 </{tool_call_tag}>
+```
 
 Arguments should be provided as a valid JSON object between the tags.\
 """
@@ -198,20 +197,31 @@ def make_tools_to_json_transform(  # noqa: PLR0915
 
         # Render all our existing tool calls as JSON in the content
 
-        for message in messages:
-            if tool_responses_as_user_messages and message.role == "tool":
-                message.replace_with_slice(
-                    tool_response_cls(
-                        id=message.tool_call_id or "",
-                        result=message.content,
-                    ),
-                    "tool_response",
-                    metadata={"id": message.tool_call_id or ""},
-                )
-                message.role = "user"
-                message.tool_call_id = None
+        updated_messages: list[Message] = []
 
-            elif message.tool_calls:
+        for is_tool_group, message_group in itertools.groupby(
+            messages, key=lambda m: tool_responses_as_user_messages and m.role == "tool"
+        ):
+            if is_tool_group:
+                user_message = Message(role="user", content="")
+                for message in message_group:
+                    user_message.append_slice(
+                        tool_response_cls(
+                            id=message.tool_call_id or "",
+                            result=message.content,
+                        ),
+                        "tool_response",
+                        metadata={"id": message.tool_call_id or ""},
+                    )
+                updated_messages.append(user_message)
+                continue
+
+            for message in message_group:
+                if not message.tool_calls:
+                    updated_messages.append(message)
+                    continue
+
+                updated_message = message.clone()
                 for tool_call in message.tool_calls:
                     content: str | Model
                     match mode:
@@ -230,14 +240,15 @@ def make_tools_to_json_transform(  # noqa: PLR0915
                                 content=f'{{"name": "{tool_call.function.name}", "arguments": "{tool_call.function.arguments}"}}',
                             )
 
-                    message.append_slice(
+                    updated_message.append_slice(
                         content,
                         "tool_call",
                         obj=tool_call,
                         metadata={"id": tool_call.id or ""},
                     )
 
-                message.tool_calls = None
+                updated_message.tool_calls = None
+                updated_messages.append(updated_message)
 
         # Save any existing tool params
 
@@ -343,13 +354,22 @@ def make_tools_to_json_transform(  # noqa: PLR0915
 
             # Convert our tool responses
 
-            for message in [m for m in chat.all if m.role == "user"]:
-                if (tool_response := message.try_parse(tool_response_cls)) is None:
+            updated_messages = []
+            for message in messages:
+                if message.role != "user" or not (
+                    tool_responses := message.try_parse_set(tool_response_cls)
+                ):
+                    updated_messages.append(message)
                     continue
 
-                message.content = tool_response.result
-                message.tool_call_id = tool_response.id
-                message.role = "tool"
+                for tool_response in tool_responses:
+                    updated_messages.append(  # noqa: PERF401
+                        Message(
+                            role="tool",
+                            content=tool_response.result,
+                            tool_call_id=tool_response.id,
+                        )
+                    )
 
             # Restore the params
 
@@ -359,11 +379,11 @@ def make_tools_to_json_transform(  # noqa: PLR0915
 
             # Strip the system prompt content
 
-            chat.messages = strip_system_content(chat.messages, system_prompt)
+            chat.messages = strip_system_content(updated_messages, system_prompt)
 
             return chat
 
-        return messages, params, json_to_tools_transform
+        return updated_messages, params, json_to_tools_transform
 
     return tools_to_json_transform
 

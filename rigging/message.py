@@ -1360,11 +1360,19 @@ class Message(BaseModel):
         """Helper function to convert various common types to a Message object."""
         if isinstance(message, (str, *ContentTypes)):
             return cls(role="user", content=[message])
-        return (
-            cls.model_validate(message)
-            if isinstance(message, dict)
-            else message.model_copy(deep=True)
-        )
+        if isinstance(message, dict):
+            return cls.model_validate(message)
+
+        metadata: dict[str, t.Any] = {}
+        if hasattr(message, "thinking_blocks") and message.thinking_blocks:
+            metadata["thinking_blocks"] = message.thinking_blocks
+        if hasattr(message, "reasoning_content") and message.reasoning_content:
+            metadata["reasoning_content"] = message.reasoning_content
+
+        result = message.model_copy(deep=True)
+        if metadata:
+            result.metadata.update(metadata)
+        return result
 
     @classmethod
     def apply_to_list(cls, messages: t.Sequence["Message"], **kwargs: str) -> list["Message"]:

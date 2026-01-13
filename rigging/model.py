@@ -107,7 +107,7 @@ class Model(BaseXmlModel):
 
         # Check for field alias
         if hasattr(field_info, "alias") and field_info.alias:
-            return field_info.alias
+            return str(field_info.alias)
 
         return field_name
 
@@ -357,7 +357,7 @@ class Model(BaseXmlModel):
             return f"<{cls.__xml_tag__}>{escape_xml(example)}</{cls.__xml_tag__}>"
 
         lines = []
-        attribute_parts = []
+        attribute_parts: list[str] = []
         element_fields = {}
 
         for field_name, field_info in cls.model_fields.items():
