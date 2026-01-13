@@ -44,6 +44,100 @@ def test_message_from_str() -> None:
     assert msg.content == "Please say hello."
 
 
+def test_message_fit_preserves_thinking_blocks() -> None:
+    from pydantic import BaseModel
+
+    class LiteLLMMessage(BaseModel):
+        model_config = {"extra": "allow"}
+        role: str
+        content: str
+        thinking_blocks: list[dict[str, t.Any]] | None = None
+        metadata: dict[str, t.Any] = {}
+
+        def model_copy(self, deep: bool = False) -> "Message":  # noqa: ARG002
+            return Message(role=self.role, content=self.content, metadata=self.metadata.copy())  # type: ignore[return-value]
+
+    original = LiteLLMMessage(
+        role="assistant",
+        content="Hello!",
+        thinking_blocks=[{"type": "thinking", "content": "Let me think..."}],
+    )
+    fitted = Message.fit(original)  # type: ignore[arg-type]
+    assert fitted.metadata.get("thinking_blocks") == [{"type": "thinking", "content": "Let me think..."}]
+
+
+def test_message_fit_preserves_reasoning_content() -> None:
+    from pydantic import BaseModel
+
+    class LiteLLMMessage(BaseModel):
+        model_config = {"extra": "allow"}
+        role: str
+        content: str
+        reasoning_content: str | None = None
+        metadata: dict[str, t.Any] = {}
+
+        def model_copy(self, deep: bool = False) -> "Message":  # noqa: ARG002
+            return Message(role=self.role, content=self.content, metadata=self.metadata.copy())  # type: ignore[return-value]
+
+    original = LiteLLMMessage(
+        role="assistant",
+        content="Hello!",
+        reasoning_content="I reasoned about this carefully.",
+    )
+    fitted = Message.fit(original)  # type: ignore[arg-type]
+    assert fitted.metadata.get("reasoning_content") == "I reasoned about this carefully."
+
+
+def test_message_fit_preserves_both_thinking_fields() -> None:
+    from pydantic import BaseModel
+
+    class LiteLLMMessage(BaseModel):
+        model_config = {"extra": "allow"}
+        role: str
+        content: str
+        thinking_blocks: list[dict[str, t.Any]] | None = None
+        reasoning_content: str | None = None
+        metadata: dict[str, t.Any] = {}
+
+        def model_copy(self, deep: bool = False) -> "Message":  # noqa: ARG002
+            return Message(role=self.role, content=self.content, metadata=self.metadata.copy())  # type: ignore[return-value]
+
+    original = LiteLLMMessage(
+        role="assistant",
+        content="Hello!",
+        thinking_blocks=[{"type": "thinking", "content": "Thinking..."}],
+        reasoning_content="Reasoning...",
+    )
+    fitted = Message.fit(original)  # type: ignore[arg-type]
+    assert fitted.metadata.get("thinking_blocks") == [{"type": "thinking", "content": "Thinking..."}]
+    assert fitted.metadata.get("reasoning_content") == "Reasoning..."
+
+
+def test_message_fit_ignores_empty_thinking_blocks() -> None:
+    from pydantic import BaseModel
+
+    class LiteLLMMessage(BaseModel):
+        model_config = {"extra": "allow"}
+        role: str
+        content: str
+        thinking_blocks: list[dict[str, t.Any]] | None = None
+        reasoning_content: str | None = None
+        metadata: dict[str, t.Any] = {}
+
+        def model_copy(self, deep: bool = False) -> "Message":  # noqa: ARG002
+            return Message(role=self.role, content=self.content, metadata=self.metadata.copy())  # type: ignore[return-value]
+
+    original = LiteLLMMessage(
+        role="assistant",
+        content="Hello!",
+        thinking_blocks=[],
+        reasoning_content="",
+    )
+    fitted = Message.fit(original)  # type: ignore[arg-type]
+    assert "thinking_blocks" not in fitted.metadata
+    assert "reasoning_content" not in fitted.metadata
+
+
 def test_message_str_representation() -> None:
     msg = Message("assistant", "I am an AI assistant.")
     assert str(msg) == "[assistant]: I am an AI assistant."
