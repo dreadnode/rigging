@@ -17,8 +17,8 @@ on:
         default: latest
         required: false
   schedule:
-    # Run every evening at 20:00 UTC (8:00 PM UTC)
-    - cron: "0 20 * * *"
+    # Run every week on sunday and wednesday at 00:00 UTC
+    - cron: "0 0 * * 0,3"
   push:
     branches: ["main"]
     paths:
@@ -80,7 +80,7 @@ jobs:
           GITHUB_TOKEN: "${{ steps.app-token.outputs.token }}"
 
       - name: Renovate
-        uses: renovatebot/github-action@8cb0d4a6ab7d8bb90460a005f7bd33b80dd07ca8 # v44.2.5
+        uses: renovatebot/github-action@66387ab8c2464d575b933fa44e9e5a86b2822809 # v44.2.4
         with:
           configurationFile: "${{ env.RENOVATE_ONBOARDING_CONFIG_FILE_NAME }}"
           token: "${{ steps.app-token.outputs.token }}"
