@@ -17,8 +17,8 @@ on:
         default: latest
         required: false
   schedule:
-    # Run every evening at 20:00 UTC (8:00 PM UTC)
-    - cron: "0 20 * * *"
+    # Run every week on sunday and wednesday at 00:00 UTC
+    - cron: "0 0 * * 0,3"
   push:
     branches: ["main"]
     paths:
@@ -59,7 +59,7 @@ jobs:
           private-key: "${{ secrets.BOT_APP_PRIVATE_KEY }}"
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           token: "${{ steps.app-token.outputs.token }}"
 

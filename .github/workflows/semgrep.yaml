@@ -1,5 +1,5 @@
 ---
-name: Semgrep Analysis
+name: 🚨 Semgrep Analysis
 on:
   merge_group:
   pull_request:
@@ -28,7 +28,7 @@ permissions:
 
 jobs:
   semgrep:
-    name: Semgrep Analysis
+    name: 🚨 Semgrep Analysis
     runs-on: ubuntu-latest
     container:
       image: returntocorp/semgrep
@@ -38,7 +38,7 @@ jobs:
 
     steps:
       - name: Set up git repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
