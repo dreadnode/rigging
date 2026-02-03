@@ -1,45 +1,58 @@
 ---
-name: Template Sync
+name: Template Sync Dispatcher
 on:
+  workflow_run:
+    workflows: ["Pre-Commit"]
+    types:
+      - completed
+    branches:
+      - main
+
   # checkov:skip=CKV_GHA_7: "Workflow dispatch inputs are required for manual debugging and configuration"
   workflow_dispatch:
-    inputs:
-      dryRun:
-        description: Dry Run
-        default: "false"
-        required: false
-      logLevel:
-        description: Log Level
-        default: "debug"
-        required: false
-
-  schedule:
-    # Run on the 1st of every month at 00:00 UTC
-    - cron: "0 0 1 * *"
-
-  push:
-    branches: ["main"]
-    paths:
-      - ".github/**"
-      - ".hooks/**"
-      - ".pre-commit-config.yaml"
-      - ".mdlrc"
-      - ".editorconfig"
-      - "Taskfile.yaml"
-      - ".task/**"
 
 permissions:
-  contents: write
-  pull-requests: write
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.run_number || github.ref }}
-  cancel-in-progress: true
+  contents: read
 
 jobs:
-  template-sync:
-    name: Template Sync
+  check-changes:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    outputs:
+      should_dispatch: ${{ steps.filter.outputs.templates }}
+    steps:
+      - name: Checkout triggering commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+
+      - name: Check if template files changed
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3
+        id: filter
+        with:
+          filters: |
+            templates:
+              - '.github/**'
+              - '.hooks/**'
+              - '.pre-commit-config.yaml'
+              - '.mdlrc'
+              - '.editorconfig'
+              - 'Taskfile.yaml'
+              - '.task/**'
+
+  dispatch-to-targets:
+    needs: check-changes
+    runs-on: ubuntu-latest
+    if: needs.check-changes.outputs.should_dispatch == 'true'
+    strategy:
+      matrix:
+        repo:
+          - ares
+          - platform
+          - sast-agent
+          - dreadnode-server
+          - dreadnode-sdk
+          - rigging
     steps:
       - name: Generate Token
         uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
@@ -49,29 +62,12 @@ jobs:
           private-key: "${{ secrets.BOT_APP_PRIVATE_KEY }}"
           owner: "${{ github.repository_owner }}"
 
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          token: "${{ steps.app-token.outputs.token }}"
-
-      - name: Template Sync
-        uses: AndreasAugustin/actions-template-sync@v2
-        with:
-          source_gh_token: ${{ steps.app-token.outputs.token }}
-          git_user_name: github-actions[bot]
-          git_user_email: github-actions[bot]@users.noreply.github.com
-          pr_title: "chore: sync infrastructure files with template"
-          pr_labels: sync,template
-          pr_body: |
-            🤖 A new version of the python template files is available.
-
-            This PR was automatically created to sync the following:
-            - GitHub Actions workflows
-            - Pre-commit hooks and configs
-            - Task definitions
-            - Editor configs and linter rules
-
-            Please review the changes carefully before merging.
-          source_repo_path: dreadnode/python-template
-          steps: "prechecks,pull,commit,push,pr"
-          upstream_branch: main
+      - name: Dispatch to ${{ matrix.repo }}
+        run: |
+          gh api repos/dreadnode/${{ matrix.repo }}/dispatches \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -f event_type="template-sync" \
+            -f client_payload[ref]="${{ github.event.workflow_run.head_sha }}"
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
