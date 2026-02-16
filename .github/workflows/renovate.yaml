@@ -80,7 +80,7 @@ jobs:
           GITHUB_TOKEN: "${{ steps.app-token.outputs.token }}"
 
       - name: Renovate
-        uses: renovatebot/github-action@44f24283a60f64273f1294932f16ba61193cccca # v46.1.0
+        uses: renovatebot/github-action@d65ef9e20512193cc070238b49c3873a361cd50c # v46.1.1
         with:
           configurationFile: "${{ env.RENOVATE_ONBOARDING_CONFIG_FILE_NAME }}"
           token: "${{ steps.app-token.outputs.token }}"
