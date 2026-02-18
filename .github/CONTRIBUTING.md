@@ -12,7 +12,6 @@ We actively welcome your pull requests.
 3. If you've changed APIs, update the documentation.
 4. Ensure the test suite passes.
 5. Make sure your code lints.
-6. If you haven't already, complete the Contributor License Agreement ("CLA").
 
 ### PR Description Format
 
@@ -53,13 +52,6 @@ Example:
 - Legacy device configs
 - Deprecated setup scripts
 ```
-
-## Contributor License Agreement ("CLA")
-
-In order to accept your pull request, we need you to submit a CLA. You only need
-to do this once to work on any of Facebook's open source projects.
-
-Complete your CLA here: <https://code.facebook.com/cla>
 
 ## Issues
 
