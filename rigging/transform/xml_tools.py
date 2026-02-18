@@ -373,7 +373,7 @@ def make_tools_to_xml_transform(  # noqa: PLR0915
                 message.remove_slices(XmlToolCall)
 
             # Convert our tool responses
-            # TODO: handle cased where multiple tool responses are present
+            # TODO: handle cases where multiple tool responses are present
 
             for message in chat.all:
                 if (tool_response := message.try_parse(ToolResponse)) is None:
