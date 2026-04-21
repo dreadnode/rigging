@@ -8201,15 +8201,18 @@ torch = "2.4.0"
 
 [[package]]
 name = "xmltodict"
-version = "0.13.0"
+version = "1.0.4"
 description = "Makes working with XML feel like you are working with JSON"
 optional = false
-python-versions = ">=3.4"
+python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "xmltodict-0.13.0-py2.py3-none-any.whl", hash = "sha256:aa89e8fd76320154a40d19a0df04a4695fb9dc5ba977cbb68ab3e4eb225e7852"},
-    {file = "xmltodict-0.13.0.tar.gz", hash = "sha256:341595a488e3e01a85a9d8911d8912fd922ede5fecc4dce437eb4b6c8d037e56"},
+    {file = "xmltodict-1.0.4-py3-none-any.whl", hash = "sha256:a4a00d300b0e1c59fc2bfccb53d7b2e88c32f200df138a0dd2229f842497026a"},
+    {file = "xmltodict-1.0.4.tar.gz", hash = "sha256:6d94c9f834dd9e44514162799d344d815a3a4faec913717a9ecbfa5be1bb8e61"},
 ]
+
+[package.extras]
+test = ["pytest", "pytest-cov"]
 
 [[package]]
 name = "xxhash"
@@ -8536,4 +8539,4 @@ llm = ["accelerate", "transformers", "vllm"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-content-hash = "c63b685a40c48ed665954cd108a48ae2b1a9c9d95624f3624a3fe54c7e468200"
+content-hash = "58dfb9bff0da998cf5bf028fed2b737c92a0ed4ce5ab5fad63b34c7d43df29e7"
