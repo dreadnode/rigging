@@ -148,4 +148,4 @@ Want more?
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=dreadnode/rigging&type=Date)](https://star-history.com/#dreadnode/rigging&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=dreadnode/rigging&type=Date)](https://star-history.dera.page/#dreadnode/rigging&Date)
