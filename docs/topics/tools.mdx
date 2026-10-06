@@ -267,7 +267,7 @@ The [Model Context Protocol (MCP)](https://github.com/model-context-protocol/spe
 
 ### Using MCP Tools in Rigging
 
-Use the `rigging.mcp` function, specifying the transport method (`stdio` or `sse`) and the connection parameters. It returns an *async context manager*.
+Use the `rigging.mcp` function, specifying the transport method (`stdio`, `sse`, or `streamable-http`) and the connection parameters. It returns an *async context manager*.
 
 <CodeGroup>
 ```python Using "stdio" (Standard Input/Output)
@@ -340,6 +340,40 @@ async with rg.mcp("stdio", command="claude", args=["mcp", "serve"]) as mcp_clien
         .run()
     )
     print(chat.conversation)
+```
+
+### Keyless web search with Parallel
+
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp) exposes
+`web_search` and `web_fetch` over Streamable HTTP. The anonymous endpoint requires
+no Parallel API key and provides free access at lower rate limits. Model inference
+still uses your configured generator and its credentials.
+
+```python
+import rigging as rg
+
+async with rg.mcp(
+    "streamable-http",
+    url="https://search.parallel.ai/mcp",
+    headers={"User-Agent": f"rigging/{rg.__version__}"},
+) as mcp_client:
+    chat = await (
+        rg.get_generator("gpt-4o")
+        .chat("Search for Rigging's MCP documentation and summarize it with source URLs.")
+        .using(*mcp_client.tools)
+        .run()
+    )
+    print(chat.conversation)
+```
+
+Keep tool calls inside the context manager so the connection stays open. The
+`timeout` and `sse_read_timeout` options take seconds, defaulting to 5 and 300.
+
+For a search that does not require a model or any API keys, run the
+[Parallel search example](https://github.com/dreadnode/rigging/blob/main/examples/parallel_search.py):
+
+```bash
+python examples/parallel_search.py "Rigging MCP documentation"
 ```
 
 ### Serving Tools with MCP
