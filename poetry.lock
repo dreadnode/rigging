@@ -8539,4 +8539,4 @@ llm = ["accelerate", "transformers", "vllm"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-content-hash = "58dfb9bff0da998cf5bf028fed2b737c92a0ed4ce5ab5fad63b34c7d43df29e7"
+content-hash = "931cdad90b925896134138f98f87b4425035ebe5fe28394fc708cd1ec81ef45f"

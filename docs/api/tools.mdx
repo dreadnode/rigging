@@ -713,7 +713,9 @@ MCPClient
 ```python
 MCPClient(
     transport: Transport,
-    connection: StdioConnection | SSEConnection,
+    connection: StdioConnection
+    | SSEConnection
+    | StreamableHTTPConnection,
 )
 ```
 
@@ -721,7 +723,11 @@ A client for communicating with MCP servers.
 
 <Accordion title="Source code in rigging/tools/mcp.py" icon="code">
 ```python
-def __init__(self, transport: Transport, connection: "StdioConnection | SSEConnection") -> None:
+def __init__(
+    self,
+    transport: Transport,
+    connection: "StdioConnection | SSEConnection | StreamableHTTPConnection",
+) -> None:
     self.transport = transport
     self.connection = connection
     self.tools = []
@@ -735,7 +741,11 @@ def __init__(self, transport: Transport, connection: "StdioConnection | SSEConne
 ### connection
 
 ```python
-connection: StdioConnection | SSEConnection = connection
+connection: (
+    StdioConnection
+    | SSEConnection
+    | StreamableHTTPConnection
+) = connection
 ```
 
 Connection configuration

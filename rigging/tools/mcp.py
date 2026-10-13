@@ -9,6 +9,7 @@ import json
 import typing as t
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from types import TracebackType
 
@@ -29,7 +30,7 @@ INITIALIZE_TIMEOUT = 5
 DEFAULT_HTTP_TIMEOUT = 5
 DEFAULT_SSE_READ_TIMEOUT = 60 * 5
 
-Transport = t.Literal["stdio", "sse"]
+Transport = t.Literal["stdio", "sse", "streamable-http"]
 
 P = t.ParamSpec("P")
 R = t.TypeVar("R")
@@ -47,6 +48,10 @@ class SSEConnection(te.TypedDict):
     headers: dict[str, t.Any] | None
     timeout: float
     sse_read_timeout: float
+
+
+class StreamableHTTPConnection(SSEConnection):
+    pass
 
 
 def _convert_mcp_result_to_message_parts(result: "CallToolResult") -> list[t.Any]:
@@ -131,12 +136,16 @@ class MCPClient:
 
     transport: Transport
     """The transport to use"""
-    connection: StdioConnection | SSEConnection
+    connection: StdioConnection | SSEConnection | StreamableHTTPConnection
     """Connection configuration"""
     tools: list[Tool[..., t.Any]]
     """A list of tools available on the server"""
 
-    def __init__(self, transport: Transport, connection: "StdioConnection | SSEConnection") -> None:
+    def __init__(
+        self,
+        transport: Transport,
+        connection: "StdioConnection | SSEConnection | StreamableHTTPConnection",
+    ) -> None:
         self.transport = transport
         self.connection = connection
         self.tools = []
@@ -187,6 +196,24 @@ class MCPClient:
         read, write = await self._exit_stack.enter_async_context(client)
         return await self._exit_stack.enter_async_context(ClientSession(read, write))
 
+    async def _connect_via_streamable_http(
+        self,
+        connection: "StreamableHTTPConnection",
+    ) -> "ClientSession":
+        from mcp import ClientSession
+        from mcp.client.streamable_http import streamablehttp_client
+
+        client = streamablehttp_client(
+            url=connection["url"],
+            headers=connection.get("headers"),
+            timeout=timedelta(seconds=connection.get("timeout", DEFAULT_HTTP_TIMEOUT)),
+            sse_read_timeout=timedelta(
+                seconds=connection.get("sse_read_timeout", DEFAULT_SSE_READ_TIMEOUT),
+            ),
+        )
+        read, write, _ = await self._exit_stack.enter_async_context(client)
+        return await self._exit_stack.enter_async_context(ClientSession(read, write))
+
     async def _shutdown(self) -> None:
         await self._exit_stack.aclose()
         self._session = None
@@ -202,9 +229,13 @@ class MCPClient:
                 self._session = await self._connect_via_sse(
                     t.cast("SSEConnection", self.connection),
                 )
+            elif self.transport == "streamable-http":
+                self._session = await self._connect_via_streamable_http(
+                    t.cast("StreamableHTTPConnection", self.connection),
+                )
             else:
                 raise TypeError(  # noqa: TRY301
-                    f"Unsupported transport: {self.transport}. Must be 'stdio' or 'sse'",
+                    f"Unsupported transport: {self.transport}. Must be 'stdio', 'sse' or 'streamable-http'",
                 )
 
             await asyncio.wait_for(self.session.initialize(), timeout=INITIALIZE_TIMEOUT)
@@ -291,8 +322,33 @@ def mcp(
     """
 
 
+@t.overload
+def mcp(
+    transport: t.Literal["streamable-http"],
+    *,
+    url: str,
+    headers: dict[str, str] | None = None,
+    timeout: float = DEFAULT_HTTP_TIMEOUT,
+    sse_read_timeout: float = DEFAULT_SSE_READ_TIMEOUT,
+) -> MCPClient:
+    """
+    Create an MCP client that communicates over Streamable HTTP.
+
+    Args:
+        url: The URL of the MCP endpoint to connect to.
+        headers: HTTP headers sent on all requests, including tool calls.
+        timeout: HTTP timeout in seconds.
+        sse_read_timeout: Streaming read timeout in seconds.
+
+    Returns:
+        An MCP client context manager. Discovered tools are available via tools.
+    """
+
+
 def mcp(transport: Transport, **connection: t.Any) -> MCPClient:
-    return MCPClient(transport, t.cast("StdioConnection | SSEConnection", connection))
+    return MCPClient(
+        transport, t.cast("StdioConnection | SSEConnection | StreamableHTTPConnection", connection)
+    )
 
 
 def as_mcp(
