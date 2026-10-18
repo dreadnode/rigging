@@ -66,7 +66,7 @@ Notice that the name of our interior field (`.fact`) isn't relevant to the XML s
 If you want to separate the model tag from it's class name, you specify it in the class construction:
 
 ```python
-class FunFact(rg.Model, tag="a-super-fun-fact")
+class FunFact(rg.Model, tag="a-super-fun-fact"):
     ...
 ```
 
@@ -181,7 +181,7 @@ class Person(rg.Model):
 
 For primitive models, using the default `.xml_tags()` or `.xml_example()` works well for communicating to the model how it should respond, however for more complex models it's **highly recommended** to overload the `.xml_example()` method to provide a more detailed example of the XML structure you expect.
 
-The easiest way to approach this overload is to instantiate your model class with a few standard values and use `.to_prety_xml()`.
+The easiest way to approach this overload is to instantiate your model class with a few standard values and use `.to_pretty_xml()`.
 
 ```python
 import rigging as rg
